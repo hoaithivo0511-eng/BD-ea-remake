@@ -1,0 +1,48 @@
+name: Extract uploaded source archive
+
+on:
+  push:
+    branches:
+      - codex/unzip-blackdragon-source
+    paths:
+      - .github/workflows/extract-uploaded-zip.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/unzip-blackdragon-source
+          fetch-depth: 0
+
+      - name: Extract uploaded ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="BlackDragon_v14.7.1_BD001_BD002_FIXED.zip"
+          test -f "$archive"
+          tmpdir="$(mktemp -d)"
+          unzip -q "$archive" -d "$tmpdir"
+          rsync -a --exclude='.git/' "$tmpdir/" ./
+          rm -rf "$tmpdir"
+          echo "Extracted paths:"
+          git status --short
+
+      - name: Commit extracted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No extracted changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: extract BlackDragon source archive"
+          git push origin HEAD:codex/unzip-blackdragon-source
