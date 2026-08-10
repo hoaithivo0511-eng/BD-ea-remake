@@ -67,18 +67,33 @@ int Sym_PointScalePure(const bool isGold, const double point)
    return k < 1 ? 1 : k;
 }
 
+//--- BD-R2 (v14.7.2): explicit-symbol variants -----------------------
+//    FE-401 CloseAllAccount and ClosePositionEx act on positions of ANY
+//    symbol, so a point-based input used there must be scaled with THAT
+//    symbol's point size, not the chart's. The _Symbol wrappers below are
+//    byte-for-byte equivalent to the previous implementation.
+bool Sym_IsGoldSym(const string sym)
+{
+   string name = sym;
+   StringToUpper(name);
+   return SymbolInfoString(sym, SYMBOL_CURRENCY_BASE) == "XAU" ||
+          StringFind(name, "XAU") >= 0 || StringFind(name, "GOLD") >= 0;
+}
+
 bool Sym_IsGold()
 {
-   string name = _Symbol;
-   StringToUpper(name);
-   return SymbolInfoString(_Symbol, SYMBOL_CURRENCY_BASE) == "XAU" ||
-          StringFind(name, "XAU") >= 0 || StringFind(name, "GOLD") >= 0;
+   return Sym_IsGoldSym(_Symbol);
+}
+
+int Sym_PointScaleFor(const string sym)
+{
+   if(!AutoGoldPip) return 1;
+   return Sym_PointScalePure(Sym_IsGoldSym(sym), SymbolInfoDouble(sym, SYMBOL_POINT));
 }
 
 int Sym_PointScale()
 {
-   if(!AutoGoldPip) return 1;
-   return Sym_PointScalePure(Sym_IsGold(), _Point);
+   return Sym_PointScaleFor(_Symbol);
 }
 
 //--- v14.1/14.2 FE-202+FE-301: manual DCA lot sequence ----------------

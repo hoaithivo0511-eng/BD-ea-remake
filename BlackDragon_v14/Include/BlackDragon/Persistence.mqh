@@ -11,18 +11,19 @@
 #include "Config.mqh"
 #include "Logger.mqh"
 
-#define BD_STATE_MAGIC 0x42443135  // "BD15" (v14.5: +remoteStop; old BD14 files -> defaults once)
+#define BD_STATE_MAGIC 0x42443136  // "BD16" (v14.7.2 BD-R4: +haltUntil; old BD15 files -> defaults once)
 
 struct SPersistedState
 {
-   uint   magic;
-   bool   pauseBuy;
-   bool   pauseSell;
-   bool   tradeBuy;
-   bool   tradeSell;
-   bool   newCycle;
-   double editLot;
-   bool   remoteStop;   // FE-404 (v14.5)
+   uint     magic;
+   bool     pauseBuy;
+   bool     pauseSell;
+   bool     tradeBuy;
+   bool     tradeSell;
+   bool     newCycle;
+   double   editLot;
+   bool     remoteStop;   // FE-404 (v14.5)
+   datetime haltUntil;    // BD-R4 (v14.7.2): daily SL/TP halt deadline
 };
 
 string Persist_FileName()
@@ -45,6 +46,7 @@ void Persist_Save()
    st.newCycle  = Cfg.NewCycle;
    st.editLot   = Cfg.EditLot;
    st.remoteStop = Cfg.RemoteStop;   // FE-404
+   st.haltUntil  = Cfg.HaltUntil;    // BD-R4: daily halt must survive restart
    int h = FileOpen(Persist_FileName(), FILE_WRITE | FILE_BIN);
    if(h == INVALID_HANDLE) { Log_Warn("Persist", "save", "cannot open state file"); return; }
    FileWriteStruct(h, st);
@@ -58,6 +60,7 @@ void Persist_Load()
    int h = FileOpen(Persist_FileName(), FILE_READ | FILE_BIN);
    if(h == INVALID_HANDLE) return;
    SPersistedState st;
+   ZeroMemory(st);                          // BD-R4: short/legacy file must not leave stack garbage
    uint read = FileReadStruct(h, st);
    FileClose(h);
    if(read == 0 || st.magic != BD_STATE_MAGIC)
@@ -72,5 +75,6 @@ void Persist_Load()
    Cfg.NewCycle  = st.newCycle;
    Cfg.EditLot   = st.editLot;
    Cfg.RemoteStop = st.remoteStop;   // FE-404: mobile STOP ALL survives restart
+   Cfg.HaltUntil  = st.haltUntil;    // BD-R4: daily halt survives restart
 }
 #endif // BD_PERSISTENCE_MQH
