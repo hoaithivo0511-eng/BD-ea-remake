@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EA Black Dragon v14.7.1 — Sổ tay vận hành & Flowchart</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#30363d;
+  --text:#e6edf3; --muted:#9aa4b2; --gold:#e3b341; --green:#3fb950;
+  --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#ffa657;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.55;font-size:15px}
+.container{max-width:1060px;margin:0 auto;padding:0 16px 80px}
+header.hero{background:linear-gradient(160deg,#161b22 0%,#0d1117 70%);border-bottom:1px solid var(--border);padding:34px 16px 26px;text-align:center}
+header.hero h1{font-size:1.7em;letter-spacing:.5px}
+header.hero h1 .dragon{color:var(--gold)}
+header.hero .sub{color:var(--muted);margin-top:6px;font-size:.95em}
+.badges{margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.badge{border:1px solid var(--border);background:var(--panel);border-radius:20px;padding:3px 12px;font-size:.8em;color:var(--muted)}
+.badge b{color:var(--gold);font-weight:600}
+nav.toc{position:sticky;top:0;z-index:50;background:rgba(13,17,23,.96);backdrop-filter:blur(4px);border-bottom:1px solid var(--border);overflow-x:auto;white-space:nowrap;padding:8px 12px;display:flex;gap:6px}
+nav.toc a{color:var(--muted);text-decoration:none;font-size:.82em;padding:5px 11px;border-radius:16px;border:1px solid transparent}
+nav.toc a:hover{color:var(--gold);border-color:var(--border);background:var(--panel)}
+section{margin-top:44px}
+h2{font-size:1.32em;border-left:4px solid var(--gold);padding-left:12px;margin-bottom:6px}
+h2 .num{color:var(--gold)}
+h3{font-size:1.05em;margin:22px 0 8px;color:var(--blue)}
+p{margin:8px 0}
+.lead{color:var(--muted)}
+code{background:#22282f;border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.86em;color:var(--orange)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin:14px 0}
+.callout{border-left:4px solid var(--blue);background:var(--panel);border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0;font-size:.93em}
+.callout.gold{border-left-color:var(--gold)}
+.callout.warn{border-left-color:var(--red)}
+.callout.green{border-left-color:var(--green)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr}}
+/* ------- flowchart ------- */
+.flow{display:flex;flex-direction:column;align-items:center;margin:16px 0}
+.fbox{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 16px;max-width:640px;width:100%;text-align:center;font-size:.92em}
+.fbox b{color:var(--text)}
+.fbox .fn{color:var(--purple);font-family:ui-monospace,Consolas,monospace;font-size:.9em}
+.fbox small{display:block;color:var(--muted);margin-top:3px;font-size:.86em}
+.fbox.start{border-color:var(--green);background:#12261a}
+.fbox.stop{border-color:var(--red);background:#2a1416}
+.fbox.decision{border-color:var(--gold);background:#26200f}
+.fbox.exec{border-color:var(--blue);background:#101d2e}
+.farrow{color:var(--gold);font-size:1.05em;padding:3px 0;text-align:center}
+.farrow small{color:var(--muted);font-size:.75em;display:block}
+.fbranch{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:680px;margin:4px 0}
+.fbranch.three{grid-template-columns:1fr 1fr 1fr}
+@media(max-width:700px){.fbranch,.fbranch.three{grid-template-columns:1fr}}
+.fbranch .fbox{max-width:none;font-size:.87em}
+.blabel{font-size:.75em;color:var(--gold);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+/* ------- tables ------- */
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.9em}
+th{background:var(--panel2);color:var(--gold);text-align:left;padding:8px 10px;border:1px solid var(--border);font-weight:600}
+td{padding:7px 10px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:#12161d}
+td.def{white-space:nowrap;color:var(--green);font-family:ui-monospace,Consolas,monospace;font-size:.92em}
+td.inp{white-space:nowrap;font-family:ui-monospace,Consolas,monospace;color:var(--orange);font-size:.92em}
+/* ------- input groups ------- */
+details.group{background:var(--panel);border:1px solid var(--border);border-radius:10px;margin:10px 0;overflow:hidden}
+details.group summary{cursor:pointer;padding:12px 16px;font-weight:600;list-style:none;display:flex;align-items:center;gap:10px}
+details.group summary::-webkit-details-marker{display:none}
+details.group summary:before{content:"▸";color:var(--gold);transition:transform .15s}
+details.group[open] summary:before{transform:rotate(90deg)}
+details.group summary .cnt{margin-left:auto;color:var(--muted);font-size:.78em;font-weight:400}
+details.group .body{padding:0 16px 14px}
+.svgwrap{overflow-x:auto;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;margin:14px 0}
+.svgwrap svg{display:block;margin:0 auto}
+.caption{text-align:center;color:var(--muted);font-size:.82em;margin-top:6px}
+.chip{display:inline-block;border:1px solid var(--border);border-radius:6px;padding:2px 9px;margin:2px;font-family:ui-monospace,Consolas,monospace;font-size:.84em;background:var(--panel2)}
+.chip.on{border-color:var(--green);color:var(--green)}
+.chip.off{border-color:var(--red);color:var(--red);text-decoration:line-through;opacity:.65}
+.chip.next{border-color:var(--gold);color:var(--gold)}
+.kbd{background:#22282f;border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:.85em}
+ol.steps{margin:10px 0 10px 22px}
+ol.steps li{margin:7px 0}
+footer{margin-top:60px;border-top:1px solid var(--border);padding-top:16px;color:var(--muted);font-size:.82em;text-align:center}
+a{color:var(--blue)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>EA <span class="dragon">BLACK DRAGON</span> v14.7.1</h1>
+  <div class="sub">Sổ tay vận hành — Flowchart luồng xử lý &amp; hướng dẫn tinh chỉnh từng input</div>
+  <div class="badges">
+    <span class="badge">Nền tảng <b>MT5 ≥ build 6030</b></span>
+    <span class="badge">Chiến lược <b>Grid DCA + Hedge 2 chiều</b></span>
+    <span class="badge">Chế độ lệnh <b>Async mặc định</b></span>
+    <span class="badge">TP/SL/Trail <b>Ảo (ẩn broker) mặc định</b></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#s1">1·Tổng quan</a>
+  <a href="#s2">2·Vòng đời EA</a>
+  <a href="#s3">3·OnInit</a>
+  <a href="#s4">4·OnTick</a>
+  <a href="#s5">5·Khái niệm lõi</a>
+  <a href="#s6">6·Tính năng nhóm</a>
+  <a href="#s7">7·Inputs A-Z</a>
+  <a href="#s8">8·Set mẫu</a>
+  <a href="#s9">9·Checklist</a>
+  <a href="#s10">10·FAQ</a>
+</nav>
+
+<div class="container">
+
+<!-- ============ 1. TONG QUAN ============ -->
+<section id="s1">
+  <h2><span class="num">1.</span> EA này làm gì — trong 60 giây</h2>
+  <p class="lead">Black Dragon là EA <b>grid DCA martingale 2 chiều (hedge)</b>: tín hiệu chỉ báo quyết định <b>hướng mở rổ</b> (Buy/Sell), giá đi ngược thì <b>nhồi thêm lệnh</b> theo bảng khoảng cách với lot tăng dần, và <b>thoát cả rổ</b> khi giá hồi về mức hòa vốn + TP. Toàn bộ TP/SL/Trailing mặc định là <b>mức ảo do EA tự quản</b> — broker không nhìn thấy.</p>
+  <div class="grid3">
+    <div class="card"><h3 style="margin-top:0">📡 Vào lệnh</h3><p style="font-size:.9em">2 nguồn tín hiệu chọn được: <b>BD</b> (RSI 50 + Stochastic tùy chọn) hoặc <b>WMF</b> (port từ TradingView). Qua chuỗi filter: giờ, spread, tin tức, khung thời gian, halt ngày, ADX.</p></div>
+    <div class="card"><h3 style="margin-top:0">🧮 Nhồi DCA</h3><p style="font-size:.9em">Khoảng cách: <b>Classic</b> (fix 200pt → nhân 1.2 động) hoặc <b>chuỗi pip thủ công</b>. Lot: <b>×hệ số</b>, <b>chuỗi lot thủ công</b>, hoặc <b>chuỗi hệ số nhân</b> — đều đếm bậc theo <b>số lệnh đang mở</b>.</p></div>
+    <div class="card"><h3 style="margin-top:0">🚪 Thoát rổ</h3><p style="font-size:.9em">TP ảo từ hòa vốn, SL ảo, Trailing ảo, <b>Overlap</b> tỉa cặp lệnh đầu-cuối, cộng thêm <b>Money Close</b> theo $ và <b>Daily Target</b> theo ngày.</p></div>
+  </div>
+  <div class="callout warn"><b>Cảnh báo rủi ro:</b> grid martingale khuếch đại cả lời lẫn lỗ. Luôn backtest với .set của bạn, chạy demo trước, và đặt <code>MaxLot_</code> / <code>MaxOrders</code> / Daily SL phù hợp vốn.</div>
+</section>
+
+<!-- ============ 2. VONG DOI ============ -->
+<section id="s2">
+  <h2><span class="num">2.</span> Vòng đời EA — 4 sự kiện chính</h2>
+  <p class="lead">MT5 gọi EA qua 4 hàm sự kiện. Mỗi hàm có một nhiệm vụ rõ ràng, không giẫm chân nhau:</p>
+  <div class="grid2">
+    <div class="card"><h3 style="margin-top:0;color:var(--green)">⚙️ OnInit — 1 lần khi nạp EA</h3><p style="font-size:.9em">Đọc input → scale pip Vàng → khôi phục trạng thái panel → chọn bộ tính lot + bảng khoảng cách + nguồn tín hiệu → đăng ký filter → bật timer 500ms. Input sai cú pháp → <b>EA từ chối chạy</b> (không bao giờ trade với cấu hình lỗi). Chi tiết: <a href="#s3">mục 3</a>.</p></div>
+    <div class="card"><h3 style="margin-top:0;color:var(--gold)">💓 OnTick — mỗi tick giá</h3><p style="font-size:.9em">Trục xử lý chính: tín hiệu → cập nhật rổ → Money Guard → thoát ảo → vào lệnh mới/DCA → đẩy mức Real (nếu bật). Chi tiết: <a href="#s4">mục 4</a>.</p></div>
+    <div class="card"><h3 style="margin-top:0;color:var(--blue)">⏱️ OnTimer — mỗi 500ms</h3><p style="font-size:.9em">Việc nền không được chặn tick: refresh lịch tin (cache 1h), <b>watchdog async</b> (đối soát lệnh không có phản hồi sau 5s), quét lệnh điều khiển mobile, chốt ngày mới, vẽ lại panel.</p></div>
+    <div class="card"><h3 style="margin-top:0;color:var(--purple)">📬 OnTradeTransaction — sự kiện server</h3><p style="font-size:.9em">Xác nhận journal async, đánh dấu cache rổ cần dựng lại (event-driven — không quét lại positions mỗi tick), cộng dồn lãi đã chốt trong ngày cho Daily Target.</p></div>
+  </div>
+</section>
+
+<!-- ============ 3. ONINIT ============ -->
+<section id="s3">
+  <h2><span class="num">3.</span> Flowchart OnInit — khởi động &amp; kiểm tra cấu hình</h2>
+  <div class="flow">
+    <div class="fbox start"><b>Nạp EA lên chart</b> <span class="fn">OnInit()</span></div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>Đọc input → cấu hình runtime</b> <span class="fn">Config_Init()</span><small>Copy toàn bộ input sang struct Cfg (panel có thể đổi lúc chạy)</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>Chuẩn hóa pip Vàng</b> <span class="fn">Config_ApplyPointScale()</span><small>Vàng 3 số thập phân → nhân ×10 các input dạng point (TP/SL/Trail/khoảng cách/spread). 1 giá = 10 pip trên MỌI sàn. Tắt bằng <code>AutoGoldPip=false</code></small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>Khôi phục trạng thái</b> <span class="fn">Persist_Load()</span><small>Nút panel + cờ Mobile Stop sống sót qua restart (file .bin có version — file cũ bị từ chối sạch sẽ)</small></div>
+    <div class="farrow">▼<small>chọn bộ tính LOT theo <code>LotMode_</code></small></div>
+    <div class="fbranch three">
+      <div><div class="blabel">xLot multiplier (mặc định)</div><div class="fbox"><b>Martingale v13</b><small>lot kế = lot đầu rổ × <code>Martin_</code>^bậc</small></div></div>
+      <div><div class="blabel">Manual sequence</div><div class="fbox"><b>Chuỗi lot thủ công</b><small>parse <code>LotSequence_</code> — sai cú pháp → <span style="color:var(--red)">EA từ chối chạy</span></small></div></div>
+      <div><div class="blabel">Multiplier chain</div><div class="fbox"><b>Chuỗi hệ số nhân</b><small>parse <code>MartinSequence_</code> — sai cú pháp → <span style="color:var(--red)">EA từ chối chạy</span></small></div></div>
+    </div>
+    <div class="farrow">▼<small>chọn bảng KHOẢNG CÁCH theo <code>DistanceMode_</code></small></div>
+    <div class="fbranch">
+      <div><div class="blabel">Classic (mặc định)</div><div class="fbox"><b>Công thức v13</b><small>fix 200pt tới lệnh 6, sau đó ×1.2 lũy tiến</small></div></div>
+      <div><div class="blabel">Manual</div><div class="fbox"><b>Chuỗi pip thủ công</b><small>parse <code>DistanceSequence_</code> — sai → <span style="color:var(--red)">EA từ chối chạy</span></small></div></div>
+    </div>
+    <div class="farrow">▼<small>chọn NGUỒN TÍN HIỆU theo <code>SignalSource_</code></small></div>
+    <div class="fbranch">
+      <div><div class="blabel">BD (mặc định)</div><div class="fbox"><b>RSI(50) + Stoch tùy chọn</b><small>y hệt v13</small></div></div>
+      <div><div class="blabel">WMF</div><div class="fbox"><b>WUYX Momentum Follower</b><small>seed 1000 nến lịch sử + vẽ mũi tên BUY/SELL nếu <code>ShowWmfSignals</code></small></div></div>
+    </div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>Khởi tạo engine + đăng ký filter</b><small>Execution (async journal) · News · MoneyGuard (sai dấu ngưỡng → cảnh báo + coi như tắt) · số dư đầu ngày · Panel · Halt filter (2 chuỗi) · TimeFilter nếu <code>UseTimeLimit</code> (HH:MM sai → <span style="color:var(--red)">từ chối chạy</span>) · ADX nếu bật</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox start"><b>✅ EA chạy</b> — timer 500ms bật, log in version + ExecMode</div>
+  </div>
+  <div class="callout gold"><b>Triết lý fail-fast:</b> mọi lỗi <i>cấu hình</i> (chuỗi sai cú pháp, giờ sai định dạng) chặn EA ngay từ OnInit kèm log hướng dẫn — EA không bao giờ trade với cấu hình lỗi. Ngược lại, sự cố <i>lúc vận hành</i> (lot dưới min sàn…) thì EA tự xử lý an toàn + ghi log, <b>không tự dừng</b>.</div>
+</section>
+
+<!-- ============ 4. ONTICK ============ -->
+<section id="s4">
+  <h2><span class="num">4.</span> Flowchart OnTick — trục xử lý chính (mỗi tick giá)</h2>
+  <p class="lead">Luồng dữ liệu một chiều, đúng thứ tự code chạy. Ưu tiên an toàn: <b>Money Guard trước → Thoát trước → Vào lệnh sau</b>.</p>
+  <div class="flow">
+    <div class="fbox start"><b>Tick giá mới</b> <span class="fn">OnTick()</span></div>
+    <div class="farrow">▼</div>
+    <div class="fbox decision"><b>① BuildContext</b> — lấy bid/ask/spread/giờ/nến<small>Không lấy được tick hoặc lịch sử nến chưa sync → <b>bỏ qua tick này</b> (không crash)</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>② Tính tín hiệu</b> <span class="fn">signal.Compute()</span> — chỉ tính 1 lần khi có <b>nến đóng</b> mới<small><b>BD:</b> RSI(50) trên nến đóng &gt; 50 → BUY · &lt; 50 → SELL. Nếu <code>Use_Stoh=true</code>: BUY cần thêm %D ≤ <code>Down_Level</code>, SELL cần %D ≥ <code>Up_Level</code>.<br><b>WMF:</b> Cross (nhãn BUY/SELL khi đổi trend) hoặc Trend (theo màu nến) — cùng bộ lọc Stoch như BD. Tick giữa nến chỉ so thời gian nến, gần như 0 chi phí.</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>③ Cập nhật rổ</b> <span class="fn">basket.Update()</span><small>Dựng lại danh sách lệnh CHỈ khi có sự kiện (event-driven). Riêng <b>profit/swap đọc tươi mỗi tick</b> — rồi tính: hòa vốn (bình quân gia quyền + swap ± hoa hồng), mức TP ảo, SL ảo, mức trailing.</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>④ Yêu cầu từ panel + close đang chờ</b><small>Nút Close Buy/Sell → đóng rổ và <b>xong tick</b>. Nếu một close async từ tick trước còn chờ đối soát, EA không mở/DCA/modify. Nút Open chỉ được thực hiện sau khi Money Guard và thoát rổ bên dưới đều không kích hoạt.</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox decision"><b>⑤ Money Guard</b> — kiểm tra theo thứ tự ưu tiên<small>1️⃣ TP/SL toàn account ($) → đóng MỌI lệnh mọi symbol · 2️⃣ Daily Target/SL ngày → đóng 2 rổ + <b>nghỉ đến ngày mới</b> · 3️⃣ TP khi cả 2 rổ cùng mở / TP-SL cùng Magic · 4️⃣ %-chênh lệch Buy-Sell → Close All · 5️⃣ TP/SL riêng rổ Buy / rổ Sell. Chạm ngưỡng nào → đóng theo scope đó, xong tick.</small></div>
+    <div class="farrow">▼<small>không chạm ngưỡng tiền → xét thoát từng chiều</small></div>
+    <div class="fbox decision"><b>⑥ Thoát ảo (mỗi chiều Buy/Sell)</b> — thứ tự: TP → SL → Trailing → Overlap<small>TP ảo: giá chạm hòa vốn + <code>TP_</code> → <b>đóng cả rổ bằng lệnh market</b> · SL ảo: từ giá lệnh đầu − <code>SL_</code> · Trailing ảo: đã arm và giá quay về mức trail (giá gap xuyên qua vẫn đóng — fix v14) · Overlap: từ lệnh thứ <code>OverlapOrderNumber</code>, lệnh cuối lời đủ bù lệnh đầu lỗ +<code>OverlapPercent</code>% → <b>tỉa cặp đầu-cuối</b>, rổ còn lại chạy tiếp.</small></div>
+    <div class="farrow">▼<small>không thoát → xét vào lệnh</small></div>
+    <div class="fbox decision"><b>⑦ Mở RỔ MỚI</b> <span class="fn">TryOpenSeries()</span> — khi chiều đó đang 0 lệnh<small>Cần ĐỦ: có tín hiệu + <code>NewCycle</code> ON + cho phép chiều đó + luật hedge (hedge OFF: chiều kia phải trống) + chưa mở nến này + async không bận + <b>qua hết chuỗi filter</b>: Giờ → Spread → Pause → News → Halt ngày → Khung giờ → ADX. Đạt → mở lệnh <b>#1</b> với lot đầu.</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox decision"><b>⑧ Nhồi DCA</b> <span class="fn">TryGridAdd()</span> — khi rổ đang có 1..MaxOrders-1 lệnh<small>Filter nhẹ hơn: Pause → News → Halt → Khung giờ (bỏ qua nếu <code>DcaOutsideTime</code>) + tối đa 1 lệnh/nến/chiều + <code>MinuteStop</code> phút giãn cách + async không bận. Rồi đo: giá đi ngược ≥ <b>khoảng cách bậc hiện tại</b> (bảng Classic hoặc chuỗi pip × PointScale) tính <b>từ giá mở lệnh cuối</b> → mở lệnh kế với <b>lot bậc = số lệnh đang mở + 1</b>, comment <code>EaBd|n</code>.</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox"><b>⑨ Đẩy mức Real (chỉ khi bật mode Real)</b> <span class="fn">ApplyRealLevels()</span><small>Cả 3 mode đều Virt (mặc định) → bước này không làm gì, broker không thấy mức nào. Mode Real → modify SL/TP thật lên từng position (có dirty-check + guard chống spam async).</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox exec"><b>⑩ Thực thi lệnh</b> <span class="fn">ExecutionLayer</span> — cổng DUY NHẤT gọi trade API<small><b>Async</b> (mặc định): gửi không chờ → journal SENT → REQUEST_ACCEPTED nhưng <b>chưa nhả khóa</b> → chỉ hoàn tất khi position/SLTP kết quả đã quan sát được. Watchdog đối soát mỗi 500ms; mốc 5s vẫn giữ khóa, mốc cuối 30s mới nhả nếu không còn bằng chứng broker đang xử lý. <b>Sync</b>: retry 3 lần, refresh giá mỗi lần.</small></div>
+    <div class="farrow">▼</div>
+    <div class="fbox start"><b>Vẽ mức lên chart (dirty-check) → chờ tick sau</b></div>
+  </div>
+  <div class="callout green"><b>Hiệu suất đã đo thực tế:</b> toàn bộ số học mỗi tick cỡ <b>nano-giây</b> (tín hiệu chỉ tính khi nến đóng ≈4ns; lot chain ≈17ns/lệnh mở). Chi phí thật là ~20 call API đọc position cấp micro-giây → tổng <b>&lt; 0.1ms/tick</b>. Không cấp phát bộ nhớ, không vẽ chart trong đường tick — không có nguồn giật lag.</div>
+</section>
+
+<!-- ============ 5. KHAI NIEM LOI ============ -->
+<section id="s5">
+  <h2><span class="num">5.</span> Khái niệm lõi — hiểu bằng hình</h2>
+
+  <h3>5.1 · Rổ DCA: khoảng cách, hòa vốn và TP ảo</h3>
+  <div class="svgwrap">
+  <svg width="760" height="330" viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="12">
+    <!-- axes -->
+    <line x1="60" y1="20" x2="60" y2="300" stroke="#30363d"/>
+    <line x1="60" y1="300" x2="740" y2="300" stroke="#30363d"/>
+    <text x="18" y="30" fill="#9aa4b2">Giá</text>
+    <!-- price path going down then up -->
+    <polyline points="80,60 150,95 200,80 260,140 310,125 370,185 420,170 480,235 540,215 610,150 680,85" fill="none" stroke="#58a6ff" stroke-width="2"/>
+    <!-- orders -->
+    <g>
+      <circle cx="80" cy="60" r="6" fill="#3fb950"/><text x="70" y="46" fill="#3fb950">#1 · 0.01</text>
+      <circle cx="260" cy="140" r="6" fill="#3fb950"/><text x="250" y="126" fill="#3fb950">#2 · 0.02</text>
+      <circle cx="370" cy="185" r="6" fill="#3fb950"/><text x="360" y="171" fill="#3fb950">#3 · 0.03</text>
+      <circle cx="480" cy="235" r="6" fill="#3fb950"/><text x="470" y="221" fill="#3fb950">#4 · 0.05</text>
+    </g>
+    <!-- distance braces -->
+    <line x1="80" y1="60" x2="80" y2="316" stroke="#30363d" stroke-dasharray="3 3"/>
+    <line x1="260" y1="140" x2="260" y2="316" stroke="#30363d" stroke-dasharray="3 3"/>
+    <line x1="370" y1="185" x2="370" y2="316" stroke="#30363d" stroke-dasharray="3 3"/>
+    <line x1="480" y1="235" x2="480" y2="316" stroke="#30363d" stroke-dasharray="3 3"/>
+    <text x="140" y="314" fill="#e3b341">← d1 →</text>
+    <text x="288" y="314" fill="#e3b341">← d2 →</text>
+    <text x="398" y="314" fill="#e3b341">← d3 →</text>
+    <!-- breakeven -->
+    <line x1="60" y1="160" x2="740" y2="160" stroke="#bc8cff" stroke-dasharray="6 4"/>
+    <text x="620" y="176" fill="#bc8cff">Hòa vốn (bình quân theo lot + swap)</text>
+    <!-- TP line -->
+    <line x1="60" y1="110" x2="740" y2="110" stroke="#3fb950" stroke-dasharray="6 4"/>
+    <text x="600" y="104" fill="#3fb950">TP ẢO = hòa vốn + TP_ (×pip Vàng)</text>
+    <!-- close -->
+    <circle cx="680" cy="85" r="8" fill="none" stroke="#3fb950" stroke-width="2"/>
+    <text x="606" y="74" fill="#3fb950" font-weight="bold">Giá chạm TP ảo → ĐÓNG CẢ RỔ</text>
+    <text x="66" y="24" fill="#9aa4b2">Rổ BUY — giá giảm thì nhồi, mỗi lệnh sau kéo hòa vốn xuống thấp hơn</text>
+  </svg>
+  <div class="caption">Khoảng cách d1, d2, d3… lấy từ bảng: <b>Classic</b> = 200pt cố định tới lệnh 6 rồi ×1.2 lũy tiến · <b>Manual</b> = chuỗi pip bạn tự nhập (vd <code>10x3-15x2-20</code>). Đo từ giá mở <b>lệnh cuối</b>, khớp theo tick.</div>
+  </div>
+
+  <h3>5.2 · TP/SL/Trailing ẢO vs REAL — broker thấy gì?</h3>
+  <div class="grid2">
+    <div class="card">
+      <div class="blabel" style="color:var(--green)">MODE ẢO (mặc định cả 3)</div>
+      <table>
+        <tr><th>Broker thấy</th><th>EA quản</th></tr>
+        <tr><td>Lệnh market trần<br><code>SL = 0, TP = 0</code></td><td>Mức TP/SL/Trail tính mỗi tick trong bộ nhớ EA</td></tr>
+        <tr><td>Chỉ thấy lệnh <b>đóng market</b> khi EA quyết định</td><td>Giá chạm mức ảo → EA tự đóng rổ</td></tr>
+      </table>
+      <p style="font-size:.86em;color:var(--muted)">✅ Ẩn hoàn toàn ý đồ khỏi broker (chống stop-hunt) · ⚠️ VPS/terminal phải online — rớt mạng là rổ không có lưới phía server</p>
+    </div>
+    <div class="card">
+      <div class="blabel" style="color:var(--orange)">MODE REAL (bật riêng từng loại)</div>
+      <table>
+        <tr><th>Broker thấy</th><th>EA làm</th></tr>
+        <tr><td>SL/TP <b>thật</b> gắn trên từng position</td><td>Đẩy mức qua lệnh modify khi mức đổi</td></tr>
+        <tr><td>Server tự khớp kể cả khi EA offline</td><td>Trailing Real = SL thật được <b>dời dần</b> theo giá</td></tr>
+      </table>
+      <p style="font-size:.86em;color:var(--muted)">✅ Bảo vệ server-side khi mất kết nối · Gợi ý cấu hình lai: <code>SL_Mode=Real</code> làm lưới thảm họa, TP + Trail giữ ảo</p>
+    </div>
+  </div>
+
+  <h3>5.3 · Trailing ảo hoạt động thế nào</h3>
+  <div class="svgwrap">
+  <svg width="760" height="290" viewBox="0 0 760 290" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="12">
+    <line x1="50" y1="20" x2="50" y2="260" stroke="#30363d"/>
+    <line x1="50" y1="260" x2="740" y2="260" stroke="#30363d"/>
+    <!-- breakeven -->
+    <line x1="50" y1="220" x2="740" y2="220" stroke="#bc8cff" stroke-dasharray="6 4"/>
+    <text x="56" y="236" fill="#bc8cff">Hòa vốn</text>
+    <!-- arm threshold -->
+    <line x1="50" y1="150" x2="740" y2="150" stroke="#e3b341" stroke-dasharray="6 4"/>
+    <text x="56" y="144" fill="#e3b341">Ngưỡng ARM = hòa vốn + TrailStart (iTS)</text>
+    <!-- price -->
+    <polyline points="70,240 140,200 210,160 280,120 350,85 420,60 490,80 560,105 620,128" fill="none" stroke="#58a6ff" stroke-width="2"/>
+    <!-- extreme -->
+    <circle cx="420" cy="60" r="5" fill="#3fb950"/>
+    <text x="330" y="50" fill="#3fb950">Đỉnh cao nhất (extreme)</text>
+    <!-- trail level line: ratchet -->
+    <polyline points="280,168 350,133 420,108 620,108" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="8 4"/>
+    <text x="430" y="100" fill="#f85149">Mức TRAIL = extreme − TrailDistance (iTD) — chỉ đi lên, không tụt</text>
+    <!-- hit -->
+    <circle cx="620" cy="128" r="8" fill="none" stroke="#f85149" stroke-width="2"/>
+    <text x="560" y="155" fill="#f85149" font-weight="bold">Giá quay về chạm mức trail</text>
+    <text x="560" y="170" fill="#f85149" font-weight="bold">→ ĐÓNG CẢ RỔ (chốt lời)</text>
+    <text x="90" y="255" fill="#9aa4b2">Chưa vượt ngưỡng ARM → trailing chưa kích hoạt</text>
+  </svg>
+  <div class="caption">Điều kiện dùng trailing: <code>iTS ≠ 0</code> và (<code>iTS &lt; TP_</code> hoặc <code>TP_ = 0</code>). Chiều Sell: ngưỡng arm cộng thêm spread (giữ nguyên hành vi v13). Giá gap xuyên qua mức trail vẫn đóng (fix v14 — v13 bị kẹt).</div>
+  </div>
+
+  <h3>5.4 · Overlap — tỉa cặp lệnh cứu rổ sâu</h3>
+  <div class="card">
+    <p style="font-size:.92em">Rổ nhồi tới lệnh thứ <code>OverlapOrderNumber</code> (mặc định 8) mà lệnh <b>#1 đang lỗ</b>, EA sẽ chờ lệnh <b>mới nhất có lời</b> đủ trang trải: <span class="chip">lời lệnh cuối ≥ |lỗ lệnh đầu| × (100 + OverlapPercent)/100</span> → <b>đóng cặp đầu + cuối</b>. Rổ nhẹ đi, hòa vốn kéo về gần, phần còn lại chạy tiếp.</p>
+    <p style="margin-top:8px"><span class="chip off">#1 lỗ −10$</span><span class="chip on">#2</span><span class="chip on">#3</span><span class="chip on">#4</span><span class="chip on">#5</span><span class="chip on">#6</span><span class="chip on">#7</span><span class="chip off">#8 lời +10.3$</span> → tỉa #1+#8, còn 6 lệnh → <span class="chip next">lệnh kế = #7</span></p>
+    <p style="font-size:.86em;color:var(--muted)">v14 fix: chỉ kích hoạt khi lệnh đầu THỰC SỰ lỗ (v13 tỉa nhầm cả khi cả rổ đang lời).</p>
+  </div>
+
+  <h3>5.5 · Quy tắc đếm bậc theo LỆNH ĐANG MỞ (quyết định nền tảng)</h3>
+  <div class="card">
+    <p style="font-size:.92em">Mọi phép tính bậc — lot martingale, chuỗi lot, chuỗi hệ số, chuỗi khoảng cách, comment <code>|n</code> — đều đếm theo <b>số lệnh thực tế đang mở</b> của rổ, không phải tổng đã từng mở:</p>
+    <p style="margin-top:8px">Mở 9 lệnh: <span class="chip on">#1</span><span class="chip on">#2</span>…<span class="chip on">#9</span> → Overlap tỉa 2 → còn <b>7 lệnh mở</b> → lệnh tiếp theo là <span class="chip next">#8</span> (lot lấy bậc 8 của chuỗi; martingale = lot đầu rổ × hệ số^7)</p>
+    <p style="font-size:.86em;color:var(--muted)">Rổ đóng hết → chu kỳ mới về bậc 1. Đây là quyết định thiết kế đã chốt và có test bảo vệ — không phải bug.</p>
+  </div>
+
+  <h3>5.6 · Pip Vàng chuẩn hóa — cùng 1 .set chạy mọi sàn</h3>
+  <div class="card">
+    <table>
+      <tr><th>Sàn Vàng</th><th>_Point</th><th>PointScale</th><th>Input <code>TP_=200</code> nghĩa là</th></tr>
+      <tr><td>2 số thập phân (2306.<b>45</b>)</td><td>0.01</td><td>×1</td><td>200 point = <b>2.00 USD = 20 pip</b></td></tr>
+      <tr><td>3 số thập phân (2306.<b>452</b>)</td><td>0.001</td><td>×10 tự động</td><td>2000 point sàn = <b>2.00 USD = 20 pip</b> — y hệt</td></tr>
+    </table>
+    <p style="font-size:.9em">Quy ước: <b>1 giá (1 USD) = 10 pip</b>; 1 pip = 10 point chuẩn. Chuỗi khoảng cách thủ công nhập theo <b>pip</b>: <code>10</code> pip = 1.00 USD. EA tự nhận số digits lúc khởi động và log ra để kiểm tra. Symbol không phải Vàng: không thay đổi gì.</p>
+  </div>
+
+  <h3>5.7 · Cú pháp chuỗi xN — dùng chung cho lot, hệ số, khoảng cách</h3>
+  <div class="card">
+    <table>
+      <tr><th>Chuỗi nhập</th><th>Bung ra từng bậc</th><th>Dùng cho</th></tr>
+      <tr><td class="inp">0.01-0.02-0.04</td><td>#1=0.01 · #2=0.02 · #3=0.04 · #4+=0.04 lặp</td><td><code>LotSequence_</code></td></tr>
+      <tr><td class="inp">0.01x5-0.02x3-0.05</td><td>#1..5=0.01 · #6..8=0.02 · #9+=0.05 lặp</td><td><code>LotSequence_</code></td></tr>
+      <tr><td class="inp">1.03x3-1.3x4-1.25-1.5</td><td>hệ số nhân từng bậc; hết chuỗi lặp 1.5</td><td><code>MartinSequence_</code></td></tr>
+      <tr><td class="inp">10x3-15x2-20</td><td>khoảng #1..3=10 pip · #4..5=15 pip · #6+=20 pip</td><td><code>DistanceSequence_</code></td></tr>
+    </table>
+    <p style="font-size:.9em">Luật chung: phần tử cách nhau <code>-</code>, lặp bậc bằng <code>xN</code>, <b>vượt chuỗi thì lặp bậc cuối mãi mãi</b>, trần 200 bậc sau khi bung, sai cú pháp → EA từ chối khởi động kèm log ví dụ đúng.</p>
+    <p style="font-size:.9em"><b>Chuỗi hệ số vs hệ số đơn:</b> cùng bản chất công thức (nhân lũy tiến từ lot lệnh đầu rổ). Chuỗi tính công thức đóng — chỉ làm tròn 1 lần lúc gửi; sàn step 0.01 cho kết quả giống hệt mode mặc định, sàn step 0.001 chuỗi chính xác hơn.</p>
+  </div>
+</section>
+
+<!-- ============ 6. TINH NANG NHOM ============ -->
+<section id="s6">
+  <h2><span class="num">6.</span> Các nhóm tính năng bảo vệ &amp; điều khiển</h2>
+
+  <h3>6.1 · Money Close — chốt theo tiền, thứ tự ưu tiên</h3>
+  <div class="card">
+    <table>
+      <tr><th>Ưu tiên</th><th>Ngưỡng</th><th>Hành động khi chạm</th></tr>
+      <tr><td>1</td><td><code>MoneyTPAllAccount</code> / <code>MoneySLAllAccount</code> — lãi/lỗ nổi TOÀN account ($)</td><td>Đóng <b>mọi lệnh mọi symbol mọi magic</b></td></tr>
+      <tr><td>2</td><td>Daily Target (mục 6.2)</td><td>Đóng 2 rổ + nghỉ hết ngày</td></tr>
+      <tr><td>3</td><td><code>MoneyTPAllHedged</code> — chỉ khi CẢ 2 rổ cùng mở · <code>MoneyTPAll</code>/<code>MoneySLAll</code> — tổng 2 rổ cùng Magic</td><td>Đóng cả 2 rổ của EA</td></tr>
+      <tr><td>4</td><td><code>PctDiffClose</code> — (rổ lời) + (rổ lỗ × (1+%/100)) ≥ 0</td><td>Close All 2 rổ (thoát hedge kẹt)</td></tr>
+      <tr><td>5</td><td><code>MoneyTPBuy</code>/<code>MoneySLBuy</code> · <code>MoneyTPSell</code>/<code>MoneySLSell</code></td><td>Đóng riêng rổ chạm ngưỡng</td></tr>
+    </table>
+    <p style="font-size:.9em">Quy ước nhập: TP điền số <b>dương</b> (500), SL điền số <b>âm</b> (−500), 0 = tắt. Điền sai dấu → EA cảnh báo và coi như tắt ngưỡng đó. Lưu ý: nếu rổ chỉ có Buy thì <code>MoneyTPAll</code> vẫn hoạt động (Sell góp 0$), riêng <code>MoneyTPAllHedged</code> đòi cả 2 rổ cùng mở. Mọi lệnh đóng đều đi đường async tốc độ cao như bình thường.</p>
+  </div>
+
+  <h3>6.2 · Daily Target — mục tiêu ngày &amp; nghỉ tự động</h3>
+  <div class="card">
+    <p style="font-size:.92em">Tính <b>dayNet = lãi đã chốt hôm nay + lãi nổi 2 rổ</b> (scope Magic của EA), so với ngưỡng $ (<code>DailyTPMoney</code>/<code>DailySLMoney</code>) hoặc % số dư đầu ngày (<code>DailyTPPercent</code>/<code>DailySLPercent</code>). Chạm → đóng 2 rổ + <b>HALT</b>: chặn mọi lệnh tự động đến 00:00 ngày mới + <code>NewDayDelayMin</code> phút. Title panel hiện "DAILY HALT till…". Nút panel bấm tay vẫn hoạt động. Restart giữa chừng: halt tự suy lại từ lịch sử — không mất hiệu lực.</p>
+  </div>
+
+  <h3>6.3 · Time Limit — khung giờ giao dịch theo giờ máy tính</h3>
+  <div class="svgwrap">
+  <svg width="760" height="120" viewBox="0 0 760 120" xmlns="http://www.w3.org/2000/svg" font-family="Arial" font-size="11">
+    <rect x="40" y="35" width="672" height="28" fill="#1c2129" stroke="#30363d"/>
+    <!-- 24h ticks -->
+    <g fill="#9aa4b2">
+      <text x="36" y="82">0h</text><text x="200" y="82">6h</text><text x="368" y="82">12h</text><text x="536" y="82">18h</text><text x="700" y="82">24h</text>
+    </g>
+    <!-- window 1: 07-11 -->
+    <rect x="236" y="35" width="112" height="28" fill="#1f6feb55" stroke="#58a6ff"/>
+    <text x="248" y="53" fill="#58a6ff">Khung 1: 07–11</text>
+    <!-- window 2: 13-17 -->
+    <rect x="404" y="35" width="112" height="28" fill="#3fb95044" stroke="#3fb950"/>
+    <text x="416" y="53" fill="#3fb950">Khung 2: 13–17</text>
+    <!-- overnight 22-02 -->
+    <rect x="656" y="35" width="56" height="28" fill="#e3b34144" stroke="#e3b341"/>
+    <rect x="40" y="35" width="56" height="28" fill="#e3b34144" stroke="#e3b341"/>
+    <text x="560" y="26" fill="#e3b341">Khung qua đêm 22:00–02:00 (tự nối qua nửa đêm)</text>
+    <text x="40" y="108" fill="#9aa4b2">Trong khung: mở lệnh bình thường · Ngoài khung: chặn rổ mới + chặn DCA (trừ khi DcaOutsideTime=true) · Mọi THOÁT lệnh và nút panel luôn hoạt động 24/7</text>
+  </svg>
+  <div class="caption">4 khung độc lập bật/tắt riêng, định dạng "HH:MM", biên [bắt đầu, kết thúc). Giờ <b>máy tính/VPS</b> chạy EA (trong tester = giờ server mô phỏng). Bật master mà không bật khung nào, hoặc HH:MM sai → EA từ chối chạy kèm log chỉ rõ khung lỗi.</div>
+  </div>
+
+  <h3>6.4 · Mobile Control — điều khiển EA từ điện thoại không cần VPS</h3>
+  <div class="card">
+    <p style="font-size:.92em">Từ app MT5 mobile, đặt <b>lệnh chờ</b> trên đúng symbol với mức giá đặc biệt. EA quét mỗi 500ms, thực thi rồi <b>tự xóa lệnh chờ</b>:</p>
+    <table>
+      <tr><th>Đặt lệnh chờ</th><th>Giá</th><th>EA thực hiện</th></tr>
+      <tr><td>Buy Stop</td><td class="def">999999</td><td>🛑 STOP ALL — chặn mọi lệnh tự động (cờ sống qua restart)</td></tr>
+      <tr><td>Buy Stop</td><td class="def">666666</td><td>▶️ RESUME — gỡ Stop + gỡ Pause 2 chiều</td></tr>
+      <tr><td>Buy Stop / Sell Stop</td><td class="def">888888</td><td>Tắt / Bật mở chu kỳ mới (New Cycle OFF/ON)</td></tr>
+      <tr><td>Buy Stop / Sell Stop</td><td class="def">555555</td><td>Tạm dừng riêng chiều Buy / chiều Sell</td></tr>
+    </table>
+    <p style="font-size:.86em;color:var(--muted)">Dung sai giá ±0.5 nên gõ 999999.0 hay 999999.5 đều nhận. Lot và magic của lệnh chờ không quan trọng. Panel trên chart cập nhật trạng thái ngay. Tắt cả nhóm bằng <code>UseMobileControl=false</code>.</p>
+  </div>
+
+  <h3>6.5 · WMF Signal — indi TradingView port nguyên bản</h3>
+  <div class="card">
+    <p style="font-size:.92em"><b>WUYX Momentum Follower</b> (Pine v5) được port 1:1: ATR trailing-stop bám giá + EMA mượt, trạng thái uptrend/downtrend. Chọn <code>SignalSource_=WMF</code> để thay tín hiệu RSI của BD. Hai kiểu vào lệnh: <b>Cross</b> (mặc định — chỉ vào tại nến ĐỔI trend, như nhãn BUY/SELL trên TradingView) hoặc <b>Trend</b> (vào theo trạng thái màu nến hiện hành, dày lệnh hơn). Bộ lọc Stochastic của EA áp <b>chung</b> cho cả 2 nguồn tín hiệu khi bật. Đủ input gốc: Length/Source/Multiplier/EMA Length + TF riêng. <code>ShowWmfSignals=true</code> vẽ mũi tên <span style="color:var(--green)">▲BUY</span> dưới nến, <span style="color:var(--red)">▼SELL</span> trên nến (cả lịch sử seed lẫn realtime, tối đa 200 mũi tên gần nhất).</p>
+  </div>
+
+  <h3>6.6 · Async Execution — tốc độ + tự phục hồi</h3>
+  <div class="card">
+    <p style="font-size:.92em">Mặc định mọi lệnh gửi <b>không chờ</b> (OrderSendAsync): tick không bao giờ bị block bởi mạng chậm. Mỗi lệnh ghi vào <b>journal</b>; server xác nhận qua OnTradeTransaction; nếu 5 giây không có phản hồi (sàn lag, rớt mạng), <b>watchdog</b> đối soát journal với positions thực tế: lệnh đã khớp thì ghi nhận, chưa khớp thì giải phóng slot để gửi lại. Chống trùng: mỗi chiều chỉ 1 lệnh mở đang bay (busy-slot), modify đang bay thì không gửi lại. Trong Strategy Tester EA tự chuyển sync.</p>
+  </div>
+</section>
+
+<!-- ============ 7. INPUT REFERENCE ============ -->
+<section id="s7">
+  <h2><span class="num">7.</span> Tra cứu input A–Z — theo đúng thứ tự trong cửa sổ cài đặt MT5</h2>
+  <p class="lead">Bấm vào từng nhóm để mở. Cột "Mặc định" là giá trị an toàn đã kiểm chứng baseline; đổi giá trị nào hãy đọc kỹ cột giải thích.</p>
+  <div class="callout green"><b>Bao phủ đầy đủ:</b> mục này liệt kê <b>112/112 input</b> của EA v14.7.1, chia đúng 14 nhóm và đúng thứ tự hiển thị trong cửa sổ Inputs của MT5 — không input nào bị bỏ sót. (15 dòng <code>qw*</code> chỉ là nhãn phân nhóm của MT5, không phải tham số.)</div>
+
+  <details class="group" open>
+    <summary>⚙️ Basic parameters <span class="cnt">10 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh</th></tr>
+      <tr><td class="inp">NewCycle_</td><td class="def">true</td><td>Cho phép mở RỔ MỚI. Tắt = EA chỉ quản lý rổ đang có đến khi đóng hết rồi đứng im — dùng khi muốn "rút lui êm". Đổi được ngay trên panel và qua lệnh mobile 888888.</td></tr>
+      <tr><td class="inp">Flag_Trade_Buy_ / Flag_Trade_Sell_</td><td class="def">true</td><td>Bật/tắt giao dịch từng chiều. Tắt một chiều = EA chạy 1 hướng.</td></tr>
+      <tr><td class="inp">flag_Hand_Ord</td><td class="def">false</td><td>Cho EA nhận quản lý cả lệnh mở tay (cùng symbol+magic 0). Thường để false.</td></tr>
+      <tr><td class="inp">Flag_Use_hedge</td><td class="def">true</td><td>Cho phép 2 rổ Buy và Sell cùng tồn tại. Tắt: chiều này đang có rổ thì chiều kia không được mở rổ mới (grid DCA của rổ đang mở vẫn nhồi bình thường).</td></tr>
+      <tr><td class="inp">sOrdComm</td><td class="def">EA Black Dragon</td><td>Comment gốc của lệnh. EA tự nối thứ tự DCA: <code>EA Black Dragon|3</code> = lệnh thứ 3 của rổ.</td></tr>
+      <tr><td class="inp">MaxSpred</td><td class="def">0</td><td>Spread tối đa (point chuẩn — tự scale pip Vàng) cho phép mở RỔ MỚI. 0 = không kiểm tra. Chỉ chặn lệnh đầu chuỗi, không chặn DCA (hành vi v13).</td></tr>
+      <tr><td class="inp">Start_Hour / End_Hour</td><td class="def">0 / 0</td><td>Filter giờ kiểu v13 (giờ server) cho lệnh ĐẦU chuỗi. Một trong hai = 0 → filter tắt. Muốn lịch chi tiết hơn hãy dùng nhóm Time Limit (giờ máy tính, 4 khung).</td></tr>
+      <tr><td class="inp">Magic</td><td class="def">1111</td><td>Số định danh lệnh của EA. Chạy nhiều EA/chart cùng account → mỗi cái một Magic khác nhau.</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>🐉 Black Dragon parameters + Stochastic <span class="cnt">8 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh</th></tr>
+      <tr><td class="inp">TF_DB</td><td class="def">Current</td><td>Khung thời gian tính RSI(50) của tín hiệu BD. Tín hiệu chỉ đánh giá trên <b>nến đóng</b>: RSI &gt; 50 → BUY, RSI &lt; 50 → SELL.</td></tr>
+      <tr><td class="inp">Use_Stoh</td><td class="def">false</td><td>Bật lọc Stochastic(7,1,2 LWMA): BUY cần thêm %D ≤ Down_Level (quá bán), SELL cần %D ≥ Up_Level (quá mua). Áp cho CẢ tín hiệu BD lẫn WMF. Bật lên = vào lệnh chọn lọc hơn, ít lệnh hơn.</td></tr>
+      <tr><td class="inp">TF_Stoh</td><td class="def">Current</td><td>Khung thời gian riêng của Stochastic.</td></tr>
+      <tr><td class="inp">Up_Level / Down_Level</td><td class="def">90 / 10</td><td>Ngưỡng quá mua/quá bán. Nới về 80/20 → nhiều lệnh hơn; siết 95/5 → cực chọn lọc.</td></tr>
+      <tr><td class="inp">KPeriod / DPeriod / Slowing</td><td class="def">7 / 1 / 2</td><td>Tham số Stochastic gốc v13 — thường không cần đổi.</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>📊 Strategy Settings — lot, TP/SL/Trail, Overlap <span class="cnt">18 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh</th></tr>
+      <tr><td class="inp">MaxOrdersBuy / MaxOrdersSell</td><td class="def">10 / 10</td><td>Trần số lệnh mỗi rổ — chốt chặn rủi ro quan trọng nhất cùng MaxLot. Tính thử lot bậc cuối trước khi tăng.</td></tr>
+      <tr><td class="inp">Lot_Init_</td><td class="def">0.01</td><td>Lot lệnh đầu rổ (khi không dùng Autolot/chuỗi lot).</td></tr>
+      <tr><td class="inp">Autolot_</td><td class="def">false</td><td>Bật tính lot đầu rổ tự động theo vốn thay cho <code>Lot_Init_</code>. Bị <b>bỏ qua</b> khi dùng chuỗi lot thủ công.</td></tr>
+      <tr><td class="inp">Autolotsize_</td><td class="def">1000</td><td>Cứ mỗi N$ free margin = 0.01 lot. Số càng lớn = càng thận trọng (1000 → tài khoản 5000$ vào 0.05 lot).</td></tr>
+      <tr><td class="inp">Martin_</td><td class="def">1.5</td><td>Hệ số nhân lot mỗi bậc DCA (mode mặc định). Lot bậc n = lot đầu rổ × 1.5ⁿ. Giảm về 1.2–1.3 để dịu rủi ro, tăng số lệnh chịu được.</td></tr>
+      <tr><td class="inp">MaxLot_</td><td class="def">5</td><td>Trần lot MỘT lệnh — mọi mode lot đều bị cap. Đặt theo sức chịu của tài khoản.</td></tr>
+      <tr><td class="inp">TP_Mode</td><td class="def">Virt</td><td><b>Virt</b> = TP ảo EA tự quản, broker không thấy · <b>Real</b> = gắn TP thật lên position. Xem mục 5.2.</td></tr>
+      <tr><td class="inp">TP_</td><td class="def">200</td><td>Khoảng TP tính từ <b>hòa vốn rổ</b> (point chuẩn, tự scale pip Vàng: 200 = 2.00 USD trên Vàng). 0 = tắt TP. Cơ chế chốt lời chính của EA.</td></tr>
+      <tr><td class="inp">SL_Mode</td><td class="def">Virt</td><td><b>Virt</b> = SL ảo EA tự canh · <b>Real</b> = gắn SL thật lên position (server bảo vệ kể cả khi EA offline — lựa chọn "lưới thảm họa" đáng cân nhắc).</td></tr>
+      <tr><td class="inp">SL_</td><td class="def">0</td><td>Khoảng SL tính từ <b>giá mở lệnh ĐẦU rổ</b> (point chuẩn, tự scale pip Vàng). 0 = tắt — mặc định EA thoát lỗ bằng Overlap + Daily SL thay vì SL cứng.</td></tr>
+      <tr><td class="inp">Trail_Mode</td><td class="def">Virt</td><td><b>Virt</b> = trailing ảo, EA tự đóng rổ khi giá quay về mức trail · <b>Real</b> = dời SL thật trên position theo giá (ratchet).</td></tr>
+      <tr><td class="inp">iTS</td><td class="def">0</td><td><b>Trail Start</b> — trailing chỉ ARM khi giá vượt hòa vốn + iTS point (mục 5.3). <b>0 = tắt trailing</b>. Chỉ có hiệu lực khi iTS &lt; TP_ hoặc TP_=0.</td></tr>
+      <tr><td class="inp">iTD</td><td class="def">100</td><td><b>Trail Distance</b> — mức trail bám cách đỉnh/đáy đã đạt iTD point. Nhỏ = chốt sát, dễ bị nhiễu cắt sớm; lớn = để lời chạy xa hơn nhưng trả lại nhiều hơn khi đảo chiều.</td></tr>
+      <tr><td class="inp">Overlap</td><td class="def">true</td><td>Bật cơ chế tỉa cặp lệnh đầu-cuối (mục 5.4) — van xả cho rổ sâu, nên giữ bật.</td></tr>
+      <tr><td class="inp">OverlapOrderNumber</td><td class="def">8</td><td>Rổ đạt từ N lệnh trở lên mới xét Overlap. Giảm → tỉa sớm hơn, rổ nông hơn.</td></tr>
+      <tr><td class="inp">OverlapPercent</td><td class="def">3</td><td>Lời lệnh cuối phải phủ lỗ lệnh đầu + thêm N% mới tỉa. Tăng → tỉa "chất lượng" hơn nhưng hiếm hơn.</td></tr>
+      <tr><td class="inp">MinuteStop</td><td class="def">0</td><td>Giãn cách tối thiểu (phút) giữa 2 lệnh DCA cùng rổ. 0 = chỉ giới hạn 1 lệnh/nến mặc định.</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>📏 Distance settings — khoảng cách DCA Classic <span class="cnt">4 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh</th></tr>
+      <tr><td class="inp">Fix_Distance</td><td class="def">200</td><td>Khoảng cách cố định (point chuẩn — 2 USD trên Vàng) giữa các lệnh, áp tới lệnh thứ <code>Order_dinamic_distance</code>−1.</td></tr>
+      <tr><td class="inp">Order_dinamic_distance</td><td class="def">6</td><td>Từ lệnh thứ N trở đi chuyển sang khoảng cách động (giãn dần) — rổ càng sâu lệnh càng thưa.</td></tr>
+      <tr><td class="inp">Dynamic_distance_start</td><td class="def">200</td><td>Khoảng cách khởi điểm của pha động.</td></tr>
+      <tr><td class="inp">Distance_multiplier</td><td class="def">1.2</td><td>Hệ số giãn lũy tiến pha động: d = start × 1.2^(bậc−N).</td></tr>
+    </table>
+    <p style="font-size:.86em;color:var(--muted)">Nhóm này chỉ có hiệu lực khi <code>DistanceMode_=Classic</code>. Chuyển Manual → dùng chuỗi pip ở nhóm "DCA chains" và nhóm này bị bỏ qua.</p></div>
+  </details>
+
+  <details class="group">
+    <summary>📰 News Setting — né tin tức (MQL5 Calendar) <span class="cnt">11 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh</th></tr>
+      <tr><td class="inp">Flag_Use_News</td><td class="def">false</td><td><b>Công tắc tổng</b> né tin, dùng lịch kinh tế tích hợp MT5 (không cần URL ngoài). Chỉ chặn MỞ lệnh quanh giờ tin — không đóng lệnh đang có. Lịch được refresh nền mỗi giờ, không làm chậm tick.</td></tr>
+      <tr><td class="inp">Imp3High</td><td class="def">false</td><td>Né tin mức <b>quan trọng cao</b> (đỏ) — NFP, lãi suất, CPI…</td></tr>
+      <tr><td class="inp">Imp2Med</td><td class="def">false</td><td>Né tin mức <b>trung bình</b> (cam).</td></tr>
+      <tr><td class="inp">Imp1Low</td><td class="def">false</td><td>Né tin mức <b>thấp</b> (vàng). Bật cả 3 mức = né rất nhiều, EA gần như nghỉ nhiều phiên.</td></tr>
+      <tr><td class="inp">b3_ / a3_</td><td class="def">60 / 60</td><td>Số phút nghỉ TRƯỚC / SAU tin mức cao.</td></tr>
+      <tr><td class="inp">b2_ / a2_</td><td class="def">15 / 15</td><td>Số phút nghỉ TRƯỚC / SAU tin mức trung bình.</td></tr>
+      <tr><td class="inp">b1_ / a1_</td><td class="def">5 / 5</td><td>Số phút nghỉ TRƯỚC / SAU tin mức thấp.</td></tr>
+      <tr><td class="inp">NewsFailMode</td><td class="def">TradeOn</td><td>Khi lịch tin không có dữ liệu (sàn chặn Calendar): <b>TradeOn</b> = coi như không có tin, trade tiếp · <b>PauseNew</b> = thận trọng, ngừng mở lệnh mới.</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>🖥️ Panel Parameters — giao diện trên chart <span class="cnt">11 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa</th></tr>
+      <tr><td class="inp">X1_</td><td class="def">10</td><td>Tọa độ X (pixel, tính từ mép trái chart) của góc panel.</td></tr>
+      <tr><td class="inp">Y1_</td><td class="def">25</td><td>Tọa độ Y (pixel, từ mép trên) của góc panel. Panel chồng lên chỉ báo khác thì chỉnh 2 số này.</td></tr>
+      <tr><td class="inp">fDraw</td><td class="def">true</td><td>Bật/tắt TOÀN BỘ phần vẽ: panel, nút bấm, đường mức TP/SL/hòa vốn, mũi tên WMF. Tắt khi tối ưu tốc độ backtest hoặc chạy VPS không cần nhìn.</td></tr>
+      <tr><td class="inp">FontSizeMark</td><td class="def">13</td><td>Cỡ chữ khối thông tin (lãi/lỗ, số lệnh, trạng thái halt).</td></tr>
+      <tr><td class="inp">FontNameMark</td><td class="def">Verdana</td><td>Font khối thông tin.</td></tr>
+      <tr><td class="inp">ColorText</td><td class="def">White</td><td>Màu chữ khối thông tin.</td></tr>
+      <tr><td class="inp">ColorFonRec</td><td class="def">DarkViolet</td><td>Màu nền khung tiêu đề panel (nơi hiện cảnh báo "DAILY HALT till…").</td></tr>
+      <tr><td class="inp">FontSizeButt</td><td class="def">11</td><td>Cỡ chữ các nút bấm.</td></tr>
+      <tr><td class="inp">FontNameButt</td><td class="def">Verdana</td><td>Font các nút bấm.</td></tr>
+      <tr><td class="inp">ColorButt</td><td class="def">White</td><td>Màu chữ nút bấm.</td></tr>
+      <tr><td class="inp">cCIP</td><td class="def">Gray</td><td>Màu nền bảng thông tin phụ.</td></tr>
+    </table>
+    <p style="font-size:.86em;color:var(--muted)">Panel có nút Open/Close từng chiều, Pause Buy/Sell, New Cycle — thao tác tay ngay trên chart; trạng thái nút được <b>lưu và khôi phục sau restart</b>. Vẽ lại mỗi 500ms có dirty-check nên không tốn tài nguyên. Lệnh mở bằng nút tay <b>gia nhập rổ</b> và được đánh số DCA tiếp theo.</p></div>
+  </details>
+
+  <details class="group">
+    <summary>🚀 v14 Engine — async, slippage, mở rộng <span class="cnt">6 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh</th></tr>
+      <tr><td class="inp">ExecMode</td><td class="def">Async</td><td><b>Async</b> = gửi lệnh không chờ + journal đợi resulting state; watchdog đối soát từ 5s, hard-timeout 30s (khuyên dùng live/demo — mục 6.6) · <b>Sync</b> = chờ từng lệnh, retry 3 lần. Tester tự về sync.</td></tr>
+      <tr><td class="inp">Slippage_</td><td class="def">3</td><td>Độ trượt giá cho phép (point). Sàn khớp chậm/Vàng biến động → tăng 10–30.</td></tr>
+      <tr><td class="inp">UseCommissionInBE</td><td class="def">false</td><td>Cộng hoa hồng vào hòa vốn → TP ảo đặt xa hơn một chút, lời thực nhận đúng kỳ vọng. Sàn có commission nên bật.</td></tr>
+      <tr><td class="inp">UseAdxFilter</td><td class="def">false</td><td>Bật filter ADX mẫu (điểm mở rộng P5): chỉ cho mở RỔ MỚI khi thị trường có trend đủ mạnh. Không ảnh hưởng nhồi DCA.</td></tr>
+      <tr><td class="inp">AdxPeriod</td><td class="def">14</td><td>Chu kỳ ADX.</td></tr>
+      <tr><td class="inp">MinAdx</td><td class="def">20.0</td><td>Ngưỡng ADX tối thiểu để được vào lệnh. Tăng lên 25–30 = chỉ vào khi trend rõ, ít lệnh hơn hẳn.</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>💰 v14.3 Money Close <span class="cnt">10 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa (quy ước: TP số dương, SL số ÂM, 0 = tắt — chi tiết mục 6.1)</th></tr>
+      <tr><td class="inp">PctDiffClose</td><td class="def">0</td><td>% chênh lời/lỗ giữa 2 rổ để Close All: (lời) + (lỗ × (1+%/100)) ≥ 0. Công cụ thoát hedge kẹt 2 chiều.</td></tr>
+      <tr><td class="inp">MoneyTPAllAccount / MoneySLAllAccount</td><td class="def">0 / 0</td><td>Ngưỡng $ lãi/lỗ nổi TOÀN account (mọi symbol, mọi magic, kể cả EA khác!) → đóng tất. Ưu tiên cao nhất — cẩn trọng khi account chạy nhiều bot.</td></tr>
+      <tr><td class="inp">MoneyTPAll / MoneySLAll</td><td class="def">0 / 0</td><td>Ngưỡng $ trên TỔNG 2 rổ của EA này (theo Magic). Rổ 1 chiều vẫn tính (chiều trống góp 0$).</td></tr>
+      <tr><td class="inp">MoneyTPBuy / MoneySLBuy / MoneyTPSell / MoneySLSell</td><td class="def">0</td><td>Ngưỡng $ riêng từng rổ.</td></tr>
+      <tr><td class="inp">MoneyTPAllHedged</td><td class="def">0</td><td>TP tổng CHỈ kích hoạt khi cả 2 rổ đang cùng mở — chốt cả cụm hedge một thể.</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>🔗 v14.7 DCA chains — khoảng cách &amp; hệ số thủ công <span class="cnt">3 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh (cú pháp xN — mục 5.7)</th></tr>
+      <tr><td class="inp">DistanceMode_</td><td class="def">Classic</td><td><b>Classic</b> = công thức v13 (nhóm Distance settings) · <b>Manual</b> = dùng chuỗi pip bên dưới.</td></tr>
+      <tr><td class="inp">DistanceSequence_</td><td class="def">""</td><td>Chuỗi khoảng cách theo <b>pip</b>: <code>10x3-15x2-20</code> → 3 khoảng đầu 10 pip (1.00 USD trên Vàng), 2 khoảng kế 15 pip, từ đó 20 pip mãi. Đếm bậc theo lệnh đang mở. Trigger giữ nguyên: đo từ giá mở lệnh cuối, khớp tick, 1 lệnh/nến.</td></tr>
+      <tr><td class="inp">MartinSequence_</td><td class="def">""</td><td>Chuỗi hệ số nhân từng bậc (cần <code>LotMode_=Multiplier chain</code>): <code>1.03x3-1.3x4-1.25-1.5</code>. Lot = lot đầu rổ × tích các hệ số đã qua — công thức đóng, làm tròn 1 lần lúc gửi (log track nếu bị chỉnh theo volume step sàn).</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>📈 v14.6 Signal Source &amp; WMF <span class="cnt">8 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh (mục 6.5)</th></tr>
+      <tr><td class="inp">SignalSource_</td><td class="def">BD</td><td>Nguồn tín hiệu mở rổ: <b>BD</b> (RSI 50) hoặc <b>WMF</b> (TradingView port). Chỉ nguồn được chọn mới khởi tạo indicator.</td></tr>
+      <tr><td class="inp">WmfMode</td><td class="def">Cross</td><td><b>Cross</b> = vào tại nến đổi trend (ít lệnh, như nhãn BUY/SELL trên TV) · <b>Trend</b> = vào theo trạng thái trend hiện hành (dày lệnh hơn).</td></tr>
+      <tr><td class="inp">WmfTF</td><td class="def">Current</td><td>Khung thời gian riêng của WMF.</td></tr>
+      <tr><td class="inp">WmfLength</td><td class="def">20</td><td>Chu kỳ ATR (min 2 như Pine). Tăng → trend mượt, ít đảo.</td></tr>
+      <tr><td class="inp">WmfPrice</td><td class="def">Close</td><td>Nguồn giá (Pine src): Close/Open/High/Low/Median/Typical/Weighted.</td></tr>
+      <tr><td class="inp">WmfFactor</td><td class="def">1.0</td><td>Hệ số nhân ATR — độ rộng stop bám trend. Tăng → ít nhiễu, tín hiệu trễ hơn.</td></tr>
+      <tr><td class="inp">WmfEmaLength</td><td class="def">2</td><td>EMA làm mượt đường stop (như bản gốc).</td></tr>
+      <tr><td class="inp">ShowWmfSignals</td><td class="def">true</td><td>Vẽ mũi tên ▲BUY/▼SELL của WMF lên chart (lịch sử + realtime, giữ 200 mũi tên gần nhất).</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>📱 v14.5 Mobile Control <span class="cnt">1 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa</th></tr>
+      <tr><td class="inp">UseMobileControl</td><td class="def">true</td><td>Bật điều khiển từ xa qua lệnh chờ giá đặc biệt 999999/666666/888888/555555 (bảng lệnh: mục 6.4). Trạng thái điều khiển sống qua restart EA.</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>🕐 v14.4 Time Limit <span class="cnt">14 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh (mục 6.3)</th></tr>
+      <tr><td class="inp">UseTimeLimit</td><td class="def">false</td><td><b>Công tắc tổng</b> của lịch giao dịch theo <b>giờ máy tính/VPS</b> (trong Strategy Tester = giờ server mô phỏng). Bật mà không bật khung nào → EA từ chối chạy kèm log.</td></tr>
+      <tr><td class="inp">UseTime1</td><td class="def">true</td><td>Bật khung giờ 1. Mỗi khung bật/tắt độc lập — có thể chỉ dùng 1 khung hoặc cả 4.</td></tr>
+      <tr><td class="inp">Time1Start</td><td class="def">"07:00"</td><td>Giờ BẮT ĐẦU khung 1, định dạng <b>"HH:MM"</b> (có dấu nháy, 2 chữ số). Biên đóng: đúng 07:00 đã được trade.</td></tr>
+      <tr><td class="inp">Time1End</td><td class="def">"11:00"</td><td>Giờ KẾT THÚC khung 1. Biên mở: đúng 11:00 đã ngừng. Nếu End &lt; Start → khung <b>qua đêm</b> (vd 22:00–02:00 tự nối qua nửa đêm). Start == End → khung rỗng (coi như tắt).</td></tr>
+      <tr><td class="inp">UseTime2</td><td class="def">false</td><td>Bật khung giờ 2 — thường dùng cho phiên thứ hai trong ngày (vd phiên Âu/Mỹ).</td></tr>
+      <tr><td class="inp">Time2Start</td><td class="def">"13:00"</td><td>Giờ bắt đầu khung 2.</td></tr>
+      <tr><td class="inp">Time2End</td><td class="def">"17:00"</td><td>Giờ kết thúc khung 2.</td></tr>
+      <tr><td class="inp">UseTime3</td><td class="def">false</td><td>Bật khung giờ 3.</td></tr>
+      <tr><td class="inp">Time3Start</td><td class="def">"19:00"</td><td>Giờ bắt đầu khung 3.</td></tr>
+      <tr><td class="inp">Time3End</td><td class="def">"23:00"</td><td>Giờ kết thúc khung 3.</td></tr>
+      <tr><td class="inp">UseTime4</td><td class="def">false</td><td>Bật khung giờ 4 — hay dùng làm khung qua đêm/phiên Á sớm.</td></tr>
+      <tr><td class="inp">Time4Start</td><td class="def">"00:00"</td><td>Giờ bắt đầu khung 4.</td></tr>
+      <tr><td class="inp">Time4End</td><td class="def">"06:00"</td><td>Giờ kết thúc khung 4.</td></tr>
+      <tr><td class="inp">DcaOutsideTime</td><td class="def">false</td><td><b>false</b> = ngoài khung giờ chặn cả rổ mới lẫn nhồi DCA · <b>true</b> = ngoài khung vẫn CHO PHÉP nhồi DCA rổ đang có (chỉ chặn rổ mới) — tránh rổ bị "bỏ rơi" không được chăm qua đêm.</td></tr>
+    </table>
+    <p style="font-size:.86em;color:var(--muted)">Toàn nhóm chỉ có hiệu lực khi <code>UseTimeLimit=true</code>. Sai định dạng HH:MM ở bất kỳ khung nào đang bật → EA từ chối khởi động và log chỉ đúng khung lỗi. Ngoài khung giờ EA vẫn thoát lệnh (TP/SL/Trail/Overlap/Money/Daily) và nút panel vẫn bấm được — lịch chỉ chặn MỞ lệnh.</p></div>
+  </details>
+
+  <details class="group">
+    <summary>📅 v14.3 Daily Target <span class="cnt">5 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh (mục 6.2)</th></tr>
+      <tr><td class="inp">DailyTPMoney / DailySLMoney</td><td class="def">0 / 0</td><td>Mục tiêu lời / giới hạn lỗ NGÀY theo $ (SL điền số âm). Chạm → đóng 2 rổ + nghỉ hết ngày.</td></tr>
+      <tr><td class="inp">DailyTPPercent / DailySLPercent</td><td class="def">0 / 0</td><td>Như trên nhưng theo % số dư ĐẦU ngày — tự co giãn theo vốn.</td></tr>
+      <tr><td class="inp">NewDayDelayMin</td><td class="def">0</td><td>Sang ngày mới nghỉ thêm N phút rồi mới trade lại (né phiên rollover spread giãn).</td></tr>
+    </table></div>
+  </details>
+
+  <details class="group">
+    <summary>🪙 v14.1 Lot &amp; Pip <span class="cnt">3 input</span></summary>
+    <div class="body"><table>
+      <tr><th style="width:26%">Input</th><th style="width:13%">Mặc định</th><th>Ý nghĩa &amp; cách tinh chỉnh</th></tr>
+      <tr><td class="inp">LotMode_</td><td class="def">xLot multiplier</td><td>Chọn cách tính lot DCA: <b>xLot multiplier</b> = martingale ×Martin_ (y hệt v13) · <b>Manual sequence</b> = chuỗi <code>LotSequence_</code> · <b>Multiplier chain</b> = chuỗi <code>MartinSequence_</code>. Cả 3 đều cap bởi MaxLot_ và đếm bậc theo lệnh đang mở.</td></tr>
+      <tr><td class="inp">LotSequence_</td><td class="def">""</td><td>Chuỗi lot từng bậc: <code>0.01-0.02-0.04</code> hoặc <code>0.01x5-0.02x3-0.05</code>. Vượt chuỗi lặp bậc cuối. Lot dưới min sàn → EA dùng min sàn + log track (không dừng). Autolot bị bỏ qua khi chuỗi active.</td></tr>
+      <tr><td class="inp">AutoGoldPip</td><td class="def">true</td><td>Tự nhận Vàng 2/3 digit và scale toàn bộ input point để 1 giá = 10 pip trên mọi sàn (mục 5.6). Chỉ tắt nếu bạn cố ý muốn số point thô theo sàn.</td></tr>
+    </table></div>
+  </details>
+</section>
+
+<!-- ============ 8. SET MAU ============ -->
+<section id="s8">
+  <h2><span class="num">8.</span> Ba kịch bản .set mẫu</h2>
+  <div class="grid3">
+    <div class="card">
+      <h3 style="margin-top:0">🟢 Baseline an toàn (mặc định)</h3>
+      <p style="font-size:.86em;color:var(--muted)">Đúng hành vi v13 đã kiểm chứng — điểm xuất phát để so sánh.</p>
+      <p style="font-size:.84em"><code>LotMode_=xLot</code> · <code>Martin_=1.5</code> · <code>DistanceMode_=Classic</code> · <code>TP_=200</code> · TP/SL/Trail = Virt · <code>Overlap=true</code> · <code>SignalSource_=BD</code> · <code>ExecMode=Async</code></p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">🟡 Vàng — chuỗi thủ công dịu rủi ro</h3>
+      <p style="font-size:.86em;color:var(--muted)">Nhồi thưa dần, lot tăng chậm ở đầu, chỉ bung khi rổ sâu.</p>
+      <p style="font-size:.84em"><code>LotMode_=Multiplier chain</code> · <code>MartinSequence_=1.2x4-1.35x3-1.5</code> · <code>DistanceMode_=Manual</code> · <code>DistanceSequence_=20x3-30x2-45</code> (pip) · <code>DailySLMoney=-300</code> · <code>NewDayDelayMin=30</code></p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">🔵 WMF + khung giờ Á-Âu</h3>
+      <p style="font-size:.86em;color:var(--muted)">Tín hiệu trend WMF, chỉ trade 2 phiên, có mục tiêu ngày.</p>
+      <p style="font-size:.84em"><code>SignalSource_=WMF</code> · <code>WmfMode=Cross</code> · <code>WmfLength=20</code>, <code>WmfFactor=1.5</code> · <code>UseTimeLimit=true</code>, Time1 <code>07:00–11:00</code>, Time2 <code>13:00–17:00</code> · <code>DcaOutsideTime=true</code> · <code>DailyTPPercent=2</code></p>
+    </div>
+  </div>
+  <div class="callout"><b>Lưu ý:</b> giá trị trên là ví dụ cấu trúc, KHÔNG phải khuyến nghị lợi nhuận. Luôn backtest trên đúng symbol + sàn của bạn trước khi chạy tiền thật.</div>
+</section>
+
+<!-- ============ 9. CHECKLIST ============ -->
+<section id="s9">
+  <h2><span class="num">9.</span> Checklist setup cho người mới — 8 bước</h2>
+  <ol class="steps">
+    <li><b>Nạp EA đúng cấu trúc thư mục:</b> <code>Experts/BlackDragon/BlackDragon.mq5</code> + toàn bộ <code>Include/BlackDragon/</code>, compile <span class="kbd">F7</span> trên MT5 build ≥ 6030 — 0 error.</li>
+    <li><b>Kéo EA lên chart</b> symbol muốn trade (Vàng: bất kể sàn 2 hay 3 digit — EA tự chuẩn hóa pip). Bật Algo Trading.</li>
+    <li><b>Kiểm tra tab Experts:</b> phải thấy log <code>EA Black Dragon v14.7.1 started. ExecMode=Async</code>; nếu là Vàng có thêm dòng <code>Gold detected… PointScale=…</code>. EA không chạy → đọc log, thường là chuỗi/giờ nhập sai cú pháp (log chỉ rõ chỗ sai + ví dụ đúng).</li>
+    <li><b>Chốt khung rủi ro trước tiên:</b> <code>Lot_Init_</code>, <code>Martin_</code> (hoặc chuỗi), <code>MaxOrdersBuy/Sell</code>, <code>MaxLot_</code>, <code>DailySLMoney</code>. Tính thử lot bậc cuối = lot đầu × hệ số^(MaxOrders−1) xem tài khoản chịu nổi không.</li>
+    <li><b>Chọn cách thoát:</b> giữ TP ảo 200 mặc định; cân nhắc <code>SL_Mode=Real</code> làm lưới thảm họa nếu VPS không ổn định.</li>
+    <li><b>Chọn tín hiệu &amp; bộ lọc:</b> BD hay WMF; bật Stoch nếu muốn chọn lọc; khung giờ Time Limit; né tin nếu cần.</li>
+    <li><b>Backtest Strategy Tester</b> (EA tự chạy sync trong tester; Time Limit trong tester dùng giờ server mô phỏng) → so kết quả các lần chỉnh.</li>
+    <li><b>Demo 2–4 tuần</b> để soak async với sàn thật → mới lên tiền thật. Thử luôn lệnh mobile 999999/666666 cho quen.</li>
+  </ol>
+</section>
+
+<!-- ============ 10. FAQ ============ -->
+<section id="s10">
+  <h2><span class="num">10.</span> FAQ nhanh</h2>
+  <div class="card"><b>EA không mở lệnh dù có tín hiệu?</b><p style="font-size:.9em">Soi theo đúng thứ tự chuỗi filter mục 4-⑦: NewCycle OFF? Pause trên panel? Ngoài khung Time Limit? Đang né tin? Daily HALT (xem title panel)? Mobile STOP ALL đang bật (gửi 666666 để gỡ)? Spread vượt MaxSpred? Hedge OFF mà chiều kia đang có rổ?</p></div>
+  <div class="card"><b>Lot khớp khác lot trong chuỗi tôi nhập?</b><p style="font-size:.9em">Lot dưới min hoặc lệch volume step của sàn → EA tự chỉnh về min/step gần nhất và <b>log rõ từng lệnh</b> ("lot adjusted: requested → using") — thiết kế chủ đích để không bao giờ tự dừng bot.</p></div>
+  <div class="card"><b>Restart EA/VPS có mất gì không?</b><p style="font-size:.9em">Không. Trạng thái nút panel + cờ mobile lưu file, tự khôi phục. Rổ đang mở được nhận lại theo Magic. Daily halt tự suy lại từ lãi đã chốt trong ngày.</p></div>
+  <div class="card"><b>Broker có thấy TP/SL của tôi không?</b><p style="font-size:.9em">Mặc định KHÔNG — cả 3 mức là ảo, broker chỉ thấy lệnh market trần (mục 5.2). Chỉ khi bạn chuyển mode Real thì mức mới gắn lên position.</p></div>
+  <div class="card"><b>Comment lệnh <code>|3</code> nghĩa là gì?</b><p style="font-size:.9em">Thứ tự DCA của lệnh trong rổ tại thời điểm mở — đếm theo số lệnh đang mở + 1. Sau Overlap tỉa, số thứ tự lệnh mới sẽ lùi tương ứng (mục 5.5).</p></div>
+  <div class="card"><b>Chạy 2 EA trên 2 chart cùng account?</b><p style="font-size:.9em">Được — đặt <code>Magic</code> khác nhau. Cẩn trọng: <code>MoneyTP/SLAllAccount</code> đóng TOÀN account, ảnh hưởng cả EA kia.</p></div>
+</section>
+
+<footer>
+  EA Black Dragon v14.7.1 — Sổ tay vận hành · Cập nhật 28/07/2026 · Tài liệu kỹ thuật đầy đủ: HANDOFF.md · ARCHITECTURE.md · CHANGELOG.md trong gói cài đặt<br>
+  Giao dịch ký quỹ có rủi ro. Tài liệu này mô tả cơ chế phần mềm, không phải khuyến nghị đầu tư.
+</footer>
+
+</div>
+</body>
+</html>
