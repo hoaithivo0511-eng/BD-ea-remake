@@ -22,6 +22,11 @@
 //| Notes     : Commands are idempotent — a failed delete self-heals |
 //|             (re-detected + re-applied next timer scan). Flags    |
 //|             persist across restart (Persistence, live only).     |
+//| BD-R5     : Scan() reports only real flag TRANSITIONS. Before    |
+//|             v14.7.2 it returned true on every scan while an      |
+//|             undeletable pending sat in the pool, so OnTimer      |
+//|             redrew the panel and rewrote the state file twice a  |
+//|             second and spammed the journal.                      |
 //| Depends on: Config.mqh, Types.mqh, Logger.mqh, ExecutionLayer    |
 //+------------------------------------------------------------------+
 #ifndef BD_MOBILECONTROL_MQH
@@ -90,11 +95,21 @@ string MC_Name(const eMcCommand cmd)
 
 class CMobileControl
 {
+private:
+   datetime m_nextDeleteTry;   // BD-R5: backoff after a failed pending delete
+
 public:
-   //--- Call from OnTimer (500ms). Returns true when a command executed.
+   CMobileControl() : m_nextDeleteTry(0) {}
+
+   //--- Call from OnTimer (500ms). Returns true ONLY when a runtime flag
+   //    actually changed, so the caller redraws the panel and persists on
+   //    transitions instead of twice per second (BD-R5). The command itself
+   //    is still re-applied every scan — MC_Apply is idempotent — so an
+   //    undeletable pending keeps enforcing its state without side effects.
    bool Scan(CExecutionLayer *exec)
    {
-      bool executed = false;
+      bool changedAny = false;
+      datetime now = TimeCurrent();
       for(int i = OrdersTotal() - 1; i >= 0; i--)
       {
          ulong tic = OrderGetTicket(i);
@@ -103,12 +118,21 @@ public:
          eMcCommand cmd = MC_Command((int)OrderGetInteger(ORDER_TYPE),
                                      OrderGetDouble(ORDER_PRICE_OPEN));
          if(cmd == MC_NONE) continue;
-         MC_Apply(cmd, Cfg.RemoteStop, Cfg.PauseBuy, Cfg.PauseSell, Cfg.NewCycle);
-         Log_Info("Mobile", MC_Name(cmd) + " executed (pending #" + (string)tic + " deleted)");
-         exec.DeleteOrder(tic);      // fail -> re-detected next scan (idempotent)
-         executed = true;
+         if(MC_Apply(cmd, Cfg.RemoteStop, Cfg.PauseBuy, Cfg.PauseSell, Cfg.NewCycle))
+         {
+            Log_Info("Mobile", MC_Name(cmd) + " executed (pending #" + (string)tic + ")");
+            changedAny = true;
+         }
+         if(now < m_nextDeleteTry) continue;   // still backing off from a failed delete
+         if(!exec.DeleteOrder(tic))
+         {
+            m_nextDeleteTry = now + BD_MC_DELETE_RETRY_SEC;
+            Log_Warn("Mobile", "mcdel", "cannot delete pending #" + (string)tic +
+                     " — retrying in " + (string)BD_MC_DELETE_RETRY_SEC +
+                     "s (command already applied)");
+         }
       }
-      return executed;
+      return changedAny;
    }
 };
 #endif // BD_MOBILECONTROL_MQH

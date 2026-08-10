@@ -64,6 +64,16 @@ bool MG_DailySlHit(const double dayNet, const double slMoney,
    return false;
 }
 
+//--- BD-R4 (v14.7.2): PURE halt deadline = next midnight + delay --------
+//    Extracted from StartHalt so the arithmetic is unit-testable and so a
+//    negative NewDayDelayMin can never pull the deadline back into today
+//    (which would silently cancel the halt on the very next tick).
+datetime MG_HaltDeadline(const datetime dayStart, const int delayMin)
+{
+   int d = delayMin < 0 ? 0 : delayMin;
+   return dayStart + 86400 + d * 60;
+}
+
 class CMoneyGuard
 {
 private:
@@ -89,7 +99,8 @@ private:
    void StartHalt(const datetime now)
    {
       datetime dayStart = StringToTime(TimeToString(now, TIME_DATE));   // 00:00 server time today
-      m_haltUntil = dayStart + 86400 + NewDayDelayMin * 60;
+      m_haltUntil = MG_HaltDeadline(dayStart, NewDayDelayMin);
+      Cfg.HaltUntil = m_haltUntil;   // BD-R4: mirror so Persist_Save() carries it across a restart
       Log_Info("Guard", "DAILY target/limit hit — closing baskets, trading halted until " +
                TimeToString(m_haltUntil, TIME_DATE | TIME_MINUTES) +
                " (new day + " + (string)NewDayDelayMin + "min delay)");
@@ -100,7 +111,12 @@ public:
 
    void Init()
    {
-      m_haltUntil = 0;
+      // BD-R4: Persist_Load() runs BEFORE this in OnInit, so Cfg.HaltUntil
+      // already holds any deadline saved before the restart. Zeroing it here
+      // was what let a terminal restart / recompile resume trading on the
+      // same day the daily SL fired. In the tester Persist_* are no-ops, so
+      // Cfg.HaltUntil is 0 and this is byte-identical to the old behaviour.
+      m_haltUntil = Cfg.HaltUntil;
       m_pctDiff   = TpIn(PctDiffClose,      "PctDiffClose");
       m_tpAccount = TpIn(MoneyTPAllAccount, "MoneyTPAllAccount");
       m_slAccount = SlIn(MoneySLAllAccount, "MoneySLAllAccount");
@@ -119,6 +135,9 @@ public:
                  m_tpHedged > 0 || m_tpBuy > 0 || m_slBuy < 0 || m_tpSell > 0 || m_slSell < 0 ||
                  m_dailyTpM > 0 || m_dailySlM < 0 || m_dailyTpP > 0 || m_dailySlP < 0;
       if(any) Log_Info("Guard", "MoneyGuard active (FE-401/402) — thresholds armed");
+      if(Halted(TimeCurrent()))
+         Log_Info("Guard", "daily halt RESTORED from state file — trading stays halted until " +
+                  TimeToString(m_haltUntil, TIME_DATE | TIME_MINUTES));
    }
 
    bool     Halted(const datetime now) const { return m_haltUntil != 0 && now < m_haltUntil; }
@@ -134,6 +153,7 @@ public:
       if(m_haltUntil != 0 && now >= m_haltUntil)
       {
          m_haltUntil = 0;
+         Cfg.HaltUntil = 0;   // BD-R4: clear the persisted copy too
          Log_Info("Guard", "daily halt over — trading resumed");
       }
 
