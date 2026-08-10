@@ -36,6 +36,21 @@ bool Exec_PendingReady(const ePendingEvidence evidence)
    return evidence == PENDING_EVIDENCE_RESULT_STATE;
 }
 
+//--- BD-R2 (v14.7.2): PURE deviation scaling --------------------------
+//    Slippage_ is a point-based input exactly like TP_/SL_/iTS/iTD, so it
+//    must obey ARCHITECTURE rule 8 and be expressed in BROKER points at the
+//    send site. Before this fix `req.deviation = Slippage_` was the only
+//    point-input bypassing PointScale: on a 3-digit gold quote Slippage_=3
+//    allowed 0.03 USD of slip instead of the intended 0.30 USD, so requests
+//    were rejected/requoted far more often than on a 2-digit feed.
+//    Clamps: negative slippage -> 0, scale < 1 -> 1 (never widen silently).
+ulong Exec_Deviation(const int slippagePoints, const int pointScale)
+{
+   int s = slippagePoints < 0 ? 0 : slippagePoints;
+   int k = pointScale < 1 ? 1 : pointScale;
+   return (ulong)(s * k);
+}
+
 bool Exec_CloseVolumeResolved(const double beforeVolume, const double currentVolume,
                               const double targetVolume, const double volumeStep)
 {
@@ -325,7 +340,7 @@ public:
       req.volume       = volume;
       req.type         = (dir == 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       req.price        = (dir == 0) ? tick.ask : tick.bid;
-      req.deviation    = Slippage_;               // AU-14-06: input (v13 hardcoded 3)
+      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale); // AU-14-06 input + BD-R2 point scale
       req.magic        = Magic;
       req.comment      = Exec_BuildComment(sOrdComm, dcaIndex);   // FE-203
       req.type_filling = m_filling;
@@ -350,7 +365,7 @@ public:
       req.volume       = PositionGetDouble(POSITION_VOLUME);
       req.type         = (type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
       req.price        = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
-      req.deviation    = Slippage_;               // AU-14-06
+      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale); // AU-14-06 + BD-R2
       req.magic        = Magic;
       req.type_filling = m_filling;
       return Send(req, res, INTENT_CLOSE_TICKET);
@@ -384,7 +399,8 @@ public:
       req.volume       = PositionGetDouble(POSITION_VOLUME);
       req.type         = (type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
       req.price        = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
-      req.deviation    = Slippage_;
+      // BD-R2: cross-symbol path — scale with THAT symbol's point size, not the chart's.
+      req.deviation    = Exec_Deviation(Slippage_, Sym_PointScaleFor(sym));
       req.type_filling = FillingFor(sym);
       return Send(req, res, INTENT_CLOSE_TICKET);
    }

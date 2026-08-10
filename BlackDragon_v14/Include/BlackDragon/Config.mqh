@@ -173,6 +173,7 @@ input bool   AutoGoldPip          = true;      // FE-201: gold 1 USD = 10 pips; 
 #define BD_MAX_LOT_STEPS      200    // FE-301: lot-chain cap after xN expansion (FIX-6: moved from GridEngine)
 #define BD_WMF_MARKS_MAX      200    // FE-406: max BUY/SELL arrows kept on the chart (ring)
 #define BD_POINTS_PER_PIP     10     // FE-407: 1 pip = 10 reference points (FE-201 convention)
+#define BD_MC_DELETE_RETRY_SEC 5     // BD-R5 (v14.7.2): backoff before retrying a failed pending-order delete
 
 //--- Signal behavior kept hardcoded exactly like v13 ----------------
 // (v13 hardcodes: SignalBar=Closed — evaluated on closed bar only, see
@@ -203,6 +204,7 @@ struct SConfig
    double EditLot;   // manual-order lot from panel
    int    PointScale; // FE-201: broker points per reference point (gold 3-digit: 10, else 1)
    bool   RemoteStop; // FE-404: mobile STOP ALL (999999) — blocks every automated open
+   datetime HaltUntil; // BD-R4 (v14.7.2): daily TP/SL halt deadline, mirrored by CMoneyGuard so it survives OnInit
 };
 SConfig Cfg;
 
@@ -227,6 +229,7 @@ void Config_Init()
    Cfg.EditLot       = Lot_Init_;
    Cfg.PointScale    = 1;
    Cfg.RemoteStop    = false;
+   Cfg.HaltUntil     = 0;   // BD-R4: Persist_Load() may restore a live deadline right after this
 }
 
 //--- FE-201: multiply every point-based runtime value ONCE at init.
