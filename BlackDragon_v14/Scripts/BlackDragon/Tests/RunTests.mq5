@@ -4,6 +4,7 @@
 //| grid distance, martingale lots, breakeven, trailing, overlap.    |
 //| Every strategy formula change MUST keep these green (or update   |
 //| them consciously with a CHANGELOG entry).                        |
+//| v14.7.2: last section pins the BD-R1..R8 deep-review fixes.      |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Config.mqh>
@@ -318,6 +319,67 @@ void OnStart()
    Check("M-chain anti-stuck: 1.03^10 > 1.03 don le", Grid_ChainLot(0.01, 10, small, 100) > 0.0134);
    CheckEq("M-chain no-cap 1.03^200 duoi MaxLot", Grid_ChainLot(0.01, 200, small, 5), 0.01 * MathPow(1.03, 200), 1e-9);
    CheckEq("M-chain MaxLot cap (1.03^300)", Grid_ChainLot(0.01, 300, small, 5), 5.0);
+
+   //====================================================================
+   //  v14.7.2 deep review — BD-R1..R8 (28 asserts)
+   //  Only the PURE parts are asserted here. BD-R3 (SeedExtreme anchor
+   //  rule), BD-R7 (RefreshFloating compaction) and BD-R8 (DrawLevels
+   //  cadence) need live positions / a chart: see the terminal checklist
+   //  in docs/vibecode/VERIFY_REPORT-v14.7.2.md.
+   //====================================================================
+
+   //--- TIP-501 / BD-R2: Slippage_ is a point input -> obeys rule 8 -----
+   //    Reference (2-digit gold, FX): scale 1 -> byte-identical to v13.
+   CheckEq("BD-R2 non-gold scale 1 keeps v13 value", (double)Exec_Deviation(3, 1), 3);
+   CheckEq("BD-R2 3-digit gold: 3 ref points = 30 broker points", (double)Exec_Deviation(3, 10), 30);
+   CheckEq("BD-R2 zero slippage stays zero",     (double)Exec_Deviation(0, 10), 0);
+   CheckEq("BD-R2 negative slippage clamped",    (double)Exec_Deviation(-5, 10), 0);
+   CheckEq("BD-R2 scale 0 clamped to 1",         (double)Exec_Deviation(3, 0), 3);
+   CheckEq("BD-R2 negative scale clamped to 1",  (double)Exec_Deviation(3, -2), 3);
+   //    The cross-symbol variant must agree with the chart wrapper on _Symbol.
+   CheckEq("BD-R2 Sym_PointScaleFor(_Symbol) == Sym_PointScale()",
+           Sym_PointScaleFor(_Symbol), Sym_PointScale());
+
+   //--- TIP-502 / BD-R4: daily halt deadline = next midnight + delay ----
+   datetime day0 = D'2026.08.11 00:00:00';
+   Check("BD-R4 no delay -> next midnight",   MG_HaltDeadline(day0, 0) == day0 + 86400);
+   Check("BD-R4 30 min delay",                MG_HaltDeadline(day0, 30) == day0 + 86400 + 1800);
+   Check("BD-R4 full day delay",              MG_HaltDeadline(day0, 1440) == day0 + 172800);
+   //    A negative delay must never pull the deadline back into today, which
+   //    would cancel the halt on the very next tick.
+   Check("BD-R4 negative delay clamped to 0", MG_HaltDeadline(day0, -15) == day0 + 86400);
+   Check("BD-R4 deadline always in the future", MG_HaltDeadline(day0, -600) > day0);
+
+   //--- TIP-503 / BD-R5: failed pending delete backs off, never storms --
+   Check("BD-R5 delete retry backoff is positive", BD_MC_DELETE_RETRY_SEC > 0);
+
+   //--- TIP-506 / BD-R1: per-intent hard timeout (Chu nha 11/08/2026) ---
+   //    CLOSE/MODIFY are idempotent -> release early (10s). OPEN is not ->
+   //    keep the conservative 30s or a real order could be duplicated.
+   CheckEq("BD-R1 OPEN_BUY keeps 30s",   Exec_HardTimeoutSec(INTENT_OPEN_BUY),  BD_ASYNC_HARD_TIMEOUT_SEC);
+   CheckEq("BD-R1 OPEN_SELL keeps 30s",  Exec_HardTimeoutSec(INTENT_OPEN_SELL), BD_ASYNC_HARD_TIMEOUT_SEC);
+   CheckEq("BD-R1 CLOSE_TICKET -> 10s",  Exec_HardTimeoutSec(INTENT_CLOSE_TICKET), BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC);
+   CheckEq("BD-R1 MODIFY_SLTP -> 10s",   Exec_HardTimeoutSec(INTENT_MODIFY_SLTP),  BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC);
+   CheckEq("BD-R1 NONE falls back to the short timeout",
+           Exec_HardTimeoutSec(INTENT_NONE), BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC);
+   Check("BD-R1 soft timeout fires before the close hard timeout",
+         BD_ASYNC_TIMEOUT_SEC < BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC);
+   Check("BD-R1 close unlocks before open",
+         BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC < BD_ASYNC_HARD_TIMEOUT_SEC);
+   Check("BD-R1 asymmetry holds through the function",
+         Exec_HardTimeoutSec(INTENT_CLOSE_TICKET) < Exec_HardTimeoutSec(INTENT_OPEN_BUY));
+
+   //--- TIP-508 / BD-R6: ONE ownership rule for positions AND deals -----
+   //    Same predicate now feeds Rebuild(), SeedDayProfit() and the
+   //    OnTradeTransaction booking, so floating and realized P/L can never
+   //    disagree about which orders belong to the daily net.
+   Check("BD-R6 own magic owned (hand off)",   Basket_OwnsMagic(1111, 1111, false));
+   Check("BD-R6 own magic owned (hand on)",    Basket_OwnsMagic(1111, 1111, true));
+   Check("BD-R6 default: manual magic-0 ignored", !Basket_OwnsMagic(0, 1111, false));
+   Check("BD-R6 flag_Hand_Ord: manual magic-0 counted", Basket_OwnsMagic(0, 1111, true));
+   Check("BD-R6 foreign magic never owned (hand off)", !Basket_OwnsMagic(2222, 1111, false));
+   Check("BD-R6 foreign magic never owned (hand on)",  !Basket_OwnsMagic(2222, 1111, true));
+   Check("BD-R6 bot configured with Magic=0 owns its own deals", Basket_OwnsMagic(0, 0, false));
 
    PrintFormat("BlackDragon v14 unit tests: %d passed, %d failed", g_pass, g_fail);
    if(g_fail == 0) Print("ALL GREEN — safe to proceed to backtest comparison (golden baseline).");
