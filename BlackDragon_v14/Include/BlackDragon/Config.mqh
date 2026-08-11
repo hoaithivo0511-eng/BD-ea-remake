@@ -160,7 +160,7 @@ input string LotSequence_         = "";        // FE-202/301: "0.01-0.02-0.04" o
 input bool   AutoGoldPip          = true;      // FE-201: gold 1 USD = 10 pips; auto scale point-inputs on 3-digit quotes
 
 //--- Named constants (was: magic numbers) --------------------------
-#define BD_VERSION            "14.7.1"
+#define BD_VERSION            "14.7.2"
 #define BD_STATE_FILE_SUFFIX  "_BD_v14.bin"
 #define BD_OBJ_PREFIX         "ke_EA_BD_"
 #define BD_OBJ_PREFIX_REZ     "ke_Rez_EA_BD_"

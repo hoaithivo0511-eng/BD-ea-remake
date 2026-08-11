@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v14.7.1 (modular rebuild)      |
+//| BlackDragon.mq5 — EA Black Dragon v14.7.2 (modular rebuild)      |
 //| Event handlers + module registration ONLY. All logic lives in    |
 //| MQL5/Include/BlackDragon/. Read ARCHITECTURE.md before editing.  |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14."
-#property version   "14.71"
+#property version   "14.72"
 
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Types.mqh>
