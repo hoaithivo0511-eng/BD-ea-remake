@@ -29,7 +29,7 @@ Quy tắc cứng:
 8. Mọi input dạng points thêm mới PHẢI tự trả lời câu hỏi "có cần nhân `Cfg.PointScale` không" (FE-201) — khoảng cách/mức giá: có; thời gian/phần trăm/tiền: không.
 9. Thứ tự lệnh DCA (lot bậc mấy, comment `|n`) đếm theo số lệnh ĐANG MỞ (`side.count`) — Overlap tỉa xong thì thứ tự lùi tương ứng. Đây là quyết định của Chủ nhà 26/07/2026, đã có test chốt — không "sửa giùm" sang đếm tổng.
 10. Mọi close intent (panel, Money Guard, TP/SL/trail/Overlap) là **terminal cho tick hiện tại**. Có thể gửi close cho cả BUY và SELL trước khi return, nhưng tuyệt đối không mở/DCA/modify phía sau.
-11. Async REQUEST accepted **không phải completion**. Pending journal chỉ nhả khi kết quả position/SLTP đã quan sát được, request bị reject, hoặc hard-timeout đã đối soát; transaction có thể đến khác thứ tự.
+11. Async REQUEST accepted **không phải completion**. Pending journal chỉ nhả khi kết quả position/SLTP đã quan sát được, request bị reject, hoặc hard-timeout đã đối soát; transaction có thể đến khác thứ tự. Hard-timeout là **theo intent** (BD-R1, v14.7.2): CLOSE/MODIFY idempotent nên nhả sau 10s, OPEN giữ 30s vì nhả sớm có thể nhân đôi lệnh thật.
 
 ## 3. Tính năng → File
 
@@ -39,27 +39,28 @@ Quy tắc cứng:
 | Struct chung + interfaces | `Types.mqh` | `ISignal`, `IEntryFilter`, `ILotSizer` |
 | Tín hiệu RSI/Stoch | `SignalEngine.mqh` | 1 lần/nến đóng |
 | Khoảng cách grid, lot martingale | `GridEngine.mqh` | Hàm thuần, có unit test |
-| Cache vị thế, breakeven, mức TP/SL/trail | `BasketManager.mqh` | Event-driven rebuild |
+| Cache vị thế, breakeven, mức TP/SL/trail | `BasketManager.mqh` | Event-driven rebuild; trail extreme là session state (BD-R3) |
 | Quyết định thoát (TP/SL/trail ảo, Overlap) | `ExitEngine.mqh` | Hàm thuần, có unit test |
 | Filter giờ/spread/pause/news | `EntryFilters.mqh` | Chain đăng ký trong `Strategy.Init()` |
-| Gửi/đóng lệnh, retry, async journal | `ExecutionLayer.mqh` | Async mặc định live/demo; tester tự fallback sync; lifecycle SENT→ACCEPTED→state observed |
+| Gửi/đóng lệnh, retry, async journal | `ExecutionLayer.mqh` | Async mặc định live/demo; tester tự fallback sync; lifecycle SENT→ACCEPTED→state observed; hard-timeout theo intent (`Exec_HardTimeoutSec`) |
 | Lịch tin (MQL5 Calendar) | `NewsCalendar.mqh` | Refresh trong OnTimer, không block tick |
-| UI panel, nút, đường mức | `Panel.mqh` | Redraw theo timer 500ms + dirty check |
-| Lưu/khôi phục trạng thái panel | `Persistence.mqh` | File .bin có version header |
+| UI panel, nút, đường mức | `Panel.mqh` | Redraw theo timer 500ms + dirty check; `DrawLevels` chạy trên OnTimer (BD-R8) |
+| Lưu/khôi phục trạng thái panel | `Persistence.mqh` | File .bin có version header (BD16 từ v14.7.2, thêm `haltUntil`) |
 | Khóa tài khoản | `License.mqh` | Giữ nguyên semantics v13 (mặc định mở) |
 | Điều phối tổng | `Strategy.mqh` | Composition root; nơi đăng ký mọi behavior |
 | Filter mở rộng mẫu (ADX) | `Filters/AdxFilter.mqh` | P5 demo, mặc định OFF |
 | Chế độ lot DCA: martingale / chuỗi xN (FE-301) | `GridEngine.mqh` | `CMartingaleSizer` / `CSequenceSizer` qua `ILotSizer`; chọn theo `LotMode_` trong OnInit; parser `Grid_ParseLotSequence` |
-| Pip Vàng 2/3 digit — 1 USD = 10 pips (FE-201) | `GridEngine.mqh` + `Config.mqh` | `Sym_PointScale*` (thuần) + `Config_ApplyPointScale`; áp tại Strategy (grid dist) & CSpreadFilter (MaxSpred) |
+| Pip Vàng 2/3 digit — 1 USD = 10 pips (FE-201) | `GridEngine.mqh` + `Config.mqh` | `Sym_PointScale*` (thuần) + `Config_ApplyPointScale`; áp tại Strategy (grid dist), CSpreadFilter (MaxSpred) và deviation (BD-R2) |
 | Comment `\|n` theo thứ tự DCA (FE-203) | `ExecutionLayer.mqh` | `Exec_BuildComment`; index = số lệnh ĐANG MỞ + 1 (quyết định Chủ nhà 26/07/2026) |
 | Money TP/SL đa scope + %-diff close (FE-401) | `MoneyGuard.mqh` | Hàm thuần MG_* + `CMoneyGuard.Check()` — CHỈ trả quyết định, Strategy thực thi; đóng toàn account qua `ExecutionLayer.CloseAllAccount` |
-| Daily target + halt + delay ngày mới (FE-402) | `MoneyGuard.mqh` + `BasketManager.mqh` | dayNet = DayProfit + floating; `DayStartBalance()`; `CHaltFilter` đăng ký cả 2 chain qua `AddNewSeriesFilter`/`AddGridFilter` |
+| Daily target + halt + delay ngày mới (FE-402) | `MoneyGuard.mqh` + `BasketManager.mqh` | dayNet = DayProfit + floating; `DayStartBalance()`; `CHaltFilter` đăng ký cả 2 chain qua `AddNewSeriesFilter`/`AddGridFilter`; deadline thuần `MG_HaltDeadline` + persist qua `Cfg.HaltUntil` (BD-R4) |
 | Giới hạn thời gian giờ PC/Local, 4 khung (FE-403) | `EntryFilters.mqh` | `TL_ParseHHMM`/`TL_InWindow` (thuần) + `CTimeSchedule` + `CTimeFilter`; đăng ký 2 chain khi `UseTimeLimit=true`; grid chain tôn trọng `DcaOutsideTime`; chỉ chặn MỞ lệnh — exits không đi qua chain |
-| Mobile Control qua lệnh chờ giá đặc biệt (FE-404) | `MobileControl.mqh` | `MC_Command`/`MC_Apply` (thuần) + `CMobileControl.Scan` trong OnTimer; ghi cờ runtime Cfg (RemoteStop/Pause/NewCycle) như panel; xóa lệnh chờ qua `ExecutionLayer.DeleteOrder`; persist BD15 |
+| Mobile Control qua lệnh chờ giá đặc biệt (FE-404) | `MobileControl.mqh` | `MC_Command`/`MC_Apply` (thuần) + `CMobileControl.Scan` trong OnTimer; ghi cờ runtime Cfg (RemoteStop/Pause/NewCycle) như panel; xóa lệnh chờ qua `ExecutionLayer.DeleteOrder` có backoff `BD_MC_DELETE_RETRY_SEC` (BD-R5); persist BD16 |
 | WMF Signal — port TradingView (FE-405) | `WmfSignal.mqh` | `WMF_Step`/`WMF_Price` (thuần, test đối chiếu tính tay) + `CWmfSignal : ISignal`; chọn qua `SignalSource_` trong OnInit (con trỏ ISignal); stoch confirm nhân bản y luật BD; seed 1000 nến, re-seed khi gap |
 | Chuỗi khoảng cách DCA theo pip (FE-407) | `GridEngine.mqh` | `Grid_ChainDistancePoints` (thuần) + `CDistancePlan` (root sở hữu, Strategy nhận qua Init); Classic đi đúng hàm v13; pip = BD_POINTS_PER_PIP point chuẩn, PointScale áp tại chỗ dùng |
 | Chuỗi hệ số nhân — lot lý thuyết (FE-408) | `GridEngine.mqh` | `Grid_ChainLot` (thuần, công thức đóng, không làm tròn trung gian) + `CChainSizer : ILotSizer`; base = pos[0].lots như martingale v13; đếm bậc theo lệnh ĐANG MỞ |
-| Unit tests | `Scripts/BlackDragon/Tests/RunTests.mq5` | Chạy như Script (~80 assert); bản port C++ chạy ngoài MT5: `Tests/offline_suite.cpp` |
+| Quyền sở hữu lệnh (magic bot vs lệnh tay) | `BasketManager.mqh` | `Basket_OwnsMagic` (thuần) — định nghĩa DUY NHẤT, dùng chung cho position scan, `SeedDayProfit()` và booking realized trong `OnTradeTransaction` (BD-R6) |
+| Unit tests | `Scripts/BlackDragon/Tests/RunTests.mq5` | Chạy như Script; **số assert do chính script in ra ở dòng cuối** — đừng cứng hóa con số trong tài liệu (v14.7.2 thêm 28 assert cho BD-R1…R8). Bản port C++ chạy ngoài MT5: `Tests/offline_suite.cpp` |
 
 ## 4. Điểm mở rộng (P5)
 
@@ -82,3 +83,4 @@ Quy tắc cứng:
 4. Chạy `Tests/RunTests.mq5` → phải ALL GREEN.
 5. Backtest đối chiếu golden baseline (xem README mục Baseline).
 6. Ghi CHANGELOG.md: thay đổi gì, file nào, test kết quả ra sao. Commit nhỏ.
+7. Sau khi commit: **grep tên hằng/hàm vừa thêm**. Nếu nó chỉ xuất hiện ở đúng chỗ khai báo thì fix mới landed một nửa (bài học TIP-506, 11/08/2026).
