@@ -3,12 +3,21 @@ name: Compile BlackDragon (MQL5)
 # Compiles the EA and the unit-test script on a GitHub-hosted Windows runner
 # using the real MetaEditor that ships with MetaTrader 5.
 #
-# The result is published two ways: as a build artifact, and as a committed
-# file at ci-result/RESULT.md so it can be read without Actions API access.
+# Results are published three ways, deliberately redundant:
+#   - the job summary on the run page
+#   - a build artifact containing the .ex5 files and the raw MetaEditor logs
+#   - a commit of ci-result/RESULT.md, when the token is allowed to write
 
 on:
   workflow_dispatch:
   push:
+    branches: [ main ]
+    paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/**'
+      - '.github/workflows/compile-mql5.yml'
+  pull_request:
     branches: [ main ]
     paths:
       - 'BlackDragon_v14/Experts/**'
@@ -226,8 +235,8 @@ jobs:
           $md += $logs
 
           $joined = $md -join "`n"
-          $joined | Out-File -FilePath "$outDir\RESULT.md"          -Encoding utf8
-          $joined | Out-File -FilePath $env:GITHUB_STEP_SUMMARY     -Encoding utf8 -Append
+          $joined | Out-File -FilePath "$outDir\RESULT.md"      -Encoding utf8
+          $joined | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
           if ($problems.Count -gt 0) {
             Write-Host ''
@@ -237,10 +246,9 @@ jobs:
           Write-Host 'both targets: 0 error, 0 warning'
 
       - name: Publish the result back into the repo
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         shell: bash
         run: |
-          set -e
           if [ ! -f ci-result/RESULT.md ]; then
             mkdir -p ci-result
             printf '# MQL5 compile result\n\nThe compile step did not run to completion, so no result was written.\nSee the Actions run for details.\n' > ci-result/RESULT.md
@@ -253,9 +261,12 @@ jobs:
             exit 0
           fi
           git commit -m "ci: compile result for ${GITHUB_SHA::7} [skip ci]"
-          # ci-result/ is outside the paths filter, so this cannot retrigger.
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push origin HEAD:"${GITHUB_REF_NAME}"
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          # Never let bookkeeping veto the compile result. If the repository
+          # caps GITHUB_TOKEN at read-only, this 403s; the artifact and the
+          # job summary still hold the evidence.
+          git push origin HEAD:"${GITHUB_REF_NAME}" \
+            || echo "::warning::could not push the result - GITHUB_TOKEN is probably read-only (Settings > Actions > Workflow permissions). Use the artifact instead."
 
       - name: Upload logs and binaries
         if: always()
