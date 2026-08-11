@@ -68,6 +68,39 @@ public:
    }
 };
 
+//--- BD-R9 (v14.7.2): hedge gating is a NEW-SERIES rule, not a DCA rule
+//    v13 GET_INFO semantics: with hedge OFF the EA must not START a
+//    series on one side while the opposite side is open. Applying the
+//    SAME test to grid adds deadlocks BOTH sides as soon as two-sided
+//    exposure exists: buy DCA waits for sell.count == 0 while sell DCA
+//    waits for buy.count == 0, and neither side can shrink on its own.
+//    Exits keep running, so the basket is frozen at its worst average
+//    with no way to average down.
+//    Two-sided exposure IS reachable with Flag_Use_hedge = false:
+//      - panel Open Buy / Open Sell bypass the hedge test entirely;
+//      - flag_Hand_Ord = true counts manual magic-0 orders into both
+//        sides (see Basket_OwnsMagic).
+//    A grid add cannot CREATE opposite exposure — its own side is
+//    already open and the opposite side exists either way — so it is
+//    not what the no-hedge rule protects. Splitting the rule in two
+//    also restores the invariant documented in the Strategy.mqh
+//    header: "grid adds are gated by pause/news/one-per-bar/MinuteStop
+//    only".
+
+//--- PURE: may a NEW series be started on this side?
+bool Hedge_AllowsNewSeries(const bool useHedge, const int oppositeCount)
+{
+   return useHedge || oppositeCount <= 0;
+}
+
+//--- PURE: may an ALREADY OPEN side add a grid (DCA) leg?
+//    Flag_Use_hedge is deliberately NOT a parameter: the absence of the
+//    hedge test here is the fix itself, not an accidental omission.
+bool Hedge_AllowsGridAdd(const int ownCount)
+{
+   return ownCount > 0;
+}
+
 //--- FE-403 (v14.4): trading schedule by PC/LOCAL time (CCBSN manual) --
 //    4 on/off windows in "HH:MM"; overnight windows (start > end) are
 //    supported; [start, end) half-open. NOTE: in the Strategy Tester

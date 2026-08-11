@@ -11,6 +11,8 @@
 //| [STRATEGY-BEHAVIOR] Gating conditions mirror v13 OPEN_ORDERS:    |
 //|  - hour/spread filters gate ONLY the first order of a series     |
 //|  - grid adds are gated by pause/news/one-per-bar/MinuteStop only |
+//|  - BD-R9 (v14.7.2): hedge OFF gates only a NEW series, not a     |
+//|    DCA add. Gating both deadlocked both sides (EntryFilters).    |
 //+------------------------------------------------------------------+
 #ifndef BD_STRATEGY_MQH
 #define BD_STRATEGY_MQH
@@ -40,8 +42,9 @@ private:
    {
       // [STRATEGY-BEHAVIOR] v13 GET_INFO: with hedge OFF an open basket on one
       // side blocks a NEW SERIES on the opposite side (Flag_Open_Buy/Sell=false).
-      bool hedgeAllowsBuy  = (Flag_Use_hedge || m_basket.sell.count == 0);
-      bool hedgeAllowsSell = (Flag_Use_hedge || m_basket.buy.count  == 0);
+      // BD-R9 (v14.7.2): this is the ONLY place the hedge flag gates an open.
+      bool hedgeAllowsBuy  = Hedge_AllowsNewSeries(Flag_Use_hedge, m_basket.sell.count);
+      bool hedgeAllowsSell = Hedge_AllowsNewSeries(Flag_Use_hedge, m_basket.buy.count);
       // BUY
       if(Cfg.TradeBuy && ctx.signalBuy && m_basket.buy.count == 0 && Cfg.NewCycle &&
          hedgeAllowsBuy &&
@@ -108,6 +111,21 @@ private:
    {
       double sl, tp;
       if(!m_exitPolicy.RealLevels(ctx, side, isBuy, sl, tp)) return;
+      // BD-R3 (v14.7.2, quyet dinh Chu nha 11/08/2026): after a DCA add the
+      // trail re-arms from the NEW breakeven, so an already-armed trailing SL
+      // is intentionally dropped (sl=0) until it arms again. Dropping real
+      // broker-side protection must never be silent — announce it once per
+      // side (Log_Warn is throttled 60s) so it is visible in the journal.
+      if(sl == 0 && Trail_Mode == mode_Real && !side.trailArmed)
+      {
+         bool hadStop = false;
+         for(int i = 0; i < side.count; i++)
+            if(NormalizeDouble(side.pos[i].sl, ctx.digits) != 0) { hadStop = true; break; }
+         if(hadStop)
+            Log_Warn("Strategy", "trailclr", "real trailing SL cleared on " + (string)side.count + " " +
+                     (isBuy ? "buy" : "sell") + " position(s) — trail re-arms from the new breakeven " +
+                     DoubleToString(side.breakeven, ctx.digits));
+      }
       bool modified = false;
       for(int i = 0; i < side.count; i++)
       {
@@ -204,6 +222,13 @@ public:
 
       // A close sent on an earlier tick remains terminal until ExecutionLayer
       // observes/reconciles its broker state (BD-002).
+      // BD-R1 (v14.7.2, quyet dinh Chu nha 11/08/2026): this ordering STAYS —
+      // MoneyGuard deliberately does NOT run above this early return, because
+      // a guard close fired while an earlier close is unresolved would double
+      // the exit traffic. The exposure it creates (money/daily stops frozen
+      // while an async close hangs) is bounded instead, in
+      // ExecutionLayer::Watchdog: BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC = 10s for a
+      // CLOSE/MODIFY, down from the 30s shared with OPEN intents.
       if(m_exec.HasAnyPendingClose())
       {
          if(panelOpenBuy || panelOpenSell)
@@ -233,6 +258,9 @@ public:
       // FE-203: manual panel orders join the basket -> numbered as next DCA order.
       // FIX-3 (14.2.1): in async mode a click while an open request is in
       // flight would double the order (and its number) — respect the busy flag.
+      // NOTE (BD-R9): these two clicks are the reason two-sided exposure is
+      // reachable even with Flag_Use_hedge = false — the panel deliberately
+      // obeys the operator, not the hedge flag.
       if(panelOpenBuy)
       {
          if(m_exec.BusyOpen(BD_DIR_BUY)) Log_Warn("Strategy", "panelbusy", "panel Open Buy ignored: async open in flight");
@@ -246,8 +274,14 @@ public:
 
       // 3. entries
       TryOpenSeries(ctx);
-      if(Flag_Use_hedge || m_basket.sell.count == 0) TryGridAdd(ctx, m_basket.buy,  BD_DIR_BUY,  MaxOrdersBuy);
-      if(Flag_Use_hedge || m_basket.buy.count  == 0) TryGridAdd(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell);
+      // BD-R9 (v14.7.2): NO hedge gate here. The old form was
+      //    if(Flag_Use_hedge || m_basket.sell.count == 0) TryGridAdd(buy)
+      //    if(Flag_Use_hedge || m_basket.buy.count  == 0) TryGridAdd(sell)
+      // whose two conditions are mutually exclusive: with hedge OFF and both
+      // sides open, EVERY DCA add on BOTH sides was blocked forever while the
+      // exits kept running. See Hedge_AllowsGridAdd in EntryFilters.mqh.
+      if(Hedge_AllowsGridAdd(m_basket.buy.count))  TryGridAdd(ctx, m_basket.buy,  BD_DIR_BUY,  MaxOrdersBuy);
+      if(Hedge_AllowsGridAdd(m_basket.sell.count)) TryGridAdd(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell);
 
       // 4. real-mode stops
       ApplyRealLevels(ctx, m_basket.buy,  true);

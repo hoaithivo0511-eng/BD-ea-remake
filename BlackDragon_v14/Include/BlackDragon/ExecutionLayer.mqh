@@ -7,7 +7,9 @@
 //|             No Sleep(). Every retcode is checked (fix #1).       |
 //| Fixes     : #1 retcode checked on close, #6 price refreshed per  |
 //|             retry + per-direction busy flags, #7 no Alert+Sleep, |
-//|             AU-14-02 HasPendingModify guards async SL/TP spam.   |
+//|             AU-14-02 HasPendingModify guards async SL/TP spam,   |
+//|             BD-R2 deviation scaled by PointScale (v14.7.2),      |
+//|             BD-R1 CLOSE/MODIFY unlock 10s, OPEN keeps 30s.       |
 //| Depends on: Types.mqh, GridEngine.mqh, Logger.mqh, License.mqh   |
 //+------------------------------------------------------------------+
 #ifndef BD_EXECUTIONLAYER_MQH
@@ -34,6 +36,42 @@ string Exec_BuildComment(const string baseComment, const int dcaIndex)
 bool Exec_PendingReady(const ePendingEvidence evidence)
 {
    return evidence == PENDING_EVIDENCE_RESULT_STATE;
+}
+
+//--- BD-R2 (v14.7.2): PURE deviation scaling --------------------------
+//    Slippage_ is a point-based input exactly like TP_/SL_/iTS/iTD, so it
+//    must obey ARCHITECTURE rule 8 and be expressed in BROKER points at the
+//    send site. Before this fix `req.deviation = Slippage_` was the only
+//    point-input bypassing PointScale: on a 3-digit gold quote Slippage_=3
+//    allowed 0.03 USD of slip instead of the intended 0.30 USD, so requests
+//    were rejected/requoted far more often than on a 2-digit feed.
+//    Clamps: negative slippage -> 0, scale < 1 -> 1 (never widen silently).
+ulong Exec_Deviation(const int slippagePoints, const int pointScale)
+{
+   int s = slippagePoints < 0 ? 0 : slippagePoints;
+   int k = pointScale < 1 ? 1 : pointScale;
+   return (ulong)(s * k);
+}
+
+//--- BD-R1 (v14.7.2, quyet dinh Chu nha 11/08/2026) -------------------
+//    PURE per-intent hard timeout for the watchdog's final unlock.
+//    Strategy::OnTick suppresses the WHOLE tick — MoneyGuard included —
+//    while any async CLOSE is still unresolved. A lost close reply therefore
+//    froze the money / daily stops for BD_ASYNC_HARD_TIMEOUT_SEC (30s).
+//    Chu nha's decision: KEEP that ordering (a guard close fired on top of an
+//    unresolved close would double the exit traffic) and shorten the window
+//    instead. The asymmetry is deliberate and safe:
+//      - CLOSE and MODIFY are idempotent. ClosePosition() re-selects the
+//        ticket and returns false when the position is already gone;
+//        ModifySlTp() re-sends identical levels. Releasing the journal slot
+//        early can at worst repeat a harmless request -> 10s.
+//      - OPEN is NOT idempotent. Releasing m_busyOpen* early could put a
+//        SECOND real order on the book -> keeps the conservative 30s.
+int Exec_HardTimeoutSec(const eIntent action)
+{
+   if(action == INTENT_OPEN_BUY || action == INTENT_OPEN_SELL)
+      return BD_ASYNC_HARD_TIMEOUT_SEC;
+   return BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC;
 }
 
 bool Exec_CloseVolumeResolved(const double beforeVolume, const double currentVolume,
@@ -325,7 +363,7 @@ public:
       req.volume       = volume;
       req.type         = (dir == 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       req.price        = (dir == 0) ? tick.ask : tick.bid;
-      req.deviation    = Slippage_;               // AU-14-06: input (v13 hardcoded 3)
+      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale); // AU-14-06 input + BD-R2 point scale
       req.magic        = Magic;
       req.comment      = Exec_BuildComment(sOrdComm, dcaIndex);   // FE-203
       req.type_filling = m_filling;
@@ -350,7 +388,7 @@ public:
       req.volume       = PositionGetDouble(POSITION_VOLUME);
       req.type         = (type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
       req.price        = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
-      req.deviation    = Slippage_;               // AU-14-06
+      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale); // AU-14-06 + BD-R2
       req.magic        = Magic;
       req.type_filling = m_filling;
       return Send(req, res, INTENT_CLOSE_TICKET);
@@ -384,7 +422,8 @@ public:
       req.volume       = PositionGetDouble(POSITION_VOLUME);
       req.type         = (type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
       req.price        = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
-      req.deviation    = Slippage_;
+      // BD-R2: cross-symbol path — scale with THAT symbol's point size, not the chart's.
+      req.deviation    = Exec_Deviation(Slippage_, Sym_PointScaleFor(sym));
       req.type_filling = FillingFor(sym);
       return Send(req, res, INTENT_CLOSE_TICKET);
    }
@@ -505,6 +544,8 @@ public:
          if(m_journal[i].active && TimeCurrent() - m_journal[i].sentAt > BD_ASYNC_TIMEOUT_SEC)
          {
             int elapsed = (int)(TimeCurrent() - m_journal[i].sentAt);
+            // BD-R1 (v14.7.2): CLOSE/MODIFY unlock at 10s, OPEN keeps 30s.
+            int hardTimeout = Exec_HardTimeoutSec(m_journal[i].action);
             bool isOpen = (m_journal[i].action == INTENT_OPEN_BUY || m_journal[i].action == INTENT_OPEN_SELL);
             bool live = Journal_ServerOrderLive(m_journal[i]);
             if(isOpen && !live)
@@ -518,7 +559,7 @@ public:
                Log_Warn("Exec", "wdoglive", "async request past soft timeout but its broker order is still live — guard stays locked");
                continue;
             }
-            if(elapsed <= BD_ASYNC_HARD_TIMEOUT_SEC)
+            if(elapsed <= hardTimeout)
             {
                m_journal[i].retries++;
                Log_Warn("Exec", "wdogwait", "async request past soft timeout without final observable state — reconciling, guard stays locked");
@@ -531,7 +572,7 @@ public:
             if(!m_journal[i].active) continue;
             Journal_CompleteAt(i);
             Log_Warn("Exec", "wdog", "async request " + (string)m_journal[i].requestId +
-                     " unresolved after " + (string)BD_ASYNC_HARD_TIMEOUT_SEC +
+                     " unresolved after " + (string)hardTimeout +
                      "s — guard released after final reconciliation");
          }
       // compact journal occasionally

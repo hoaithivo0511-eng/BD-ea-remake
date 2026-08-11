@@ -160,19 +160,29 @@ input string LotSequence_         = "";        // FE-202/301: "0.01-0.02-0.04" o
 input bool   AutoGoldPip          = true;      // FE-201: gold 1 USD = 10 pips; auto scale point-inputs on 3-digit quotes
 
 //--- Named constants (was: magic numbers) --------------------------
-#define BD_VERSION            "14.7.1"
+#define BD_VERSION            "14.7.2"
 #define BD_STATE_FILE_SUFFIX  "_BD_v14.bin"
 #define BD_OBJ_PREFIX         "ke_EA_BD_"
 #define BD_OBJ_PREFIX_REZ     "ke_Rez_EA_BD_"
 #define BD_MAX_SEND_RETRIES   3      // was: hardcoded 3 in Trade()
 #define BD_ASYNC_TIMEOUT_SEC  5      // watchdog: reconcile if no server reply
-#define BD_ASYNC_HARD_TIMEOUT_SEC 30 // BD-002: conservative final unlock after reconciliation
+#define BD_ASYNC_HARD_TIMEOUT_SEC 30 // BD-002: conservative final unlock after reconciliation (OPEN intents)
+//--- BD-R1 (v14.7.2, quyet dinh Chu nha 11/08/2026): CLOSE/MODIFY unlock.
+//    Strategy::OnTick keeps its BD-001/BD-002 ordering — an unresolved async
+//    close still suppresses the whole tick, MoneyGuard included. What changes
+//    is how LONG that can last: a lost close reply used to freeze the money /
+//    daily stops for 30s, now 10s. Shortening is safe for CLOSE and MODIFY
+//    because both are idempotent (ClosePosition() re-selects the ticket and
+//    returns false when the position is already gone). An OPEN keeps 30s —
+//    releasing its busy flag early could duplicate a real order.
+#define BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC 10
 #define BD_NEWS_REFRESH_SEC   3600   // refresh calendar cache hourly
 #define BD_PANEL_TIMER_MS     500    // UI refresh cadence (C3)
 #define BD_LOT_DIGITS         2      // was: NormalizeDouble(lot,2)
 #define BD_MAX_LOT_STEPS      200    // FE-301: lot-chain cap after xN expansion (FIX-6: moved from GridEngine)
 #define BD_WMF_MARKS_MAX      200    // FE-406: max BUY/SELL arrows kept on the chart (ring)
 #define BD_POINTS_PER_PIP     10     // FE-407: 1 pip = 10 reference points (FE-201 convention)
+#define BD_MC_DELETE_RETRY_SEC 5     // BD-R5 (v14.7.2): backoff before retrying a failed pending-order delete
 
 //--- Signal behavior kept hardcoded exactly like v13 ----------------
 // (v13 hardcodes: SignalBar=Closed — evaluated on closed bar only, see
@@ -203,6 +213,7 @@ struct SConfig
    double EditLot;   // manual-order lot from panel
    int    PointScale; // FE-201: broker points per reference point (gold 3-digit: 10, else 1)
    bool   RemoteStop; // FE-404: mobile STOP ALL (999999) — blocks every automated open
+   datetime HaltUntil; // BD-R4 (v14.7.2): daily TP/SL halt deadline, mirrored by CMoneyGuard so it survives OnInit
 };
 SConfig Cfg;
 
@@ -227,6 +238,7 @@ void Config_Init()
    Cfg.EditLot       = Lot_Init_;
    Cfg.PointScale    = 1;
    Cfg.RemoteStop    = false;
+   Cfg.HaltUntil     = 0;   // BD-R4: Persist_Load() may restore a live deadline right after this
 }
 
 //--- FE-201: multiply every point-based runtime value ONCE at init.
