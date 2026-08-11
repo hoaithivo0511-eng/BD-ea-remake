@@ -1,0 +1,214 @@
+name: Compile BlackDragon (MQL5)
+
+# Compiles the EA and the unit-test script on a GitHub-hosted Windows runner
+# using the real MetaEditor that ships with MetaTrader 5. Run it by hand from
+# the Actions tab ("Run workflow") or let it fire on any source change.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/**'
+      - '.github/workflows/compile-mql5.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the MetaTrader 5 web installer
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' `
+            -OutFile 'mt5setup.exe' -UseBasicParsing
+          Write-Host "installer: $((Get-Item mt5setup.exe).Length) bytes"
+
+      - name: Install silently with /auto
+        shell: pwsh
+        run: |
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          # The installer launches the terminal, which keeps handles on
+          # MQL5\Include and can make the compiler read a locked tree.
+          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not (Test-Path "$env:MT5_DIR\metaeditor64.exe")) {
+            throw 'metaeditor64.exe not found - the silent install failed'
+          }
+          Write-Host 'MetaEditor present'
+
+      - name: Warm the terminal once so the standard library is unpacked
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # MQL5\Include\Trade, Arrays, Controls and friends are only written
+          # on a first terminal launch. BlackDragon looks self-contained, so
+          # this is best-effort: if it fails the compile may still succeed.
+          $t = Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
+          Start-Sleep -Seconds 45
+          $t | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 5
+          if (Test-Path "$env:MT5_DIR\MQL5\Include\Trade\Trade.mqh") {
+            Write-Host 'standard library present'
+          } else {
+            Write-Host 'standard library NOT unpacked - only a problem if the sources include it'
+          }
+
+      - name: Mirror the repo sources into the MQL5 tree
+        shell: pwsh
+        run: |
+          # Copying into the genuine MQL5 folder means include resolution
+          # behaves exactly as it does locally, for both <angle> and "quoted"
+          # includes. Compiling in the workspace would need the include style
+          # to be known in advance.
+          $mql5 = "$env:MT5_DIR\MQL5"
+          foreach ($d in @('Experts','Include','Scripts')) {
+            New-Item -ItemType Directory -Force -Path "$mql5\$d" | Out-Null
+            Copy-Item -Path "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" `
+                      -Destination "$mql5\$d" -Recurse -Force
+          }
+          Write-Host '--- Include\BlackDragon ---'
+          Get-ChildItem "$mql5\Include\BlackDragon" -File -Recurse |
+            ForEach-Object { '{0,-28} {1,8}' -f $_.Name, $_.Length }
+
+      - name: Re-encode the copies as UTF-16 LE with BOM
+        shell: pwsh
+        run: |
+          # Without a BOM MetaEditor reads a source as ANSI. Vietnamese
+          # comments and em-dashes are multi-byte UTF-8, so the column index
+          # shifts and the parser reports errors on code that is perfectly
+          # valid. Only the copies under Program Files are rewritten.
+          $mql5 = "$env:MT5_DIR\MQL5"
+          $enc  = New-Object System.Text.UnicodeEncoding($false, $true)
+          $roots = @(
+            "$mql5\Experts\BlackDragon",
+            "$mql5\Include\BlackDragon",
+            "$mql5\Scripts\BlackDragon"
+          )
+          $n = 0
+          foreach ($r in $roots) {
+            if (-not (Test-Path $r)) { continue }
+            Get-ChildItem -LiteralPath $r -Recurse -File |
+              Where-Object { $_.Extension -in '.mq5', '.mqh' } |
+              ForEach-Object {
+                $txt = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
+                [System.IO.File]::WriteAllText($_.FullName, $txt, $enc)
+                $n++
+              }
+          }
+          Write-Host "re-encoded $n source files"
+
+      - name: Compile RunTests.mq5 then BlackDragon.mq5
+        shell: pwsh
+        run: |
+          $editor = "$env:MT5_DIR\metaeditor64.exe"
+          $mql5   = "$env:MT5_DIR\MQL5"
+          $build  = "$env:GITHUB_WORKSPACE\build"
+          New-Item -ItemType Directory -Force -Path $build | Out-Null
+
+          # RunTests goes first: it pulls in most of the headers and holds all
+          # 37 asserts, so it is the likeliest source of errors. BlackDragon
+          # is still required, because Strategy.mqh and Panel.mqh are NOT in
+          # the test script's include list - a green RunTests does not prove
+          # the TIP-509 call site builds.
+          $targets = @(
+            @{ Name = 'RunTests'
+               Src  = "$mql5\Scripts\BlackDragon\Tests\RunTests.mq5"
+               Out  = "$mql5\Scripts\BlackDragon\Tests\RunTests.ex5" },
+            @{ Name = 'BlackDragon'
+               Src  = "$mql5\Experts\BlackDragon\BlackDragon.mq5"
+               Out  = "$mql5\Experts\BlackDragon\BlackDragon.ex5" }
+          )
+
+          $problems = @()
+          $summary  = @()
+
+          foreach ($t in $targets) {
+            $log = "$build\$($t.Name).log"
+            Write-Host "::group::compile $($t.Name)"
+
+            if (-not (Test-Path $t.Src)) {
+              Write-Host "source missing: $($t.Src)"
+              Write-Host '::endgroup::'
+              $problems += "$($t.Name): source file not found"
+              $summary  += "| $($t.Name) | source missing | - | - |"
+              continue
+            }
+
+            # metaeditor64 is a GUI application. -Wait is mandatory or this
+            # returns instantly and the .ex5 check below races the compiler.
+            $p = Start-Process -FilePath $editor `
+                   -ArgumentList "/compile:`"$($t.Src)`" /inc:`"$mql5`" /log:`"$log`"" `
+                   -Wait -PassThru -NoNewWindow
+
+            # The exit code is (errors + warnings), not a success flag.
+            Write-Host "exit code: $($p.ExitCode)  [= errors + warnings, not a status]"
+
+            $text = ''
+            if (Test-Path $log) {
+              # UTF-16 LE + BOM. Reading this as ANSI yields mojibake and
+              # every match below would silently return nothing.
+              $text = Get-Content -LiteralPath $log -Encoding Unicode -Raw
+              Write-Host '--- MetaEditor log ---'
+              Write-Host $text
+            } else {
+              Write-Host 'no log file was produced'
+            }
+            Write-Host '::endgroup::'
+
+            $lines = $text -split "`r?`n"
+            $errs  = @($lines | Where-Object { $_ -match ' : error ' })
+            $warns = @($lines | Where-Object { $_ -match ' : warning ' })
+            $built = Test-Path $t.Out
+
+            if (-not $built)          { $problems += "$($t.Name): no .ex5 produced" }
+            if ($errs.Count  -gt 0)   { $problems += "$($t.Name): $($errs.Count) error(s)" }
+            if ($warns.Count -gt 0)   { $problems += "$($t.Name): $($warns.Count) warning(s) - the house gate is 0/0" }
+
+            if ($built) { Copy-Item -LiteralPath $t.Out -Destination $build -Force }
+
+            $okText = if ($built) { 'yes' } else { 'no' }
+            $summary += "| $($t.Name) | $okText | $($errs.Count) | $($warns.Count) |"
+          }
+
+          $md = @()
+          $md += '## MQL5 compile'
+          $md += ''
+          $md += '| target | .ex5 | errors | warnings |'
+          $md += '|---|---|---|---|'
+          $md += $summary
+          $md += ''
+          if ($problems.Count -gt 0) {
+            $md += '### Problems'
+            $problems | ForEach-Object { $md += "- $_" }
+          } else {
+            $md += 'Both targets built with 0 errors and 0 warnings.'
+          }
+          $md -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+          if ($problems.Count -gt 0) {
+            Write-Host ''
+            $problems | ForEach-Object { Write-Host "FAIL  $_" }
+            throw 'compile gate failed'
+          }
+          Write-Host 'both targets: 0 error, 0 warning'
+
+      - name: Upload logs and binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mql5-build
+          path: build/
+          if-no-files-found: warn
