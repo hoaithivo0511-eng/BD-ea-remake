@@ -166,7 +166,16 @@ input bool   AutoGoldPip          = true;      // FE-201: gold 1 USD = 10 pips; 
 #define BD_OBJ_PREFIX_REZ     "ke_Rez_EA_BD_"
 #define BD_MAX_SEND_RETRIES   3      // was: hardcoded 3 in Trade()
 #define BD_ASYNC_TIMEOUT_SEC  5      // watchdog: reconcile if no server reply
-#define BD_ASYNC_HARD_TIMEOUT_SEC 30 // BD-002: conservative final unlock after reconciliation
+#define BD_ASYNC_HARD_TIMEOUT_SEC 30 // BD-002: conservative final unlock after reconciliation (OPEN intents)
+//--- BD-R1 (v14.7.2, quyet dinh Chu nha 11/08/2026): CLOSE/MODIFY unlock.
+//    Strategy::OnTick keeps its BD-001/BD-002 ordering — an unresolved async
+//    close still suppresses the whole tick, MoneyGuard included. What changes
+//    is how LONG that can last: a lost close reply used to freeze the money /
+//    daily stops for 30s, now 10s. Shortening is safe for CLOSE and MODIFY
+//    because both are idempotent (ClosePosition() re-selects the ticket and
+//    returns false when the position is already gone). An OPEN keeps 30s —
+//    releasing its busy flag early could duplicate a real order.
+#define BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC 10
 #define BD_NEWS_REFRESH_SEC   3600   // refresh calendar cache hourly
 #define BD_PANEL_TIMER_MS     500    // UI refresh cadence (C3)
 #define BD_LOT_DIGITS         2      // was: NormalizeDouble(lot,2)
