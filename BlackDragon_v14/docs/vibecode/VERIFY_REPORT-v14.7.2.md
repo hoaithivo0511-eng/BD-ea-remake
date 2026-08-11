@@ -1,11 +1,11 @@
-# VERIFY REPORT — v14.7.2 (BD-R1..R8)
+# VERIFY REPORT — v14.7.2 (BD-R1..R9)
 
 - Base: `908ab4c` (v14.7.1, after BD-001/BD-002)
 - Branch: `fix/bd-r2-r4-r5-r7-r8`
 - Method: vibecode-kit v5.1, REVIEW mode (SCAN -> VERIFY) with RRI-T
 - Date: 11/08/2026 (wave 1: TIP-501..505; wave 2: TIP-506..508 after the
   owner's decisions on Q1/Q2/Q5 the same day; wave 3: self-audit correction
-  + tests + doc drift)
+  + tests + doc drift; wave 4: TIP-509 + release bookkeeping)
 
 ## Overall status
 
@@ -23,11 +23,11 @@ toolchain, no MetaEditor, no strategy tester and no network, so:
 | Static read of all 20 MQL files | PASS |
 | Post-commit blob verification of every pushed file | PASS — **caught 1 half-landed commit**, see below |
 
-The asserts are no longer a promise: **28 asserts for BD-R1..R8 are WRITTEN**
+The asserts are no longer a promise: **37 asserts for BD-R1..R9 are WRITTEN**
 in `Scripts/BlackDragon/Tests/RunTests.mq5` (7 BD-R2, 5 BD-R4, 1 BD-R5,
-8 BD-R1, 7 BD-R6). They have **not been executed** — that needs MetaEditor.
-BD-R3, BD-R7 and BD-R8 have no pure surface to assert and stay in the manual
-checklist below.
+8 BD-R1, 7 BD-R6, 9 BD-R9). They have **not been executed** — that needs
+MetaEditor. BD-R3, BD-R7 and BD-R8 have no pure surface to assert and stay in
+the manual checklist below.
 
 ## Corrections made during this review
 
@@ -54,6 +54,10 @@ reality still froze for 30s.
 - **Rule added to HANDOFF §8 and ARCHITECTURE §6:** after each commit, grep
   the new constant/function name. If it appears exactly once — at its
   declaration — the fix is half done.
+- **Rule applied to every later commit.** Waves 3 and 4 verified each blob
+  after pushing; TIP-509 moved `EntryFilters.mqh` `a818b954` -> `753221ec`
+  and `Strategy.mqh` `359220bf` -> `9b79bbcb` (13,325 -> 14,219 bytes)
+  before the fix was written up as done.
 
 ## Findings fixed on this branch
 
@@ -97,20 +101,60 @@ wrong side of price. The anchor rule removes that path.
 | Owner decision log | HANDOFF §3 gained entries 10/11/12 for the 11/08/2026 decisions |
 | BD15 -> BD16 state reset | Promoted to a warning box in HANDOFF §0 (it was only a residual-risk line here) |
 
+### Wave 4 — BD-R9 and release bookkeeping
+
+The owner read the P3 backlog and pulled item #4 into scope by name.
+
+| ID | Pri | TIP | Symptom | Fix |
+| --- | --- | --- | --- | --- |
+| BD-R9 | P3 by odds, P1 by consequence | TIP-509 | `Flag_Use_hedge = false` + exposure on both sides -> both `TryGridAdd` gates false forever. The basket freezes at its worst average price while the exits keep running, with no path back. | The hedge test moved to `Hedge_AllowsNewSeries()` (v13 rule, unchanged) and the DCA gate became `Hedge_AllowsGridAdd(ownCount)` — both pure, both in `EntryFilters.mqh`. |
+
+The two gates were **mutually exclusive**: `(useHedge || sell.count == 0)` and
+`(useHedge || buy.count == 0)` cannot both be true once both sides are open
+and hedging is off. Nothing in the tick loop could clear that state.
+
+Two-sided exposure is reachable even with hedge OFF, which is why this is a
+real defect and not a theoretical one: the panel's Open Buy / Open Sell
+buttons bypass the hedge test by design, and `flag_Hand_Ord = true` counts
+manual magic-0 orders into both sides. The gate also contradicted the
+invariant written at the top of `Strategy.mqh` — "grid adds are gated by
+pause/news/one-per-bar/MinuteStop only".
+
+`Flag_Use_hedge` is deliberately **not** a parameter of
+`Hedge_AllowsGridAdd()`. Reading the signature is enough to see that the
+absence of a hedge test is intentional rather than an accidental deletion.
+
+Assert #9 of the BD-R9 block pins the thing that matters most: in the exact
+deadlock state, DCA is unblocked **and** a new opposite series is still
+refused. The v13 no-hedge protection was not weakened. Assert #7 rebuilds the
+**old** gate and proves it false on both sides simultaneously — kept as
+executable code rather than prose so nobody restores it by accident.
+
+Also in wave 4:
+
+| Item | Status |
+| --- | --- |
+| `BD_VERSION` -> `"14.7.2"`, `#property version` -> `"14.72"` | Done, one commit, deliberately together |
+| Root-level `BlackDragon_v14.7.1_..._FIXED.zip` (202 KB, P3 #7) | Deleted — a second source of truth git cannot diff, two versions stale |
+| `CHANGELOG.md` v14.7.2 entry | See the bookkeeping note below |
+
 ## P3 backlog (still open, owner's call)
 
 1. Sell-trail arming compares an ask-based extreme against a bid-based level.
 2. `positionVolumeBefore = req.volume` is a misnomer (it holds the target).
 3. Async-open journal can sit to the hard timeout when `positionCountBefore`
    is stale.
-4. Hedge OFF + two-sided manual orders can deadlock both `TryGridAdd` paths.
+4. ~~Hedge OFF + two-sided manual orders can deadlock both `TryGridAdd`
+   paths~~ — fixed in wave 4 as BD-R9 / TIP-509.
 5. WMF re-`Seed()`s 1000 bars per chart bar when `WmfTF` < chart TF.
 6. ~~Doc drift: ~80 vs ~180 vs 277 asserts~~ — fixed in wave 3.
-7. Root-level zip duplicates the whole tree (rubric A12).
+7. ~~Root-level zip duplicates the whole tree (rubric A12)~~ — deleted in
+   wave 4.
 
-Items 1, 3, 4 and 5 change behaviour and were deliberately NOT patched
-without a decision, same discipline as wave 2. Items 2 and 7 are safe but
-cosmetic/structural and were left so this branch stays reviewable.
+Items 1, 3 and 5 change behaviour and were excluded from this round by the
+owner on 11/08/2026. Item 2 is safe but cosmetic: the rename would force a
+full re-emit of `ExecutionLayer.mqh` (26 KB) and `Types.mqh` with no compiler
+available to catch a slip, which is a bad trade for zero behavioural value.
 
 ## Required terminal tests before merge
 
@@ -118,9 +162,10 @@ cosmetic/structural and were left so this branch stays reviewable.
 2. `RunTests.mq5` green — the new v14.7.2 section must report 0 failures —
    and the offline C++ suite still 277/277.
 3. Tester A/B on the baseline `.set`: trade list identical to v14.7.1.
-   All eight patches are specified as tester no-ops on default inputs —
+   All nine patches are specified as tester no-ops on default inputs —
    TIP-506 touches an error path only, TIP-507 needs `iTS != 0` (default 0),
-   TIP-508 needs `flag_Hand_Ord = true` (default false).
+   TIP-508 needs `flag_Hand_Ord = true` (default false), TIP-509 needs
+   `Flag_Use_hedge = false` (default true).
 4. 3-digit gold demo: journal shows `deviation` scaled x10 (BD-R2).
 5. Live/demo: trigger a daily SL, restart the terminal, confirm the halt
    survives and the journal prints the restore line (BD-R4).
@@ -138,6 +183,11 @@ cosmetic/structural and were left so this branch stays reviewable.
 9. `flag_Hand_Ord = true`: close a manual magic-0 order in profit — the day
    total must not fall; with `flag_Hand_Ord = false` magic-0 deals stay out
    (BD-R6/TIP-508).
+10. `Flag_Use_hedge = false`: open one manual buy and one manual sell, then
+    let price travel past the DCA distance on each side. **Both** sides must
+    resume grid adds. In the same state, confirm the EA still refuses to open
+    a NEW opposite series — if it opens one, the fix went too far
+    (BD-R9/TIP-509).
 
 ## Residual risks
 
@@ -160,11 +210,20 @@ cosmetic/structural and were left so this branch stays reviewable.
   manual orders on this symbol". That is what the floating side already
   meant; `MoneyTPAll/SLAll` (magic scope) are untouched. Default settings are
   unaffected.
-- **The 28 new asserts have never been compiled.** MQL5 is not C++: a typo in
+- **BD-R9 residual, pre-existing but now met more often.** With
+  `flag_Hand_Ord = true`, an EA-owned side can now DCA while manual orders
+  sit on the opposite side, and `TryGridAdd` may stack martingale legs onto
+  what is effectively a manual basket. This is `flag_Hand_Ord` behaviour, not
+  something BD-R9 introduced — it already applied whenever only one side held
+  manual orders — but the fix removes the accidental lock that was hiding it.
+  Operators who use `flag_Hand_Ord` should read test 10 before enabling it.
+- **The 37 new asserts have never been compiled.** MQL5 is not C++: a typo in
   an enum name or an implicit conversion warning will surface only in
   MetaEditor. Treat test 2 as a compile gate as much as a behaviour gate.
-- `BD_VERSION`, `#property version` and `CHANGELOG.md` were deliberately
-  NOT touched — version/release bookkeeping is the owner's call.
+- **Release bookkeeping is partly done.** `BD_VERSION` and
+  `#property version` are both at 14.7.2 (bumped together on purpose — split
+  them and the journal line disagrees with the About box). `CHANGELOG.md`
+  is the remaining item.
 
 ## Retro
 
@@ -187,3 +246,10 @@ cosmetic/structural and were left so this branch stays reviewable.
   write that changed anything". Verify the artefact, not the API response —
   for a file, that means re-reading its hash; for a fix, that means grepping
   the new symbol and counting references.
+- **Second candidate, earned by BD-R9:** when two guards protect the same
+  invariant from opposite directions, check whether they can be false at the
+  same time. `(hedge || sell == 0)` and `(hedge || buy == 0)` each look
+  reasonable in isolation; read together they are a deadlock with no exit.
+  A gate copied from the "open a new series" path to the "add to an existing
+  series" path is a smell in itself — the two paths do not share a
+  precondition just because they both open an order.
