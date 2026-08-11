@@ -1,5 +1,150 @@
 # CHANGELOG — EA Black Dragon (modular)
 
+## [14.7.2] — 2026-08-11 — Deep review BD-R1…R9 (TIP-501…509) — CHƯA COMPILE
+
+> ⚠️ **Đọc dòng này trước mọi dòng khác.** Toàn bộ mục 14.7.2 là kết quả
+> **review TĨNH**. Môi trường thực hiện không có MetaEditor, không có Strategy
+> Tester và không có mạng ⇒ **F7 chưa chạy, `RunTests.mq5` chưa chạy, backtest
+> đối chiếu golden baseline chưa chạy**. Mỗi dòng dưới đây mô tả code ĐÃ GHI
+> vào nhánh `fix/bd-r2-r4-r5-r7-r8` (PR #2), **không** phải hành vi đã kiểm
+> chứng. Đây là khác biệt lớn nhất giữa mục này và mọi mục phía dưới.
+
+### P1 — 4 finding
+
+- **BD-R1 / TIP-506 — async close khóa Money/Daily guard tới 30s.**
+  `Strategy::OnTick` return ở `HasAnyPendingClose()` TRƯỚC `ApplyGuard`, nên
+  một reply close thất lạc làm guard câm suốt hard-timeout. Thêm hằng
+  `BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC = 10` + hàm thuần
+  `Exec_HardTimeoutSec(action)` nối vào `Watchdog()`: CLOSE/MODIFY nhả sau
+  10s, OPEN giữ 30s. Bất đối xứng CÓ CHỦ ĐÍCH — CLOSE/MODIFY idempotent,
+  OPEN thì không (nhả sớm có thể sinh lệnh thật thứ hai).
+- **BD-R2 / TIP-501 — `Slippage_` không nhân `PointScale`.** `req.deviation`
+  nhận thẳng số point của input, nên trên Vàng 3-digit `Slippage_=3` chỉ là
+  0.03 USD thay vì 0.30 — vi phạm rule 8. Thêm `Exec_Deviation(points, scale)`
+  thuần, áp tại đúng một chỗ trong `OpenMarket`/`ClosePosition`.
+- **BD-R3 / TIP-507 — trailing SL thật bị xóa mỗi lần DCA add.** Ngoài việc
+  xóa stop, `SeedExtreme()` còn re-derive extreme từ "nến kể từ leg mới nhất"
+  trên MỌI `Rebuild()`; cửa sổ đó vẫn chứa phần TRƯỚC khi add của nến hiện
+  tại, nên một đỉnh cũ có thể arm trail ngay theo breakeven mới (Virt: đóng
+  rổ tại chỗ; Real: đẩy stop sai phía giá). Trail extreme thành *session
+  state* đơn điệu có leg anchor, chỉ re-anchor khi xuất hiện leg MỚI HƠN; leg
+  bị tỉa KHÔNG re-derive. Mỗi lần xóa SL thật có log `trailclr`.
+- **BD-R4 / TIP-502 — halt daily mất sau restart.** Đạt Daily target/limit →
+  halt, nhưng `haltUntil` chỉ nằm trong RAM. Recompile hay restart giữa ngày
+  là EA giao dịch lại ngay. Thêm `haltUntil` vào `SPersistedState` +
+  `MG_HaltDeadline()` thuần. **Persistence bump BD15 → BD16.**
+
+### P2 — 4 finding
+
+- **BD-R5 / TIP-503 — retry storm khi không xóa được lệnh chờ.** Một pending
+  mobile-control không xóa được làm `Persist_Save()` + panel redraw chạy 2
+  lần/giây vĩnh viễn. Thêm `BD_MC_DELETE_RETRY_SEC = 5` + throttle log.
+- **BD-R6 / TIP-508 — lệnh tay magic-0 chỉ tính floating, không tính
+  realized.** Với `flag_Hand_Ord = true`, P/L nổi của lệnh tay đã vào lãi/lỗ
+  ngày nhưng phần đã chốt thì không ⇒ ngày âm/dương nhảy bậc mỗi lần đóng
+  lệnh tay. Hàm thuần `Basket_OwnsMagic()` thành định nghĩa DUY NHẤT của
+  "lệnh của mình", dùng chung cho position scan, `SeedDayProfit()` và booking
+  trong `OnTradeTransaction`.
+- **BD-R7 / TIP-504 — ticket biến mất còn được đếm trọn một tick.**
+  `RefreshFloating` bỏ qua ticket đã đóng nhưng không nén mảng, nên `count`/
+  `totalLots` sai cho tới `Rebuild()` kế tiếp — bậc DCA và breakeven lệch
+  trong cửa sổ đó. Nén ngay trong tick.
+- **BD-R8 / TIP-505 — `DrawLevels` chạy mỗi tick**, trái rule C3 (panel theo
+  timer 500ms + dirty check). Chuyển về cadence panel.
+
+### P3 được Chủ nhà nâng vào scope
+
+- **BD-R9 / TIP-509 — Hedge OFF + hai chiều cùng mở ⇒ CẢ HAI `TryGridAdd`
+  kẹt vĩnh viễn.** Cổng cũ đặt trên cả hai nhánh:
+
+  ```cpp
+  if(Flag_Use_hedge || m_basket.sell.count == 0) TryGridAdd(... BD_DIR_BUY ...);
+  if(Flag_Use_hedge || m_basket.buy.count  == 0) TryGridAdd(... BD_DIR_SELL ...);
+  ```
+
+  Hai điều kiện loại trừ lẫn nhau: hedge OFF + hai chiều cùng có lệnh ⇒ cả
+  hai false, và không có gì trong vòng tick xóa được trạng thái đó. Rổ đóng
+  băng ở giá trung bình xấu nhất trong khi exits vẫn chạy. Trạng thái hai
+  chiều là ĐẾN ĐƯỢC dù hedge OFF: nút Open Buy/Open Sell trên panel bypass
+  luật hedge theo thiết kế, và `flag_Hand_Ord = true` đếm lệnh tay magic-0
+  vào cả hai chiều.
+
+  Tách thành hai hàm thuần trong `EntryFilters.mqh`:
+  `Hedge_AllowsNewSeries(useHedge, oppositeCount)` giữ NGUYÊN luật v13 cho
+  series mới, `Hedge_AllowsGridAdd(ownCount)` chỉ hỏi "chiều này đã có lệnh
+  chưa". `Flag_Use_hedge` **cố ý không phải tham số** của hàm thứ hai — đọc
+  chữ ký là thấy ngay việc thiếu phép thử hedge là bàn ý, không phải xóa sót.
+
+### Quyết định của Chủ nhà (11/08/2026 — sổ quyết định HANDOFF §3 mục 10–13)
+
+1. **BD-R1:** giữ thứ tự `HasAnyPendingClose()` trước `ApplyGuard` (đảo thứ
+   tự sẽ nhân đôi lệnh đóng), chỉ rút ngắn cửa sổ phơi nhiễm.
+2. **BD-R3:** chấp nhận SL thật bị xóa khi DCA add, nhưng trail phải arm lại
+   theo breakeven MỚI.
+3. **BD-R6:** tính CẢ realized của lệnh tay vào lãi/lỗ ngày.
+4. **BD-R9:** luật hedge gác SERIES MỚI, không gác DCA add.
+
+### Deviation baseline DỰ BÁO
+
+- Với **input mặc định, không đổi gì**: cả 9 patch là no-op trong tester.
+  TIP-506 chỉ chạm error path; TIP-507 cần `iTS != 0` (mặc định 0); TIP-508
+  cần `flag_Hand_Ord = true` (mặc định false); TIP-509 cần
+  `Flag_Use_hedge = false` (mặc định true).
+- **BD-R2 đổi hành vi có chủ đích trên sàn Vàng 3-digit:** deviation thực tế
+  ×10 so với trước. Đây là sửa lỗi, không phải regression.
+- **BD-R7 có thể dịch một fill sớm đúng một tick** sau khi một leg biến mất —
+  patch duy nhất trong lượt này chạm được vào trade list của backtest.
+- **BD15 → BD16:** lần khởi động đầu tiên sau merge, file state cũ bị từ chối
+  sạch sẽ ⇒ mọi toggle panel về default của input. Chụp lại trạng thái panel
+  trước khi merge nếu đang chạy live.
+
+### Rủi ro còn lại của BD-R9 (có sẵn từ trước, nay gặp thường hơn)
+
+Với `flag_Hand_Ord = true`, một chiều do EA sở hữu nay có thể DCA trong khi
+chiều kia đang có lệnh tay, và `TryGridAdd` có thể chồng bậc martingale lên
+cái thực chất là rổ lệnh tay. Đây là hành vi vốn có của `flag_Hand_Ord` —
+nó đã đúng như vậy mỗi khi chỉ một chiều có lệnh tay — nhưng khóa deadlock
+trước đây vô tình che nó đi. Ai bật `flag_Hand_Ord` nên đọc kịch bản 10
+trong `docs/vibecode/VERIFY_REPORT-v14.7.2.md` trước.
+
+### Test 14.7.2
+
+- `RunTests.mq5` **+37 assert** cho BD-R1…R9 (7 BD-R2, 5 BD-R4, 1 BD-R5,
+  8 BD-R1, 7 BD-R6, 9 BD-R9) — **ĐÃ VIẾT, CHƯA CHẠY**. Block BD-R9 có một
+  assert dựng lại **cổng cũ** bằng biến chạy được (không dùng hằng, tránh
+  constant folding) và chứng minh nó false ở cả hai chiều cùng lúc: giữ lỗi
+  cũ dưới dạng code, vì văn xuôi không chặn được ai đặt lại nó.
+- Offline suite C++ vẫn **277/277** của 14.7.1 — **chưa port** BD-R1…R9.
+- BD-R3, BD-R7, BD-R8 không có bề mặt thuần để assert; checklist chạy tay
+  10 kịch bản nằm trong `docs/vibecode/VERIFY_REPORT-v14.7.2.md`.
+
+### Bài học ghi lại (đắt nhất của lượt này)
+
+**TIP-506 từng landed một nửa mà mọi tài liệu đều báo đã xong.** Commit khai
+báo `BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC` trong `Config.mqh` và comment quyết
+định trong `Strategy.mqh`, nhưng `ExecutionLayer.mqh` trở về **y hệt từng
+byte**; `Watchdog()` vẫn so mọi intent với hằng 30s. Không có lệnh push nào
+báo lỗi. Quy tắc rút ra, nay nằm trong HANDOFF §8 và ARCHITECTURE §6:
+**một write thành công không phải là một write đã thay đổi thứ gì** — sau mỗi
+commit phải đọc lại blob SHA và grep tên hằng/hàm mới; nếu nó chỉ xuất hiện
+đúng một lần, ở chỗ khai báo, thì fix mới xong một nửa.
+
+### Còn mở sau 14.7.2
+
+- **4 finding P3** chưa vá: trailing SELL lệch bid/ask một spread;
+  `positionVolumeBefore` là tên gọi sai (giữ target volume);
+  journal async OPEN kẹt tới hard timeout khi `positionCountBefore` cũ;
+  `WmfTF` < TF chart làm `Seed()` đọc lại 1000 nến mỗi nến chart. Ba mục đầu
+  tiên và mục cuối đổi hành vi ⇒ Chủ nhà đã loại khỏi lượt này.
+- **Zip trùng ở gốc repo đã xóa** (`BlackDragon_v14.7.1_BD001_BD002_FIXED.zip`,
+  202 KB): git không diff được nó, không ai review nó, và nó lạc hậu ngay khi
+  có commit kế tiếp.
+- **Gate bắt buộc trước khi merge PR #2:** F7 0 error/0 warning → `RunTests.mq5`
+  ALL GREEN → offline suite 277/277 → backtest đối chiếu golden baseline →
+  kịch bản BD-R9 trên terminal (hedge OFF, mở tay 1 buy + 1 sell, xác nhận cả
+  hai chiều DCA trở lại **và** series đối lập vẫn bị chặn) → demo async soak
+  2–4 tuần.
+
 ## [14.7.1] — 2026-07-28 — BD-001/BD-002: close-terminal + async lifecycle idempotent
 
 ### BD-001 — close intent là terminal
