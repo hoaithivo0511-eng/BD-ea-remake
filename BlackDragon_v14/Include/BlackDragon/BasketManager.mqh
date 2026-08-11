@@ -12,7 +12,8 @@
 //|             C4 incremental trail extreme (no CopyHigh per tick), |
 //|             AU-14-01 floating profit/swap refreshed EVERY tick   |
 //|             (C1 caches only event-static data; profit moves with |
-//|             price -> stale cache killed Overlap + panel P/L).    |
+//|             price -> stale cache killed Overlap + panel P/L),    |
+//|             BD-R7 vanished tickets compacted out immediately.    |
 //| Depends on: Types.mqh, Logger.mqh                                |
 //+------------------------------------------------------------------+
 #ifndef BD_BASKETMANAGER_MQH
@@ -98,11 +99,25 @@ public:
    }
 
    //--- Per tick: cheap. Full rebuild only when dirty (C1) ------------
+   //    BD-R7 (v14.7.2): RefreshFloating() is where a cached ticket is
+   //    discovered to be gone (closed by the broker, by hand, or by another
+   //    EA). It used to only raise m_dirty, so the REST of this tick still
+   //    ran on a basket whose count/totalLots included a dead position:
+   //    breakeven, TP/SL and Overlap were all computed from stale data for
+   //    one full tick. Now the dead entries are dropped on the spot and, if
+   //    anything was dropped, we rebuild once and refresh again. Bounded to
+   //    2 passes: the second pass runs on a freshly rebuilt cache, so it can
+   //    only catch tickets that died in the last microseconds — those are
+   //    handled next tick, exactly as before. No unbounded loop per tick.
    void Update(const EAContext &ctx)
    {
-      if(m_dirty) Rebuild(ctx);
-      RefreshFloating(buy);      // AU-14-01: profit/swap move with price -> re-read per tick
-      RefreshFloating(sell);
+      for(int pass = 0; pass < 2; pass++)
+      {
+         if(m_dirty) Rebuild(ctx);
+         bool droppedBuy  = RefreshFloating(buy);   // AU-14-01: profit/swap move with price -> re-read per tick
+         bool droppedSell = RefreshFloating(sell);
+         if(!droppedBuy && !droppedSell) break;
+      }
       UpdateExtremes(ctx);       // C4: O(1) per tick
       ComputeLevels(ctx);        // arithmetic only, no API scans
    }
@@ -172,24 +187,38 @@ private:
    //    so they are re-read here — one PositionSelectByTicket per cached
    //    ticket, the same per-tick API cost as the SwapSum() this replaces.
    //    Consumers: Exit_OverlapHit (pos[].profit) and the panel (totalProfit).
-   void RefreshFloating(BasketSide &s)
+   //    BD-R7: a ticket that no longer exists is compacted out of the array
+   //    IN PLACE (write index w) and count/totalLots/totalProfit/swapSum are
+   //    rebuilt from the survivors, so no consumer downstream in this tick
+   //    can size a decision on a position that is already closed. Returns
+   //    true when at least one entry was dropped.
+   bool RefreshFloating(BasketSide &s)
    {
-      if(s.count == 0) return;
-      double totalProfit = 0, swapSum = 0;
+      if(s.count == 0) return false;
+      double totalProfit = 0, swapSum = 0, totalLots = 0;
+      int w = 0;                       // write index for in-place compaction
       for(int i = 0; i < s.count; i++)
       {
          if(!PositionSelectByTicket(s.pos[i].ticket))
          {
-            m_dirty = true;      // ticket gone (closed elsewhere) -> rebuild next tick
-            continue;
+            m_dirty = true;            // ticket gone (closed elsewhere) -> rebuild
+            continue;                  // BD-R7: and drop it from the cache NOW
          }
          double swap = PositionGetDouble(POSITION_SWAP);
-         s.pos[i].profit = PositionGetDouble(POSITION_PROFIT) + swap;  // v13 semantics: profit incl. swap
-         totalProfit    += s.pos[i].profit;
-         swapSum        += swap;
+         s.pos[w] = s.pos[i];
+         s.pos[w].profit = PositionGetDouble(POSITION_PROFIT) + swap;  // v13 semantics: profit incl. swap
+         totalProfit += s.pos[w].profit;
+         swapSum     += swap;
+         totalLots   += s.pos[w].lots;
+         w++;
       }
+      bool dropped  = (w != s.count);
+      s.count       = w;
+      s.totalLots   = totalLots;
       s.totalProfit = totalProfit;
       s.swapSum     = swapSum;
+      if(dropped) ArrayResize(s.pos, w);
+      return dropped;
    }
 
    void Append(BasketSide &s, const PositionInfo &p)

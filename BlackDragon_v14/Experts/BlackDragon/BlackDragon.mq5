@@ -41,6 +41,7 @@ CMobileControl   g_mobile;      // FE-404 (v14.5)
 CPanel           g_panel;
 CStrategy        g_strategy;
 CAdxFilter      *g_adx = NULL;
+datetime         g_lastSavedHalt = 0;   // BD-R4 (v14.7.2): last Cfg.HaltUntil written to the state file
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -168,6 +169,11 @@ int OnInit()
       else { delete g_adx; g_adx = NULL; Log_Error("Init", "ADX filter init failed — running without it"); }
    }
 
+   //--- BD-R4 (v14.7.2): seed the halt-persistence watermark AFTER
+   //    Persist_Load() + g_guard.Init() so a restored deadline is not
+   //    immediately rewritten by the first timer tick.
+   g_lastSavedHalt = Cfg.HaltUntil;
+
    EventSetMillisecondTimer(BD_PANEL_TIMER_MS);   // C3: UI + housekeeping cadence
    Log_Info("Init", "EA Black Dragon v" + BD_VERSION + " started. ExecMode=" +
             (ExecMode == exec_Async ? "Async" : "Sync"));
@@ -222,7 +228,11 @@ void OnTick()
 
    g_basket.Update(ctx);        // rebuild only when invalidated (C1)
    g_strategy.OnTick(ctx, g_panel);
-   g_panel.DrawLevels(g_basket.buy, g_basket.sell);
+   //--- BD-R8 (v14.7.2): g_panel.DrawLevels() moved to OnTimer. ARCHITECTURE
+   //    rule C3 puts UI redraws on the 500ms timer, not on the tick stream;
+   //    on a busy gold feed this was 8 ObjectMove/ObjectCreate calls per tick
+   //    with no visual benefit. The LEVELS themselves are still recomputed
+   //    every tick by g_basket.Update() — only the redraw is throttled.
 }
 
 //+------------------------------------------------------------------+
@@ -239,6 +249,18 @@ void OnTimer()
       }
    g_basket.CheckDayRollover(TimeCurrent());
    g_panel.ShowHalt(g_guard.HaltUntil(TimeCurrent()));   // FE-402: halt notice in title
+
+   //--- BD-R4 (v14.7.2): persist the daily-halt deadline on TRANSITIONS only
+   //    (halt armed / halt expired). At most two extra writes per day, versus
+   //    twice a second if this ran unconditionally. Without it, a terminal
+   //    restart after a daily SL resumed trading on the same day.
+   if(Cfg.HaltUntil != g_lastSavedHalt)
+   {
+      g_lastSavedHalt = Cfg.HaltUntil;
+      Persist_Save();
+   }
+
+   g_panel.DrawLevels(g_basket.buy, g_basket.sell);   // BD-R8: moved off OnTick (C3 cadence)
    g_panel.Refresh(g_basket.buy.totalProfit, g_basket.sell.totalProfit, g_basket.DayProfit());
 }
 
