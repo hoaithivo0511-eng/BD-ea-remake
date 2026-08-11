@@ -108,6 +108,21 @@ private:
    {
       double sl, tp;
       if(!m_exitPolicy.RealLevels(ctx, side, isBuy, sl, tp)) return;
+      // BD-R3 (v14.7.2, quyet dinh Chu nha 11/08/2026): after a DCA add the
+      // trail re-arms from the NEW breakeven, so an already-armed trailing SL
+      // is intentionally dropped (sl=0) until it arms again. Dropping real
+      // broker-side protection must never be silent — announce it once per
+      // side (Log_Warn is throttled 60s) so it is visible in the journal.
+      if(sl == 0 && Trail_Mode == mode_Real && !side.trailArmed)
+      {
+         bool hadStop = false;
+         for(int i = 0; i < side.count; i++)
+            if(NormalizeDouble(side.pos[i].sl, ctx.digits) != 0) { hadStop = true; break; }
+         if(hadStop)
+            Log_Warn("Strategy", "trailclr", "real trailing SL cleared on " + (string)side.count + " " +
+                     (isBuy ? "buy" : "sell") + " position(s) — trail re-arms from the new breakeven " +
+                     DoubleToString(side.breakeven, ctx.digits));
+      }
       bool modified = false;
       for(int i = 0; i < side.count; i++)
       {
@@ -204,6 +219,13 @@ public:
 
       // A close sent on an earlier tick remains terminal until ExecutionLayer
       // observes/reconciles its broker state (BD-002).
+      // BD-R1 (v14.7.2, quyet dinh Chu nha 11/08/2026): this ordering STAYS —
+      // MoneyGuard deliberately does NOT run above this early return, because
+      // a guard close fired while an earlier close is unresolved would double
+      // the exit traffic. The exposure it creates (money/daily stops frozen
+      // while an async close hangs) is bounded instead, in
+      // ExecutionLayer::Watchdog: BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC = 10s for a
+      // CLOSE/MODIFY, down from the 30s shared with OPEN intents.
       if(m_exec.HasAnyPendingClose())
       {
          if(panelOpenBuy || panelOpenSell)

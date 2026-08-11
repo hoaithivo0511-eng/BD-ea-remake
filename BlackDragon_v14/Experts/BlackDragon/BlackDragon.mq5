@@ -275,9 +275,15 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.symbol == _Symbol)
    {
       g_basket.Invalidate();                          // event-driven rebuild (C1)
+      //--- BD-R6 (v14.7.2, quyet dinh Chu nha 11/08/2026): Basket_OwnsMagic()
+      //    is the SAME rule the position scan and SeedDayProfit() use. With
+      //    flag_Hand_Ord ON, a manual magic-0 order's floating P/L already fed
+      //    the daily net, so its realized P/L must be booked here too —
+      //    otherwise dayNet fell back the instant a winning manual order
+      //    closed. flag_Hand_Ord OFF (default): unchanged, Magic only.
       if(HistoryDealSelect(trans.deal))
          if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) == _Symbol &&
-            HistoryDealGetInteger(trans.deal, DEAL_MAGIC) == Magic &&
+            Basket_OwnsMagic(HistoryDealGetInteger(trans.deal, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
             HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_OUT)
             g_basket.OnDealClosed(HistoryDealGetDouble(trans.deal, DEAL_PROFIT),
                                   HistoryDealGetDouble(trans.deal, DEAL_SWAP),

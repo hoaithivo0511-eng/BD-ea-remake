@@ -13,7 +13,11 @@
 //|             AU-14-01 floating profit/swap refreshed EVERY tick   |
 //|             (C1 caches only event-static data; profit moves with |
 //|             price -> stale cache killed Overlap + panel P/L),    |
-//|             BD-R7 vanished tickets compacted out immediately.    |
+//|             BD-R7 vanished tickets compacted out immediately,    |
+//|             BD-R3 trail extreme is session state, re-anchored    |
+//|             only by a NEWER leg (v14.7.2),                       |
+//|             BD-R6 one magic-ownership rule for positions AND     |
+//|             realized deals (v14.7.2).                            |
 //| Depends on: Types.mqh, Logger.mqh                                |
 //+------------------------------------------------------------------+
 #ifndef BD_BASKETMANAGER_MQH
@@ -33,6 +37,20 @@ double Basket_Breakeven(const double avgOpen, const double totalLots, const doub
    return isBuy ? avgOpen - shift : avgOpen + shift;
 }
 
+//--- BD-R6 (v14.7.2): PURE ownership rule, ONE definition -------------
+//    Chu nha's decision 11/08/2026: with flag_Hand_Ord ON the bot manages
+//    manual magic-0 orders, so their REALIZED result counts toward the daily
+//    target exactly like their FLOATING result already did. Before this the
+//    position scan accepted magic 0 while SeedDayProfit()/OnTradeTransaction
+//    accepted only Magic — so the day net silently jumped BACKWARDS the
+//    moment a winning manual order closed (its floating P/L left the basket
+//    and its realized P/L was never booked). Used by all three call sites.
+//    flag_Hand_Ord = false (default) -> identical to the old behaviour.
+bool Basket_OwnsMagic(const long dealMagic, const long botMagic, const bool handOrders)
+{
+   return dealMagic == botMagic || (dealMagic == 0 && handOrders);
+}
+
 class CBasketManager
 {
 private:
@@ -44,6 +62,10 @@ private:
    double   m_commissionBuy;
    double   m_commissionSell;
    double   m_dayStartBalance;   // FE-402: balance at day start (for % daily targets)
+   double   m_extremeBuy;        // BD-R3 (v14.7.2): trailing extreme, survives Rebuild()
+   double   m_extremeSell;
+   datetime m_anchorBuy;         // BD-R3: openTime of the newest leg the extreme is anchored to
+   datetime m_anchorSell;
 public:
    BasketSide buy;
    BasketSide sell;
@@ -51,7 +73,9 @@ public:
    CBasketManager() : m_dirty(true), m_dayProfit(0), m_dayStart(0),
                       m_lastBuyBar(0), m_lastSellBar(0),
                       m_commissionBuy(0), m_commissionSell(0),
-                      m_dayStartBalance(0) {}
+                      m_dayStartBalance(0),
+                      m_extremeBuy(0), m_extremeSell(DBL_MAX),
+                      m_anchorBuy(0), m_anchorSell(0) {}
 
    datetime LastBuyBar()  const { return m_lastBuyBar;  }
    datetime LastSellBar() const { return m_lastSellBar; }
@@ -74,7 +98,8 @@ public:
       {
          ulong tic = HistoryDealGetTicket(i);
          if(tic == 0) continue;
-         if(HistoryDealGetInteger(tic, DEAL_MAGIC) == Magic &&
+         // BD-R6: same ownership rule as the position scan below.
+         if(Basket_OwnsMagic(HistoryDealGetInteger(tic, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
             HistoryDealGetString(tic, DEAL_SYMBOL) == _Symbol &&
             HistoryDealGetInteger(tic, DEAL_ENTRY) == DEAL_ENTRY_OUT)
             m_dayProfit += HistoryDealGetDouble(tic, DEAL_PROFIT)
@@ -138,7 +163,7 @@ private:
          if(tic == 0) continue;
          if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
          long magic = PositionGetInteger(POSITION_MAGIC);
-         if(!(magic == Magic || (magic == 0 && flag_Hand_Ord))) continue;
+         if(!Basket_OwnsMagic(magic, Magic, flag_Hand_Ord)) continue;   // BD-R6: shared rule
 
          PositionInfo p;
          p.ticket    = tic;
@@ -259,23 +284,78 @@ private:
       return sum;
    }
 
+   //--- BD-R3 (v14.7.2, quyet dinh Chu nha 11/08/2026) -----------------
+   //    C4 seeds the trailing extreme once from bar history, then tracks it
+   //    O(1) per tick. The defect was that Rebuild() — which fires on EVERY
+   //    transaction on this symbol, including an SL/TP confirmation — threw
+   //    the tracked value away and re-derived it with CopyHigh/CopyLow over
+   //    "bars since the NEWEST leg". Right after a DCA add that window still
+   //    contains the PRE-add part of the current bar, so a high printed while
+   //    the basket had a different (higher) breakeven could arm the trail
+   //    instantly against the new, lower breakeven: in Virt mode that closes
+   //    the basket on the spot, in Real mode it pushes a stop on the wrong
+   //    side of price.
+   //    Rule now — the extreme is session state, monotonic, and re-anchored
+   //    ONLY when a genuinely NEWER leg appears (DCA add / new series), which
+   //    is exactly "re-arm from the new breakeven". A leg being REMOVED
+   //    (overlap trim, partial close) keeps the current extreme instead of
+   //    resurrecting an old high. On a fresh anchor we trust only bars that
+   //    opened strictly AFTER the leg's own bar; the partial bar holding the
+   //    add is covered by the live price plus UpdateExtremes from here on.
+   //    Restart recovery (C4's original purpose) is preserved: after OnInit
+   //    there is no session extreme yet, so the bar history is read.
    void SeedExtreme(BasketSide &s, const EAContext &ctx, const bool isBuy)
    {
-      // C4: seed once from bar history since last order; then O(1) per tick.
-      s.extremePrice = isBuy ? 0 : DBL_MAX;
-      if(s.count == 0 || Cfg.TrailStart == 0) return;
-      double arr[];
-      int bars = isBuy
-         ? CopyHigh(_Symbol, PERIOD_CURRENT, s.pos[s.count-1].openTime, ctx.now, arr)
-         : CopyLow (_Symbol, PERIOD_CURRENT, s.pos[s.count-1].openTime, ctx.now, arr);
-      if(bars > 0)
-         s.extremePrice = isBuy ? arr[ArrayMaximum(arr, 0, bars)] : arr[ArrayMinimum(arr, 0, bars)];
+      double   none   = isBuy ? 0.0 : DBL_MAX;
+      double   prev   = isBuy ? m_extremeBuy : m_extremeSell;
+      datetime anchor = isBuy ? m_anchorBuy  : m_anchorSell;
+
+      if(s.count == 0 || Cfg.TrailStart == 0)
+      {
+         s.extremePrice = none;
+         if(isBuy) { m_extremeBuy  = none; m_anchorBuy  = 0; }
+         else      { m_extremeSell = none; m_anchorSell = 0; }
+         return;
+      }
+
+      datetime legTime = s.pos[s.count - 1].openTime;
+
+      if(prev != none && anchor != 0 && legTime <= anchor)
+      {
+         s.extremePrice = prev;   // same basket, or a leg was trimmed -> keep tracking
+         if(isBuy) m_anchorBuy = legTime; else m_anchorSell = legTime;
+         return;
+      }
+
+      double seed  = ctx.bid;      // re-arm from the CURRENT price...
+      int    shift = iBarShift(_Symbol, PERIOD_CURRENT, legTime, false);
+      if(shift >= 0)
+      {
+         datetime from = iTime(_Symbol, PERIOD_CURRENT, shift) + PeriodSeconds(PERIOD_CURRENT);
+         if(from > 0 && from < ctx.now)   // ...plus bars that are post-add for certain
+         {
+            double arr[];
+            int bars = isBuy
+               ? CopyHigh(_Symbol, PERIOD_CURRENT, from, ctx.now, arr)
+               : CopyLow (_Symbol, PERIOD_CURRENT, from, ctx.now, arr);
+            if(bars > 0)
+            {
+               double ext = isBuy ? arr[ArrayMaximum(arr, 0, bars)] : arr[ArrayMinimum(arr, 0, bars)];
+               seed = isBuy ? MathMax(seed, ext) : MathMin(seed, ext);
+            }
+         }
+      }
+      s.extremePrice = seed;
+      if(isBuy) { m_extremeBuy  = seed; m_anchorBuy  = legTime; }
+      else      { m_extremeSell = seed; m_anchorSell = legTime; }
    }
 
+   //--- C4: O(1) per tick. BD-R3: mirror into the session copy so the next
+   //    Rebuild() keeps the tracked extreme instead of re-deriving it.
    void UpdateExtremes(const EAContext &ctx)
    {
-      if(buy.count  > 0) buy.extremePrice  = MathMax(buy.extremePrice,  ctx.bid);
-      if(sell.count > 0) sell.extremePrice = MathMin(sell.extremePrice, ctx.bid);
+      if(buy.count  > 0) { buy.extremePrice  = MathMax(buy.extremePrice,  ctx.bid); m_extremeBuy  = buy.extremePrice;  }
+      if(sell.count > 0) { sell.extremePrice = MathMin(sell.extremePrice, ctx.bid); m_extremeSell = sell.extremePrice; }
    }
 
    //--- [STRATEGY-BEHAVIOR] v13 level formulas (with bug #3/#8 fixes) --
