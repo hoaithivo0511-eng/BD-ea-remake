@@ -4,7 +4,7 @@
 //| grid distance, martingale lots, breakeven, trailing, overlap.    |
 //| Every strategy formula change MUST keep these green (or update   |
 //| them consciously with a CHANGELOG entry).                        |
-//| v14.7.2: last section pins the BD-R1..R8 deep-review fixes.      |
+//| v14.7.2: last section pins the BD-R1..R9 deep-review fixes.      |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Config.mqh>
@@ -321,7 +321,7 @@ void OnStart()
    CheckEq("M-chain MaxLot cap (1.03^300)", Grid_ChainLot(0.01, 300, small, 5), 5.0);
 
    //====================================================================
-   //  v14.7.2 deep review — BD-R1..R8 (28 asserts)
+   //  v14.7.2 deep review — BD-R1..R9 (37 asserts)
    //  Only the PURE parts are asserted here. BD-R3 (SeedExtreme anchor
    //  rule), BD-R7 (RefreshFloating compaction) and BD-R8 (DrawLevels
    //  cadence) need live positions / a chart: see the terminal checklist
@@ -380,6 +380,36 @@ void OnStart()
    Check("BD-R6 foreign magic never owned (hand off)", !Basket_OwnsMagic(2222, 1111, false));
    Check("BD-R6 foreign magic never owned (hand on)",  !Basket_OwnsMagic(2222, 1111, true));
    Check("BD-R6 bot configured with Magic=0 owns its own deals", Basket_OwnsMagic(0, 0, false));
+
+   //--- TIP-509 / BD-R9: hedge gates a NEW series, never a DCA add ------
+   //    v13 rule preserved for new series...
+   Check("BD-R9 hedge ON: opposite side never blocks a new series",
+         Hedge_AllowsNewSeries(true, 5));
+   Check("BD-R9 hedge OFF + opposite flat: new series allowed",
+         Hedge_AllowsNewSeries(false, 0));
+   Check("BD-R9 hedge OFF + opposite open: new series BLOCKED (v13)",
+         !Hedge_AllowsNewSeries(false, 3));
+   Check("BD-R9 impossible negative count treated as flat",
+         Hedge_AllowsNewSeries(false, -1));
+   //    ...while a DCA add depends ONLY on its own side being open.
+   Check("BD-R9 open side may add a grid leg",   Hedge_AllowsGridAdd(2));
+   Check("BD-R9 flat side has nothing to add to", !Hedge_AllowsGridAdd(0));
+
+   //    Regression: reconstruct the OLD gate and show it deadlocked BOTH
+   //    sides at once. Held as live code, not prose, so nobody re-adds it.
+   bool useHedge  = false;
+   int  buyCount  = 3;
+   int  sellCount = 2;
+   bool oldBuyGate  = (useHedge || sellCount == 0);   // gated buy DCA on SELL
+   bool oldSellGate = (useHedge || buyCount  == 0);   // gated sell DCA on BUY
+   Check("BD-R9 the old gate froze BOTH sides simultaneously",
+         !oldBuyGate && !oldSellGate);
+   Check("BD-R9 the new gate frees BOTH sides",
+         Hedge_AllowsGridAdd(buyCount) && Hedge_AllowsGridAdd(sellCount));
+   //    ...and the no-hedge protection is NOT weakened: in that very same
+   //    state a NEW series is still refused.
+   Check("BD-R9 DCA freed but a new opposite series still refused",
+         Hedge_AllowsGridAdd(buyCount) && !Hedge_AllowsNewSeries(useHedge, sellCount));
 
    PrintFormat("BlackDragon v14 unit tests: %d passed, %d failed", g_pass, g_fail);
    if(g_fail == 0) Print("ALL GREEN — safe to proceed to backtest comparison (golden baseline).");
