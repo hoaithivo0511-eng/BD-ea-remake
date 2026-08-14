@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| ExitEngine.mqh — BlackDragon v14.0.0                             |
+//| ExitEngine.mqh — BlackDragon v14.8.0                             |
 //| Purpose   : PURE exit decisions: virtual TP / SL / Trailing +    |
 //|             Overlap. Returns ExitDecision; never closes orders.  |
 //| Invariants: No API calls, no writes. Unit-testable (P1).         |
@@ -40,13 +40,14 @@ bool Exit_TrailHit(const bool isBuy, const bool armed, const double trailLevel,
 //--- Overlap: last order profit covers first order loss + percent ---
 //    Fix #10: require firstProfit < 0 (a losing first order). v13    |
 //    fired even when the first order was profitable, closing the    |
-//    best two orders of the basket for no reason.                   |
+//    best two orders of the basket for no reason. v14.8 accepts a   |
+//    decimal overlap percent without truncating it.                  |
 bool Exit_OverlapHit(const int count, const int overlapFromOrder, const bool overlapOn,
-                     const double firstProfit, const double lastProfit, const int overlapPercent)
+                     const double firstProfit, const double lastProfit, const double overlapPercent)
 {
    if(!overlapOn || count < overlapFromOrder) return false;
    if(firstProfit >= 0) return false;   // fix #10
-   return lastProfit > 0 && lastProfit >= -firstProfit * (100 + overlapPercent) / 100.0;
+   return lastProfit > 0 && lastProfit >= -firstProfit * (100.0 + overlapPercent) / 100.0;
 }
 
 //--- Coordinator-facing policy ---------------------------------------

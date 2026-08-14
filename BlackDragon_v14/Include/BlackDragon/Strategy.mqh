@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| Strategy.mqh — BlackDragon v14.0.0                               |
+//| Strategy.mqh — BlackDragon v14.8.0                               |
 //| Purpose   : Composition root / coordinator. Turns signals +      |
 //|             basket state into TradeIntents and hands them to     |
 //|             ExecutionLayer. (Addition vs Plan v2 file list —     |
@@ -8,8 +8,9 @@
 //|             never calls OrderSend directly.                      |
 //| Depends on: Types, GridEngine, EntryFilters, ExitEngine,         |
 //|             BasketManager, ExecutionLayer, Panel                 |
-//| [STRATEGY-BEHAVIOR] Gating conditions mirror v13 OPEN_ORDERS:    |
-//|  - hour/spread filters gate ONLY the first order of a series     |
+//| [STRATEGY-BEHAVIOR] Gating conditions mirror v13 except the      |
+//|  retired legacy hour filter; spread gates only the first order.  |
+//|  Detailed TimeLocal schedule is registered from OnInit.          |
 //|  - grid adds are gated by pause/news/one-per-bar/MinuteStop only |
 //|  - BD-R9 (v14.7.2): hedge OFF gates only a NEW series, not a     |
 //|    DCA add. Gating both deadlocked both sides (EntryFilters).    |
@@ -34,7 +35,7 @@ private:
    CMoneyGuard       *m_guard;    // FE-401/402 (v14.3), NULL = disabled
    CDistancePlan     *m_dist;     // FE-407 (v14.7): classic or manual pip chain
    CVirtualExitPolicy m_exitPolicy;
-   CFilterChain       m_newSeriesFilters;  // hour + spread + pause + news (+ extensions)
+   CFilterChain       m_newSeriesFilters;  // spread + pause + news (+ extensions)
    CFilterChain       m_gridFilters;       // pause + news (v13 behavior)
 
    //--- v13: first order of a series --------------------------------
@@ -180,7 +181,6 @@ public:
       m_guard  = guard;
       m_dist   = dist;
       // Registration point: ALL enabled behaviors are visible right here.
-      m_newSeriesFilters.Add(new CHourFilter());
       m_newSeriesFilters.Add(new CSpreadFilter());
       m_newSeriesFilters.Add(new CPauseFilter());
       m_newSeriesFilters.Add(new CNewsFilter());

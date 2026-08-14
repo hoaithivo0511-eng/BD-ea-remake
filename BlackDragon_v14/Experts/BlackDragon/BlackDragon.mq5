@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v14.7.2 (modular rebuild)      |
+//| BlackDragon.mq5 — EA Black Dragon v14.8.0 (modular rebuild)      |
 //| Event handlers + module registration ONLY. All logic lives in    |
 //| MQL5/Include/BlackDragon/. Read ARCHITECTURE.md before editing.  |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14."
-#property version   "14.72"
+#property version   "14.80"
 
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Types.mqh>
@@ -145,7 +145,8 @@ int OnInit()
    g_strategy.AddNewSeriesFilter(new CHaltFilter(&g_guard));
    g_strategy.AddGridFilter(new CHaltFilter(&g_guard));
 
-   //--- FE-403 (v14.4): trading schedule by PC/local time
+   //--- FE-403 / v14.8.0: the detailed PC/local HH:MM schedule is now
+   //    the only time-window filter (legacy Start_Hour/End_Hour removed).
    if(UseTimeLimit)
    {
       string terr = "";

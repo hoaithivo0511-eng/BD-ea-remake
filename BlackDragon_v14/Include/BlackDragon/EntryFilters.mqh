@@ -1,10 +1,11 @@
 //+------------------------------------------------------------------+
-//| EntryFilters.mqh — BlackDragon v14.0.0                           |
-//| Purpose   : IEntryFilter chain: hour, spread, pause, news.       |
+//| EntryFilters.mqh — BlackDragon v14.8.0                           |
+//| Purpose   : IEntryFilter chain: spread, pause, news, local-time. |
 //|             Adding a filter = new class + register in OnInit.    |
 //| Invariants: Filters only READ ctx; never place orders.           |
 //| Depends on: Types.mqh, NewsCalendar.mqh                          |
-//| [STRATEGY-BEHAVIOR] Hour/spread semantics identical to v13.      |
+//| [STRATEGY-BEHAVIOR] Spread semantics remain v13; v14.8 removes   |
+//|                     the legacy server-hour filter entirely.      |
 //+------------------------------------------------------------------+
 #ifndef BD_ENTRYFILTERS_MQH
 #define BD_ENTRYFILTERS_MQH
@@ -13,21 +14,6 @@
 
 #define BD_DIR_BUY  0
 #define BD_DIR_SELL 1
-
-//--- v13: Start_Hour/End_Hour, both non-zero to activate ------------
-class CHourFilter : public IEntryFilter
-{
-public:
-   bool Allow(const EAContext &ctx, const int dir)
-   {
-      if(Start_Hour == 0 || End_Hour == 0) return true;  // [STRATEGY-BEHAVIOR] 0 disables (v13, incl. 0h quirk)
-      MqlDateTime t;
-      TimeToStruct(ctx.now, t);
-      if(Start_Hour < End_Hour && (t.hour < Start_Hour || t.hour >= End_Hour)) return false;
-      if(Start_Hour > End_Hour && (t.hour < Start_Hour && t.hour >= End_Hour)) return false;
-      return true;
-   }
-};
 
 //--- v13: MaxSpred, 0 disables ---------------------------------------
 class CSpreadFilter : public IEntryFilter
@@ -104,7 +90,8 @@ bool Hedge_AllowsGridAdd(const int ownCount)
 //--- FE-403 (v14.4): trading schedule by PC/LOCAL time (CCBSN manual) --
 //    4 on/off windows in "HH:MM"; overnight windows (start > end) are
 //    supported; [start, end) half-open. NOTE: in the Strategy Tester
-//    TimeLocal() equals the modelled server time.
+//    TimeLocal() equals the modelled server time. Since v14.8 this is
+//    the ONLY time-window system; Start_Hour/End_Hour were removed.
 
 //--- PURE: "HH:MM" -> minutes since midnight. Tolerant to spaces and a
 //    1-digit hour; minute must be exactly 2 digits; both numeric.
