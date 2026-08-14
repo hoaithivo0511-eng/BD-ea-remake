@@ -82,6 +82,17 @@ bool Exec_CloseVolumeResolved(const double beforeVolume, const double currentVol
    return beforeVolume - currentVolume + eps >= targetVolume;
 }
 
+//--- BD-R10 (deep review 14/08/2026): preserve close ownership ------
+//    A zero-initialized MqlTradeRequest makes the closing DEAL magic 0.
+//    CloseAllAccount() can close this EA, manual, and foreign-EA positions,
+//    so assigning the chart Magic to every request would corrupt ownership
+//    in the opposite direction. Preserve the selected position's magic:
+//    own positions stay owned, manual stays 0, foreign stays foreign.
+ulong Exec_CloseRequestMagic(const long positionMagic)
+{
+   return positionMagic > 0 ? (ulong)positionMagic : 0;
+}
+
 class CExecutionLayer
 {
 private:
@@ -414,6 +425,7 @@ public:
       MqlTick tick;
       if(!SymbolInfoTick(sym, tick)) return false;
       long type = PositionGetInteger(POSITION_TYPE);
+      long positionMagic = PositionGetInteger(POSITION_MAGIC);
       MqlTradeRequest req; MqlTradeResult res;
       ZeroMemory(req); ZeroMemory(res);
       req.action       = TRADE_ACTION_DEAL;
@@ -424,6 +436,7 @@ public:
       req.price        = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
       // BD-R2: cross-symbol path — scale with THAT symbol's point size, not the chart's.
       req.deviation    = Exec_Deviation(Slippage_, Sym_PointScaleFor(sym));
+      req.magic        = Exec_CloseRequestMagic(positionMagic);  // BD-R10: preserve owner
       req.type_filling = FillingFor(sym);
       return Send(req, res, INTENT_CLOSE_TICKET);
    }

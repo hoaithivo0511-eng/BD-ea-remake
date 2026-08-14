@@ -411,6 +411,13 @@ void OnStart()
    Check("BD-R9 DCA freed but a new opposite series still refused",
          Hedge_AllowsGridAdd(buyCount) && !Hedge_AllowsNewSeries(useHedge, sellCount));
 
+
+   //--- BD-R10: account-wide closes preserve position ownership ----------
+   CheckEq("BD-R10 own position keeps bot magic",    (double)Exec_CloseRequestMagic(1111), 1111);
+   CheckEq("BD-R10 foreign position stays foreign",  (double)Exec_CloseRequestMagic(2222), 2222);
+   CheckEq("BD-R10 manual position stays magic-0",   (double)Exec_CloseRequestMagic(0), 0);
+   CheckEq("BD-R10 invalid negative magic clamps 0", (double)Exec_CloseRequestMagic(-1), 0);
+
    PrintFormat("BlackDragon v14 unit tests: %d passed, %d failed", g_pass, g_fail);
    if(g_fail == 0) Print("ALL GREEN — safe to proceed to backtest comparison (golden baseline).");
 }
