@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
-//| EntryFilters.mqh — BlackDragon v14.0.0                           |
-//| Purpose   : IEntryFilter chain: hour, spread, pause, news.       |
+//| EntryFilters.mqh — BlackDragon v14.8.0                           |
+//| Purpose   : IEntryFilter chain: spread, pause, news, local-time. |
 //|             Adding a filter = new class + register in OnInit.    |
 //| Invariants: Filters only READ ctx; never place orders.           |
 //| Depends on: Types.mqh, NewsCalendar.mqh                          |
-//| [STRATEGY-BEHAVIOR] Hour/spread semantics identical to v13.      |
+//| v14.8.0  : legacy Start_Hour/End_Hour + CHourFilter removed.     |
+//|             The detailed PC/local HH:MM schedule is the single   |
+//|             time-window implementation.                          |
 //+------------------------------------------------------------------+
 #ifndef BD_ENTRYFILTERS_MQH
 #define BD_ENTRYFILTERS_MQH
@@ -14,51 +16,28 @@
 #define BD_DIR_BUY  0
 #define BD_DIR_SELL 1
 
-//--- v13: Start_Hour/End_Hour, both non-zero to activate ------------
-class CHourFilter : public IEntryFilter
-{
-public:
-   bool Allow(const EAContext &ctx, const int dir)
-   {
-      if(Start_Hour == 0 || End_Hour == 0) return true;  // [STRATEGY-BEHAVIOR] 0 disables (v13, incl. 0h quirk)
-      MqlDateTime t;
-      TimeToStruct(ctx.now, t);
-      if(Start_Hour < End_Hour && (t.hour < Start_Hour || t.hour >= End_Hour)) return false;
-      if(Start_Hour > End_Hour && (t.hour < Start_Hour && t.hour >= End_Hour)) return false;
-      return true;
-   }
-};
-
-//--- v13: MaxSpred, 0 disables ---------------------------------------
 class CSpreadFilter : public IEntryFilter
 {
 public:
    bool Allow(const EAContext &ctx, const int dir)
    {
       if(MaxSpred == 0) return true;
-      // FE-201: MaxSpred is authored in reference points (2-digit gold);
-      // real spread on a 3-digit broker is 10x in broker points.
       return ctx.spreadPoints <= MaxSpred * Cfg.PointScale;
    }
 };
 
-//--- Panel pause buttons + FE-404 mobile STOP ALL --------------------
-//    RemoteStop (Buy Stop 999999 from mobile) blocks every automated
-//    open on both chains — same gate class as the pause buttons since
-//    the semantics are identical (management/exits keep running).
 class CPauseFilter : public IEntryFilter
 {
 public:
    bool Allow(const EAContext &ctx, const int dir)
    {
-      if(Cfg.RemoteStop) return false;                 // FE-404 (v14.5)
+      if(Cfg.RemoteStop) return false;
       if(dir == BD_DIR_BUY  && Cfg.PauseBuy)  return false;
       if(dir == BD_DIR_SELL && Cfg.PauseSell) return false;
       return true;
    }
 };
 
-//--- News pause (Nhom D) ---------------------------------------------
 class CNewsFilter : public IEntryFilter
 {
 public:
@@ -68,46 +47,16 @@ public:
    }
 };
 
-//--- BD-R9 (v14.7.2): hedge gating is a NEW-SERIES rule, not a DCA rule
-//    v13 GET_INFO semantics: with hedge OFF the EA must not START a
-//    series on one side while the opposite side is open. Applying the
-//    SAME test to grid adds deadlocks BOTH sides as soon as two-sided
-//    exposure exists: buy DCA waits for sell.count == 0 while sell DCA
-//    waits for buy.count == 0, and neither side can shrink on its own.
-//    Exits keep running, so the basket is frozen at its worst average
-//    with no way to average down.
-//    Two-sided exposure IS reachable with Flag_Use_hedge = false:
-//      - panel Open Buy / Open Sell bypass the hedge test entirely;
-//      - flag_Hand_Ord = true counts manual magic-0 orders into both
-//        sides (see Basket_OwnsMagic).
-//    A grid add cannot CREATE opposite exposure — its own side is
-//    already open and the opposite side exists either way — so it is
-//    not what the no-hedge rule protects. Splitting the rule in two
-//    also restores the invariant documented in the Strategy.mqh
-//    header: "grid adds are gated by pause/news/one-per-bar/MinuteStop
-//    only".
-
-//--- PURE: may a NEW series be started on this side?
 bool Hedge_AllowsNewSeries(const bool useHedge, const int oppositeCount)
 {
    return useHedge || oppositeCount <= 0;
 }
 
-//--- PURE: may an ALREADY OPEN side add a grid (DCA) leg?
-//    Flag_Use_hedge is deliberately NOT a parameter: the absence of the
-//    hedge test here is the fix itself, not an accidental omission.
 bool Hedge_AllowsGridAdd(const int ownCount)
 {
    return ownCount > 0;
 }
 
-//--- FE-403 (v14.4): trading schedule by PC/LOCAL time (CCBSN manual) --
-//    4 on/off windows in "HH:MM"; overnight windows (start > end) are
-//    supported; [start, end) half-open. NOTE: in the Strategy Tester
-//    TimeLocal() equals the modelled server time.
-
-//--- PURE: "HH:MM" -> minutes since midnight. Tolerant to spaces and a
-//    1-digit hour; minute must be exactly 2 digits; both numeric.
 bool TL_ParseHHMM(const string s, int &minutes)
 {
    minutes = -1;
@@ -129,15 +78,13 @@ bool TL_ParseHHMM(const string s, int &minutes)
    return true;
 }
 
-//--- PURE: window membership. start == end -> empty window (never in).
 bool TL_InWindow(const int nowMin, const int startMin, const int endMin)
 {
    if(startMin == endMin) return false;
    if(startMin < endMin)  return nowMin >= startMin && nowMin < endMin;
-   return nowMin >= startMin || nowMin < endMin;    // overnight span
+   return nowMin >= startMin || nowMin < endMin;
 }
 
-//--- Parsed schedule, owned by the composition root (like g_news) ------
 class CTimeSchedule
 {
 private:
@@ -149,19 +96,31 @@ private:
    bool ParseOne(const int i, const bool on, const string s, const string e, string &err)
    {
       m_on[i] = on;
-      m_start[i] = 0; m_end[i] = 0;
+      m_start[i] = 0;
+      m_end[i] = 0;
       if(!on) return true;
-      if(!TL_ParseHHMM(s, m_start[i])) { err = "window " + (string)(i + 1) + " start '" + s + "' is not HH:MM"; return false; }
-      if(!TL_ParseHHMM(e, m_end[i]))   { err = "window " + (string)(i + 1) + " end '"   + e + "' is not HH:MM"; return false; }
-      if(m_start[i] == m_end[i])       { err = "window " + (string)(i + 1) + " start == end (empty window)"; return false; }
+      if(!TL_ParseHHMM(s, m_start[i]))
+      {
+         err = "window " + (string)(i + 1) + " start '" + s + "' is not HH:MM";
+         return false;
+      }
+      if(!TL_ParseHHMM(e, m_end[i]))
+      {
+         err = "window " + (string)(i + 1) + " end '" + e + "' is not HH:MM";
+         return false;
+      }
+      if(m_start[i] == m_end[i])
+      {
+         err = "window " + (string)(i + 1) + " start == end (empty window)";
+         return false;
+      }
       m_enabled++;
       return true;
    }
+
 public:
    CTimeSchedule() : m_enabled(0) {}
 
-   //--- config-time validation: bad HH:MM / no enabled window -> refuse
-   //    (config-syntax error class, same as LotSequence_ format errors)
    bool Init(string &err)
    {
       m_enabled = 0;
@@ -169,11 +128,14 @@ public:
       if(!ParseOne(1, UseTime2, Time2Start, Time2End, err)) return false;
       if(!ParseOne(2, UseTime3, Time3Start, Time3End, err)) return false;
       if(!ParseOne(3, UseTime4, Time4Start, Time4End, err)) return false;
-      if(m_enabled == 0) { err = "UseTimeLimit=true but no window is enabled"; return false; }
+      if(m_enabled == 0)
+      {
+         err = "UseTimeLimit=true but no window is enabled";
+         return false;
+      }
       return true;
    }
 
-   //--- PURE membership over the enabled windows (any-match)
    bool AllowedAt(const int nowMin) const
    {
       for(int i = 0; i < 4; i++)
@@ -184,7 +146,7 @@ public:
    bool AllowedNow() const
    {
       MqlDateTime t;
-      TimeToStruct(TimeLocal(), t);    // PC/local time per the manual
+      TimeToStruct(TimeLocal(), t);
       return AllowedAt(t.hour * 60 + t.min);
    }
 
@@ -194,14 +156,12 @@ public:
       for(int i = 0; i < 4; i++)
          if(m_on[i])
             s += (s == "" ? "" : ", ") + "W" + (string)(i + 1) + " " +
-                 StringFormat("%02d:%02d-%02d:%02d", m_start[i] / 60, m_start[i] % 60, m_end[i] / 60, m_end[i] % 60);
+                 StringFormat("%02d:%02d-%02d:%02d", m_start[i] / 60, m_start[i] % 60,
+                              m_end[i] / 60, m_end[i] % 60);
       return s;
    }
 };
 
-//--- FE-403: entry filter. New-series chain: hard schedule. Grid chain:
-//    DcaOutsideTime=true lets DCA adds through outside the windows.
-//    Registered from OnInit ONLY when UseTimeLimit=true (zero cost off).
 class CTimeFilter : public IEntryFilter
 {
 private:
@@ -211,12 +171,11 @@ public:
    CTimeFilter(CTimeSchedule *sched, const bool forGrid) : m_sched(sched), m_forGrid(forGrid) {}
    bool Allow(const EAContext &ctx, const int dir)
    {
-      if(m_forGrid && DcaOutsideTime) return true;   // "DCA ngoai thoi gian?"
+      if(m_forGrid && DcaOutsideTime) return true;
       return m_sched.AllowedNow();
    }
 };
 
-//--- Chain -----------------------------------------------------------
 class CFilterChain
 {
 private:
@@ -228,12 +187,14 @@ public:
       ArrayResize(m_filters, n + 1);
       m_filters[n] = f;
    }
+
    bool Allow(const EAContext &ctx, const int dir)
    {
       for(int i = 0; i < ArraySize(m_filters); i++)
          if(!m_filters[i].Allow(ctx, dir)) return false;
       return true;
    }
+
    void Clear()
    {
       for(int i = 0; i < ArraySize(m_filters); i++)
