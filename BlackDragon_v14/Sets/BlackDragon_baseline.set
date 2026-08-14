@@ -1,5 +1,5 @@
-; EA Black Dragon — baseline test set (defaults v13 = defaults v14)
-; Dùng CHUNG cho v13 gốc và v14 khi so sánh golden baseline.
+; EA Black Dragon — baseline test set (defaults v13 = defaults v14 where retained)
+; v14.8.0 removes legacy Start_Hour/End_Hour; detailed TimeLocal windows are the only schedule.
 NewCycle_=true
 Flag_Trade_Buy_=true
 Flag_Trade_Sell_=true
@@ -7,8 +7,6 @@ flag_Hand_Ord=false
 Flag_Use_hedge=true
 sOrdComm=EA Black Dragon
 MaxSpred=0
-Start_Hour=0
-End_Hour=0
 Magic=1111
 TF_DB=0
 Use_Stoh=false
@@ -41,7 +39,6 @@ Order_dinamic_distance=6
 Dynamic_distance_start=200
 Distance_multiplier=1.2
 Flag_Use_News=false
-; --- v14-only (v13 bỏ qua các dòng này khi nạp) ---
 ExecMode=1
 Slippage_=3
 LotMode_=0
