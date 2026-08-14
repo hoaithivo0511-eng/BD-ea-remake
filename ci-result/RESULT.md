@@ -1,14 +1,14 @@
 # MQL5 compile result
 
-- source commit: `edcb4d5c46bcce4ab5623dd8bca44001d799241f`
-- run: https://github.com/hoaithivo0511-eng/BD-ea-remake/actions/runs/31519826116
-- finished (UTC): 2026-08-11 17:54:31
+- source commit: `67ac961817728ccee2bc9eee91fe2fed7969b41b`
+- run: https://github.com/hoaithivo0511-eng/BD-ea-remake/actions/runs/31823589571
+- finished (UTC): 2026-08-14 17:22:52
 - runner: Windows
 
 | target | .ex5 produced | bytes | errors | warnings |
 |---|---|---|---|---|
-| RunTests | yes | 72242 | 0 | 0 |
-| BlackDragon | yes | 164116 | 0 | 0 |
+| RunTests | yes | 71822 | 0 | 0 |
+| BlackDragon | yes | 164778 | 0 | 0 |
 
 ## Verdict
 
@@ -133,6 +133,6 @@ C:\Program Files\MetaTrader 5\MQL5\Experts\BlackDragon\BlackDragon.mq5 : informa
  : information: generating code 95%
  : information: generating code 100%
  : information: code generated
-Result: 0 errors, 0 warnings, 3661 ms elapsed, cpu='X64 Regular'
+Result: 0 errors, 0 warnings, 3578 ms elapsed, cpu='X64 Regular'
 ```
 
