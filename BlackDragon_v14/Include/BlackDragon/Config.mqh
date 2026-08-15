@@ -1,11 +1,10 @@
 //+------------------------------------------------------------------+
-//| Config.mqh — BlackDragon v14.8.0                                 |
+//| Config.mqh — BlackDragon v14.9.0                                 |
 //| Purpose   : ALL user inputs + named constants. No trade logic.   |
-//| Invariants: retained input identifiers/defaults stay compatible  |
-//|             with existing .set files; presentation uses native   |
-//|             input groups instead of fake string parameters.      |
-//| v14.8.0  : remove legacy Start_Hour/End_Hour; TP/SL/trailing and |
-//|             overlap percent accept decimal values end-to-end.    |
+//| Invariants: retained input identifiers/default meanings stay     |
+//|             stable unless explicitly migrated by release notes.  |
+//| v14.9.0  : DCA lot uses manual lot or multiplier chains only;    |
+//|             distance uses one pip chain and repeats its last gap.|
 //+------------------------------------------------------------------+
 #ifndef BD_CONFIG_MQH
 #define BD_CONFIG_MQH
@@ -22,14 +21,8 @@ enum eExecMode
 };
 enum eLotMode
 {
-   lot_Multiplier,      // Hệ số Martingale
-   lot_Sequence,        // Chuỗi Lot thủ công
-   lot_MultiplierChain  // Chuỗi hệ số nhân
-};
-enum eDistanceMode
-{
-   dist_Classic, // Công thức khoảng cách cổ điển
-   dist_Manual   // Chuỗi khoảng cách thủ công
+   lot_Sequence        = 1, // Chuỗi Lot thủ công
+   lot_MultiplierChain = 2  // Chuỗi hệ số nhân
 };
 enum eSignalSource
 {
@@ -61,43 +54,37 @@ input eSignalSource   SignalSource_ = sig_BD;         // Nguồn tín hiệu m�
 input ENUM_TIMEFRAMES TF_DB         = PERIOD_CURRENT; // Khung thời gian tín hiệu Black Dragon
 
 input group "03 — Xác nhận Stochastic"
-input bool            Use_Stoh = false;          // Dùng Stochastic xác nhận tín hiệu
-input ENUM_TIMEFRAMES TF_Stoh  = PERIOD_CURRENT; // Khung thời gian Stochastic
-input int             Up_Level = 90;             // Ngưỡng Stochastic xác nhận Sell
-input int             Down_Level = 10;           // Ngưỡng Stochastic xác nhận Buy
-input int             KPeriod  = 7;              // Chu kỳ %K của Stochastic
-input int             DPeriod  = 1;              // Chu kỳ %D của Stochastic
-input int             Slowing  = 2;              // Hệ số Slowing của Stochastic
+input bool            Use_Stoh    = false;          // Dùng Stochastic xác nhận tín hiệu
+input ENUM_TIMEFRAMES TF_Stoh     = PERIOD_CURRENT; // Khung thời gian Stochastic
+input int             Up_Level    = 90;             // Ngưỡng Stochastic xác nhận Sell
+input int             Down_Level  = 10;             // Ngưỡng Stochastic xác nhận Buy
+input int             KPeriod     = 7;              // Chu kỳ %K của Stochastic
+input int             DPeriod     = 1;              // Chu kỳ %D của Stochastic
+input int             Slowing     = 2;              // Hệ số Slowing của Stochastic
 
 input group "04 — Tín hiệu WMF"
-input eWmfMode          WmfMode        = wmf_Cross;      // Chế độ phát tín hiệu WMF
-input ENUM_TIMEFRAMES   WmfTF          = PERIOD_CURRENT; // Khung thời gian WMF
-input int               WmfLength      = 20;             // Chu kỳ ATR của WMF
-input ENUM_APPLIED_PRICE WmfPrice      = PRICE_CLOSE;    // Nguồn giá tính WMF
-input double            WmfFactor      = 1.0;            // Hệ số ATR của WMF
-input int               WmfEmaLength   = 2;              // Chu kỳ EMA của WMF
-input bool              ShowWmfSignals = true;           // Vẽ mũi tên tín hiệu WMF trên chart
+input eWmfMode           WmfMode        = wmf_Cross;      // Chế độ phát tín hiệu WMF
+input ENUM_TIMEFRAMES    WmfTF          = PERIOD_CURRENT; // Khung thời gian WMF
+input int                WmfLength      = 20;             // Chu kỳ ATR của WMF
+input ENUM_APPLIED_PRICE WmfPrice       = PRICE_CLOSE;    // Nguồn giá tính WMF
+input double             WmfFactor      = 1.0;            // Hệ số ATR của WMF
+input int                WmfEmaLength   = 2;              // Chu kỳ EMA của WMF
+input bool               ShowWmfSignals = true;           // Vẽ mũi tên tín hiệu WMF trên chart
 
 input group "05 — Quản lý Lot & giới hạn rổ"
-input int      MaxOrdersBuy    = 10;             // Số lệnh Buy tối đa trong rổ
-input int      MaxOrdersSell   = 10;             // Số lệnh Sell tối đa trong rổ
-input eLotMode LotMode_        = lot_Multiplier; // Chế độ tính Lot DCA
-input double   Lot_Init_       = 0.01;           // Lot cơ sở / Lot mặc định nút Open
-input bool     Autolot_        = false;          // Tự tính Lot đầu theo Free Margin
-input int      Autolotsize_    = 1000;           // Free Margin tương ứng mỗi 0.01 Lot
-input double   Martin_         = 1.5;            // Hệ số nhân Lot Martingale
-input string   LotSequence_    = "";             // Chuỗi Lot thủ công, ví dụ 0.01x5-0.02x3-0.05
-input string   MartinSequence_ = "";             // Chuỗi hệ số nhân, ví dụ 1.03x3-1.3x4-1.5
-input double   MaxLot_         = 5;              // Lot tối đa cho mỗi lệnh
+input int      MaxOrdersBuy    = 10;                  // Số lệnh Buy tối đa trong rổ
+input int      MaxOrdersSell   = 10;                  // Số lệnh Sell tối đa trong rổ
+input eLotMode LotMode_        = lot_MultiplierChain; // Chế độ tính Lot DCA
+input double   Lot_Init_       = 0.01;                // Lot cơ sở / Lot mặc định nút Open
+input bool     Autolot_        = false;               // Tự tính Lot đầu theo Free Margin
+input int      Autolotsize_    = 1000;                // Free Margin tương ứng mỗi 0.01 Lot
+input string   LotSequence_    = "";                  // Chuỗi Lot thủ công; hết chuỗi lặp Lot cuối
+input string   MartinSequence_ = "1.5";               // Chuỗi hệ số nhân; hết chuỗi lặp hệ số cuối
+input double   MaxLot_         = 5;                   // Lot tối đa cho mỗi lệnh
 
 input group "06 — Khoảng cách DCA"
-input int           MinuteStop             = 0;            // Thời gian tối thiểu giữa hai lệnh DCA (phút)
-input eDistanceMode DistanceMode_           = dist_Classic; // Chế độ tính khoảng cách DCA
-input int           Fix_Distance            = 200;          // Khoảng cách DCA cố định — Classic (point chuẩn)
-input int           Order_dinamic_distance  = 6;            // Từ lệnh số mấy bắt đầu khoảng cách động
-input int           Dynamic_distance_start  = 200;          // Khoảng cách động ban đầu (point chuẩn)
-input double        Distance_multiplier     = 1.2;          // Hệ số tăng khoảng cách động
-input string        DistanceSequence_       = "";           // Chuỗi khoảng cách DCA thủ công (pip)
+input int    MinuteStop        = 0;                         // Thời gian tối thiểu giữa hai lệnh DCA (phút)
+input string DistanceSequence_ = "20x5-24-28.8-34.6-41.5"; // Chuỗi khoảng cách DCA (pip); hết chuỗi lặp khoảng cách cuối
 
 input group "07 — TP / SL / Trailing / Overlap"
 input eModeStops TP_Mode       = mode_Virt; // Chế độ Take Profit của rổ
@@ -187,7 +174,7 @@ input string FontNameButt = "Verdana";     // Font chữ nút điều khiển
 input color  ColorButt    = clrWhite;      // Màu chữ nút điều khiển
 input color  cCIP         = clrGray;       // Màu nền Panel
 
-#define BD_VERSION            "14.8.0"
+#define BD_VERSION            "14.9.0"
 #define BD_STATE_FILE_SUFFIX  "_BD_v14.bin"
 #define BD_OBJ_PREFIX         "ke_EA_BD_"
 #define BD_OBJ_PREFIX_REZ     "ke_Rez_EA_BD_"
@@ -197,7 +184,6 @@ input color  cCIP         = clrGray;       // Màu nền Panel
 #define BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC 10
 #define BD_NEWS_REFRESH_SEC   3600
 #define BD_PANEL_TIMER_MS     500
-#define BD_LOT_DIGITS         2
 #define BD_MAX_LOT_STEPS      200
 #define BD_WMF_MARKS_MAX      200
 #define BD_POINTS_PER_PIP     10
@@ -215,7 +201,6 @@ struct SConfig
    double LotInit;
    bool   Autolot;
    int    Autolotsize;
-   double Martin;
    double MaxLot;
    double TP;
    double SL;
@@ -240,7 +225,6 @@ void Config_Init()
    Cfg.LotInit       = Lot_Init_;
    Cfg.Autolot       = Autolot_;
    Cfg.Autolotsize   = Autolotsize_;
-   Cfg.Martin        = Martin_;
    Cfg.MaxLot        = MaxLot_;
    Cfg.TP            = TP_;
    Cfg.SL            = SL_;
