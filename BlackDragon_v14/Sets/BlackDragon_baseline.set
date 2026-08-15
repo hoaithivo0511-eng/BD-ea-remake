@@ -1,5 +1,7 @@
-; EA Black Dragon — baseline test set (defaults v13 = defaults v14 for retained inputs)
-; v14.8.0 intentionally removes legacy Start_Hour/End_Hour; all other baseline values stay unchanged.
+; EA Black Dragon — v14.9.0 baseline test set
+; Classic Martin/dynamic distance were retired. Chain defaults preserve the prior
+; x1.5 lot intent and the prior default distance values through order #10;
+; after the explicit distance chain ends, the last gap repeats by design.
 NewCycle_=true
 Flag_Trade_Buy_=true
 Flag_Trade_Sell_=true
@@ -21,7 +23,6 @@ MaxOrdersSell=10
 Lot_Init_=0.01
 Autolot_=false
 Autolotsize_=1000
-Martin_=1.5
 MaxLot_=5
 TP_Mode=1
 TP_=200
@@ -34,16 +35,13 @@ Overlap=true
 OverlapOrderNumber=8
 OverlapPercent=3
 MinuteStop=0
-Fix_Distance=200
-Order_dinamic_distance=6
-Dynamic_distance_start=200
-Distance_multiplier=1.2
 Flag_Use_News=false
-; --- v14-only (v13 bỏ qua các dòng này khi nạp) ---
+; --- v14-only ---
 ExecMode=1
 Slippage_=3
-LotMode_=0
+LotMode_=2
 LotSequence_=
+MartinSequence_=1.5
 AutoGoldPip=true
 PctDiffClose=0
 MoneyTPAllAccount=0
@@ -56,9 +54,7 @@ MoneyTPSell=0
 MoneySLSell=0
 MoneyTPAllHedged=0
 UseMobileControl=true
-DistanceMode_=0
-DistanceSequence_=
-MartinSequence_=
+DistanceSequence_=20x5-24-28.8-34.6-41.5
 SignalSource_=0
 WmfMode=0
 WmfTF=0

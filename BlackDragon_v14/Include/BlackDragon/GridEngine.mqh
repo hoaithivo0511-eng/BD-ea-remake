@@ -1,19 +1,19 @@
 //+------------------------------------------------------------------+
-//| GridEngine.mqh — BlackDragon v14.0.0                             |
-//| Purpose   : PURE functions: grid distance, martingale lot,       |
-//|             volume normalization. Unit-testable (P1).            |
-//| Invariants: No global reads besides Config inputs. No orders.    |
+//| GridEngine.mqh — BlackDragon v14.9.0                             |
+//| Purpose   : DCA lot/distance chains + volume normalization.      |
+//| Invariants: No orders. Chain indexing follows OPEN positions.    |
 //| Depends on: Config.mqh, Types.mqh                                |
-//| [STRATEGY-BEHAVIOR] All formulas are v13 behavior. Changing them |
-//|                     changes the strategy — route via ILotSizer.  |
+//| v14.9.0  : classic Martin/dynamic-distance runtime paths retired;|
+//|             every active chain repeats its final value.          |
 //+------------------------------------------------------------------+
 #ifndef BD_GRIDENGINE_MQH
 #define BD_GRIDENGINE_MQH
 #include "Types.mqh"
 
-//--- v13 OPEN_ORDERS distance rule -----------------------------------
-// count < Order_dinamic_distance-1 -> Fix_Distance
-// else round(Dynamic_distance_start * Distance_multiplier^(count+1-Order_dinamic_distance))
+//--- Regression oracles only -----------------------------------------
+//    These two pure functions preserve the retired v13 formulas solely so
+//    the existing test script can compare historical behavior. No EA input,
+//    sizer, distance plan or OnInit branch calls them in v14.9 production.
 int Grid_DistancePoints(const int count,
                         const int fixDistance,
                         const int dynStartOrder,
@@ -24,15 +24,15 @@ int Grid_DistancePoints(const int count,
    return (int)NormalizeDouble(dynStartDistance * MathPow(multiplier, count + 1 - dynStartOrder), 0);
 }
 
-//--- v13 martingale: nLot = NormalizeDouble(firstLot * Martin^count, 2)
-double Grid_MartingaleLot(const double firstLot, const int count, const double martin, const double maxLot)
+double Grid_MartingaleLot(const double firstLot, const int count,
+                          const double martin, const double maxLot)
 {
-   double lot = NormalizeDouble(firstLot * MathPow(martin, count), BD_LOT_DIGITS);
+   double lot = NormalizeDouble(firstLot * MathPow(martin, count), 2);
    if(lot > maxLot) lot = maxLot;
    return lot;
 }
 
-//--- v13 first lot: Lot_Init, or FreeMargin/Autolotsize*0.01 when Autolot
+//--- First lot: Lot_Init, or FreeMargin/Autolotsize*0.01 when Autolot
 double Grid_FirstLot(const double lotInit, const bool autolot, const int autolotSize,
                      const double freeMargin, const double maxLot)
 {
@@ -96,16 +96,11 @@ int Sym_PointScale()
    return Sym_PointScaleFor(_Symbol);
 }
 
-//--- v14.1/14.2 FE-202+FE-301: manual DCA lot sequence ----------------
-//    Parse "0.01-0.02-0.04" or "0.01x5-0.02x3-0.05" -> flat lots[].
-//    '-' separates steps; an optional xN/XN suffix repeats a step N times
-//    (0.01x5 -> five orders at 0.01). Spaces are ignored anywhere.
-//    Returns element count after expansion; 0 = invalid: empty token,
-//    non-numeric lot, lot <= 0, zero/non-integer repeat, or expansion
-//    beyond BD_MAX_LOT_STEPS. '-' is the separator, so negative numbers
-//    can never sneak in. Strict char check: MQL5 StringToDouble ignores
-//    trailing garbage ("0.01a" -> 0.01), so we refuse it explicitly.
-//    (BD_MAX_LOT_STEPS lives in Config.mqh with the other constants — FIX-6.)
+//--- Shared positive chain parser -------------------------------------
+//    Parse "0.01-0.02-0.04" or "0.01x5-0.02x3-0.05" -> flat values[].
+//    Used by absolute-lot, multiplier and distance chains. '-' separates
+//    steps; optional xN/XN repeats a step. Spaces are ignored. Returns 0
+//    for invalid/empty input or expansion beyond BD_MAX_LOT_STEPS.
 int Grid_ParseLotSequence(const string seq, double &lots[])
 {
    ArrayResize(lots, 0);
@@ -127,7 +122,7 @@ int Grid_ParseLotSequence(const string seq, double &lots[])
          string cnt = StringSubstr(p, xp + 1);
          p = StringSubstr(p, 0, xp);
          if(StringLen(p) == 0 || StringLen(cnt) == 0) { ArrayResize(lots, 0); return 0; }
-         for(int c = 0; c < StringLen(cnt); c++)     // repeat count: digits only
+         for(int c = 0; c < StringLen(cnt); c++)
          {
             ushort ch = StringGetCharacter(cnt, c);
             if(ch < '0' || ch > '9') { ArrayResize(lots, 0); return 0; }
@@ -136,7 +131,7 @@ int Grid_ParseLotSequence(const string seq, double &lots[])
          if(rep < 1) { ArrayResize(lots, 0); return 0; }
       }
 
-      int dots = 0;                                  // lot: digits + at most one '.'
+      int dots = 0;
       for(int c = 0; c < StringLen(p); c++)
       {
          ushort ch = StringGetCharacter(p, c);
@@ -155,12 +150,9 @@ int Grid_ParseLotSequence(const string seq, double &lots[])
 }
 
 //--- FIX-5 (14.2.1, rev 14.2.2): PURE volume-constraint check ---------
-//    Returns -1 when every step is tradable as written, else the 1-based
-//    index of the first offending step ('why' explains). Since 14.2.2
-//    (quyet dinh Chu nha) this is a HEADS-UP only: OnInit logs a warning,
-//    the EA keeps running, Grid_NormalizeVolume applies min/step/max at
-//    trade time (below-min -> broker MIN LOT) and ExecutionLayer logs
-//    every adjusted order for tracking (AU-14-07 closed this way).
+//    Returns -1 when every explicit lot step is tradable as written, else
+//    the first offending 1-based step. Runtime still normalizes the order;
+//    the caller may surface this once because it changes actual risk/volume.
 int Grid_ValidateVolumes(const double &lots[], const double vMin, const double vMax,
                          const double vStep, string &why)
 {
@@ -177,14 +169,11 @@ int Grid_ValidateVolumes(const double &lots[], const double vMin, const double v
    return -1;
 }
 
-//--- FE-407 (v14.7): manual DCA distance chain in PIP -----------------
-//    Chain "10x3-15x2-20" (same parser/syntax as the lot chain): gap #1..3
-//    = 10 pip, #4..5 = 15 pip, #6+ = 20 pip (last repeats). Gap index for
-//    the order being opened = count-1 (count = OPEN orders — Chu nha's
-//    counting rule, an Overlap trim steps the index back). Unit: 1 pip =
-//    BD_POINTS_PER_PIP reference points (FE-201: 10 pip = 1.00 USD on
-//    gold, standard pip on 5-digit FX); Cfg.PointScale applies at the
-//    usage site exactly like the classic formula.
+//--- Distance chain in PIP -------------------------------------------
+//    "10x3-15x2-20" -> gaps 10,10,10,15,15,20,20,20... . Once the
+//    explicit chain ends, its FINAL distance repeats for every later DCA.
+//    Gap index for the order being opened = count-1, where count is OPEN
+//    positions; Overlap trimming therefore steps the chain index back too.
 int Grid_ChainDistancePoints(const int count, const double &gapsPip[])
 {
    int n = ArraySize(gapsPip);
@@ -194,32 +183,25 @@ int Grid_ChainDistancePoints(const int count, const double &gapsPip[])
    return (int)MathRound(gapsPip[idx] * BD_POINTS_PER_PIP);
 }
 
-//--- FE-407: distance provider for the Strategy (classic OR manual) ---
 class CDistancePlan
 {
 private:
-   double m_gapsPip[];    // empty -> classic v13 formula
+   double m_gapsPip[];
 public:
-   void InitClassic()                 { ArrayResize(m_gapsPip, 0); }
-   bool InitManual(const string seq)  { return Grid_ParseLotSequence(seq, m_gapsPip) > 0; }
-   int  Size() const                  { return ArraySize(m_gapsPip); }
+   bool Init(const string seq) { return Grid_ParseLotSequence(seq, m_gapsPip) > 0; }
+   int  Size() const           { return ArraySize(m_gapsPip); }
 
    int DistancePoints(const int count) const
    {
-      if(ArraySize(m_gapsPip) == 0)   // [STRATEGY-BEHAVIOR] classic path untouched
-         return Grid_DistancePoints(count, Fix_Distance, Order_dinamic_distance,
-                                    Dynamic_distance_start, Distance_multiplier);
       return Grid_ChainDistancePoints(count, m_gapsPip);
    }
 };
 
-//--- FE-408 (v14.7): THEORETICAL lot from a multiplier chain ----------
-//    Chain "1.03x3-1.3x4-1.25-1.5": multiplications #1..3 use 1.03 (orders
-//    #2..#4), next 4 use 1.3, then 1.25, then 1.5 repeats. Closed-form from
-//    the base lot (Chu nha's decision): lot(#count+1) = base x PRODUCT of
-//    the first `count` chain factors — NO intermediate rounding, so small
-//    factors never get stuck at broker lot grain; rounding happens ONCE at
-//    send time (Grid_NormalizeVolume + FIX-5 rev tracking log). MaxLot caps.
+//--- Multiplier chain --------------------------------------------------
+//    "1.03x3-1.3x4-1.25-1.5": multiplications #1..3 use 1.03, next 4
+//    use 1.3, then 1.25, then 1.5 repeats forever. Closed-form from the
+//    basket's first lot; no intermediate rounding. MaxLot caps theoretical
+//    volume and broker normalization happens once when the order is sent.
 double Grid_ChainLot(const double baseLot, const int count, const double &mult[],
                      const double maxLot)
 {
@@ -232,30 +214,10 @@ double Grid_ChainLot(const double baseLot, const int count, const double &mult[]
    return lot;
 }
 
-//--- Default ILotSizer implementation --------------------------------
-class CMartingaleSizer : public ILotSizer
-{
-public:
-   double FirstLot(void)
-   {
-      return Grid_FirstLot(Cfg.LotInit, Cfg.Autolot, Cfg.Autolotsize,
-                           AccountInfoDouble(ACCOUNT_MARGIN_FREE), Cfg.MaxLot);
-   }
-   double NextLot(const BasketSide &side)
-   {
-      if(side.count <= 0) return FirstLot();
-      return Grid_MartingaleLot(side.pos[0].lots, side.count, Cfg.Martin, Cfg.MaxLot);
-   }
-};
-
-//--- v14.1/14.2 FE-202+FE-301: ILotSizer from an explicit lot sequence
-//    Order index counts OPEN positions (side.count) — the SAME rule as the
-//    v13 martingale sizer, confirmed by Chu nha 2026-07-26: after an
-//    Overlap trim (9 open -> 7) the next order is order #8 and takes
-//    step 8 of the chain; the comment "|n" carries the same number.
-//    Beyond the last step its lot repeats until the whole basket closes
-//    (new cycle restarts at step 1 automatically since count returns 0).
-//    Autolot is ignored while a sequence is active; MaxLot still caps.
+//--- Absolute lot chain -----------------------------------------------
+//    Order index counts OPEN positions. Beyond the last explicit step its
+//    final lot repeats until the basket closes. Autolot is ignored in this
+//    mode; MaxLot remains a hard theoretical cap.
 class CSequenceSizer : public ILotSizer
 {
 private:
@@ -264,7 +226,6 @@ public:
    bool Init(const string seq) { return Grid_ParseLotSequence(seq, m_lots) > 0; }
    int  Size() const           { return ArraySize(m_lots); }
 
-   //--- FIX-5: fail-fast check against the CURRENT symbol's volume limits
    int ValidateVolumes(string &why) const
    {
       return Grid_ValidateVolumes(m_lots,
@@ -282,18 +243,19 @@ public:
    double NextLot(const BasketSide &side)
    {
       if(side.count <= 0) return FirstLot();
-      int idx  = side.count;                  // order #count+1 -> zero-based idx = count
+      int idx  = side.count;
       int last = ArraySize(m_lots) - 1;
-      if(idx > last) idx = last;              // beyond sequence: repeat last lot
+      if(idx > last) idx = last;
       double lot = m_lots[idx];
       if(lot > Cfg.MaxLot) lot = Cfg.MaxLot;
       return lot;
    }
 };
-//--- FE-408: ILotSizer from a multiplier chain ------------------------
-//    Base lot = actual first order of the basket (pos[0].lots — same base
-//    the v13 martingale uses); first order of a series = FirstLot()
-//    (Lot_Init / autolot, unchanged).
+
+//--- Multiplier-chain lot sizer ---------------------------------------
+//    First order uses Lot_Init/Autolot. Later orders multiply from the
+//    ACTUAL first position lot. Beyond the last factor, the final factor
+//    repeats for every later DCA; Overlap trimming steps the index back.
 class CChainSizer : public ILotSizer
 {
 private:
