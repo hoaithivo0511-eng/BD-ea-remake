@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v14.8.0 (modular rebuild)      |
+//| BlackDragon.mq5 — EA Black Dragon v14.9.0 (modular rebuild)      |
 //| Event handlers + module registration ONLY. All logic lives in    |
 //| MQL5/Include/BlackDragon/. Read ARCHITECTURE.md before editing.  |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14."
-#property version   "14.80"
+#property version   "14.90"
 
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Types.mqh>
@@ -30,10 +30,9 @@ CWmfSignal       g_sigWMF;     // FE-405: WMF signal (TradingView port)
 ISignal         *g_signal = NULL;
 CBasketManager   g_basket;
 CExecutionLayer  g_exec;
-CMartingaleSizer g_sizer;
-CSequenceSizer   g_seqSizer;    // FE-202: manual DCA lot sequence
-CChainSizer      g_chainSizer;  // FE-408: multiplier chain
-CDistancePlan    g_distPlan;    // FE-407: distance table (classic / pip chain)
+CSequenceSizer   g_seqSizer;    // explicit DCA lot sequence
+CChainSizer      g_chainSizer;  // DCA multiplier chain
+CDistancePlan    g_distPlan;    // DCA pip-distance chain
 CNewsCalendar    g_news;
 CMoneyGuard      g_guard;       // FE-401/402 (v14.3)
 CTimeSchedule    g_schedule;    // FE-403 (v14.4)
@@ -58,65 +57,51 @@ int OnInit()
 
    Persist_Load();                       // restore panel toggles after restart
 
-   //--- FE-301: explicit DCA lot mode (Chu nha picks, no guessing).
-   //    lot_Multiplier = v13 martingale (default). lot_Sequence = LotSequence_.
-   ILotSizer *sizer = &g_sizer;
+   //--- v14.9: only two DCA-lot models remain. Numeric values 1/2 are kept
+   //    stable so existing sequence-based .set files do not change meaning.
+   ILotSizer *sizer = NULL;
    if(LotMode_ == lot_Sequence)
    {
       if(!g_seqSizer.Init(LotSequence_))
       {
-         Log_Error("Init", "LotMode=Sequence but LotSequence_ invalid: '" + LotSequence_ +
+         Log_Error("Init", "LotSequence_ invalid: '" + LotSequence_ +
                    "' — expected e.g. 0.01-0.02-0.04 or 0.01x5-0.02x3-0.05");
-         return INIT_PARAMETERS_INCORRECT;   // fail-safe: never trade with wrong lots
+         return INIT_PARAMETERS_INCORRECT;
       }
-      // FIX-5 rev (14.2.2, quyet dinh Chu nha): a step outside the broker's
-      // volume limits NO LONGER stops the EA — Grid_NormalizeVolume applies
-      // the symbol's min/step/max at trade time (below-min -> MIN LOT) and
-      // ExecutionLayer logs every adjusted order for tracking. Init still
-      // announces it up front so the adjustment is never a surprise.
+      // Explicit lots outside the broker grid are still surfaced once because
+      // runtime normalization changes the actual requested risk/volume.
       string why = "";
       int bad = g_seqSizer.ValidateVolumes(why);
       if(bad > 0)
          Log_Warn("Init", "seqvol", "LotSequence_ step #" + (string)bad + " outside " + _Symbol +
-                  " volume limits (" + why + ") — it will be adjusted at trade time and logged per order");
+                  " volume limits (" + why + ") — it will be adjusted at trade time");
       sizer = &g_seqSizer;
-      Log_Info("Init", "Manual lot sequence active: " + (string)g_seqSizer.Size() +
-               " steps (xN expanded); beyond the last step its lot repeats; Autolot ignored. " +
-               "Order index counts OPEN orders — an Overlap trim steps the index back");
    }
    else if(LotMode_ == lot_MultiplierChain)
    {
-      // FE-408: multiplier chain — theoretical closed-form lot (Chu nha's
-      // decision), rounding happens once at send time with tracking log.
       if(!g_chainSizer.Init(MartinSequence_))
       {
-         Log_Error("Init", "LotMode=Multiplier chain but MartinSequence_ invalid: '" + MartinSequence_ +
-                   "' — expected e.g. 1.03x3-1.3x4-1.25-1.5");
+         Log_Error("Init", "MartinSequence_ invalid: '" + MartinSequence_ +
+                   "' — expected e.g. 1.5 or 1.03x3-1.3x4-1.25-1.5");
          return INIT_PARAMETERS_INCORRECT;
       }
       sizer = &g_chainSizer;
-      Log_Info("Init", "Multiplier chain active: " + (string)g_chainSizer.Size() +
-               " steps (xN expanded); beyond the last step its factor repeats; " +
-               "index counts OPEN orders (overlap trims step back)");
-   }
-   else if(StringLen(LotSequence_) > 0)
-      Log_Info("Init", "LotSequence_ is set but LotMode=xLot multiplier — sequence ignored");
-
-   //--- FE-407: DCA distance table
-   if(DistanceMode_ == dist_Manual)
-   {
-      if(!g_distPlan.InitManual(DistanceSequence_))
-      {
-         Log_Error("Init", "DistanceMode=Manual but DistanceSequence_ invalid: '" + DistanceSequence_ +
-                   "' — expected pip chain e.g. 10x3-15x2-20");
-         return INIT_PARAMETERS_INCORRECT;
-      }
-      Log_Info("Init", "Manual distance chain active: " + (string)g_distPlan.Size() +
-               " gaps (pip; 1 pip = " + (string)BD_POINTS_PER_PIP + " ref points, PointScale applies); " +
-               "beyond the last gap it repeats; index counts OPEN orders");
    }
    else
-      g_distPlan.InitClassic();
+   {
+      Log_Error("Init", "LotMode_ retired/invalid — use 1=Lot sequence or 2=Multiplier chain");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   //--- v14.9: one distance model only. A valid pip chain is mandatory.
+   //    If MaxOrders exceeds the explicit chain, Grid_ChainDistancePoints()
+   //    silently repeats the final distance for every later DCA by design.
+   if(!g_distPlan.Init(DistanceSequence_))
+   {
+      Log_Error("Init", "DistanceSequence_ invalid: '" + DistanceSequence_ +
+                "' — expected e.g. 20x5-24-28.8-34.6-41.5");
+      return INIT_PARAMETERS_INCORRECT;
+   }
 
    //--- FE-405 (v14.6): choose the entry-signal source. Only the chosen
    //    implementation is initialised (its indicator handles created).
