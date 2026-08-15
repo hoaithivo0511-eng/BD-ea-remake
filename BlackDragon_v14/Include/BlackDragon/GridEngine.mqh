@@ -3,12 +3,34 @@
 //| Purpose   : DCA lot/distance chains + volume normalization.      |
 //| Invariants: No orders. Chain indexing follows OPEN positions.    |
 //| Depends on: Config.mqh, Types.mqh                                |
-//| v14.9.0  : classic Martin/dynamic-distance paths retired;        |
-//|             every chain repeats its final value when exhausted.  |
+//| v14.9.0  : classic Martin/dynamic-distance runtime paths retired;|
+//|             every active chain repeats its final value.          |
 //+------------------------------------------------------------------+
 #ifndef BD_GRIDENGINE_MQH
 #define BD_GRIDENGINE_MQH
 #include "Types.mqh"
+
+//--- Regression oracles only -----------------------------------------
+//    These two pure functions preserve the retired v13 formulas solely so
+//    the existing test script can compare historical behavior. No EA input,
+//    sizer, distance plan or OnInit branch calls them in v14.9 production.
+int Grid_DistancePoints(const int count,
+                        const int fixDistance,
+                        const int dynStartOrder,
+                        const int dynStartDistance,
+                        const double multiplier)
+{
+   if(count < dynStartOrder - 1) return fixDistance;
+   return (int)NormalizeDouble(dynStartDistance * MathPow(multiplier, count + 1 - dynStartOrder), 0);
+}
+
+double Grid_MartingaleLot(const double firstLot, const int count,
+                          const double martin, const double maxLot)
+{
+   double lot = NormalizeDouble(firstLot * MathPow(martin, count), 2);
+   if(lot > maxLot) lot = maxLot;
+   return lot;
+}
 
 //--- First lot: Lot_Init, or FreeMargin/Autolotsize*0.01 when Autolot
 double Grid_FirstLot(const double lotInit, const bool autolot, const int autolotSize,
