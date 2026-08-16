@@ -740,7 +740,7 @@ public:
       long type = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
       long reason = HistoryDealGetInteger(trans.deal, DEAL_REASON);
 
-      eRecoveryCoreDirection dir;
+      eRecoveryCoreDirection dir = recovery_CORE_BUY;
       bool mapped = true;
       if(ownerMagic == (long)Magic)
       {
