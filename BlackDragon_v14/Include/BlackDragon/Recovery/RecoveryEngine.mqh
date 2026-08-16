@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T3 SHADOW + T4 bundle + T5 exit mechanics   |
+//| RecoveryEngine.mqh — T3 SHADOW + T4 bundle + T5/T6 mechanics    |
 //| Invariants: SHADOW sends NO trade request and never blocks Core. |
 //|             ACTIVE remains fail-closed until durable T9 wiring.  |
 //+------------------------------------------------------------------+
@@ -11,6 +11,7 @@
 #include <BlackDragon/ExecutionLayer.mqh>
 #include "RecoveryRegistry.mqh"
 #include "RecoveryExit.mqh"
+#include "RecoveryLock.mqh"
 
 #define BD_RECOVERY_T5_SEEN_DEALS 128
 
@@ -30,6 +31,11 @@ private:
    SRecoveryFoundationConfig  m_cfg;
    SRecoveryT5CycleRuntime    m_t5[2];
    int                        m_t5CycleSerial[2];
+   long                       m_t5HedgeRealizedBaseline[2];
+   double                     m_t6AnchorWeighted[2];
+   long                       m_t6AnchorUnits[2];
+   long                       m_t6RehedgeAnchorTicks[2];
+   double                     m_t6LockTargetPrice[2];
    ulong                      m_seenDeals[BD_RECOVERY_T5_SEEN_DEALS];
    int                        m_seenWrite;
    int                        m_seenStored;
@@ -39,10 +45,23 @@ private:
    bool                       m_isGold;
    long                       m_gapTicks;
    double                     m_tpDistancePrice;
+   double                     m_lockProfitDistancePrice;
+   double                     m_lockSafetyBufferPrice;
+   long                       m_rehedgeGapTicks;
 
    int DirIndex(const eRecoveryCoreDirection dir) const
    {
       return dir == recovery_CORE_BUY ? 0 : 1;
+   }
+
+   void ResetT6Cycle(const int idx)
+   {
+      if(idx < 0 || idx > 1) return;
+      m_t5HedgeRealizedBaseline[idx] = 0;
+      m_t6AnchorWeighted[idx] = 0.0;
+      m_t6AnchorUnits[idx] = 0;
+      m_t6RehedgeAnchorTicks[idx] = 0;
+      m_t6LockTargetPrice[idx] = 0.0;
    }
 
    void EnsureT5Cycle(const eRecoveryCoreDirection dir)
@@ -52,6 +71,7 @@ private:
       m_registry.GetCycle(dir, cycle);
       if(m_t5CycleSerial[idx] == cycle.cycleSerial) return;
       Recovery_T5RuntimeInit(m_t5[idx]);
+      ResetT6Cycle(idx);
       m_t5CycleSerial[idx] = cycle.cycleSerial;
    }
 
@@ -278,6 +298,32 @@ private:
                                       why);
    }
 
+   bool BuildT6LockPlan(const eRecoveryCoreDirection dir,
+                        SRecoveryLockTicket &tickets[],
+                        SRecoveryLockSnapshot &snapshot,
+                        double &targetSl,
+                        string &why) const
+   {
+      targetSl = 0.0;
+      if(!Recovery_BuildLockSnapshot(_Symbol, m_cfg.recoveryMagic, dir,
+                                     m_volumeStep, m_tickSize,
+                                     tickets, snapshot, why))
+         return false;
+      targetSl = Recovery_LockTargetPricePure(dir,
+                                              snapshot.weightedEntry,
+                                              snapshot.netBE,
+                                              m_lockProfitDistancePrice,
+                                              m_lockSafetyBufferPrice,
+                                              m_tickSize,
+                                              _Digits);
+      if(targetSl <= 0.0)
+      {
+         why = "unable to derive strict net-positive lock target";
+         return false;
+      }
+      return true;
+   }
+
    void EvaluateDirection(const eRecoveryCoreDirection dir,
                           SRecoveryCorePositionSnapshot &positions[],
                           const double totalLots,
@@ -374,12 +420,17 @@ public:
       m_isGold = false;
       m_gapTicks = 0;
       m_tpDistancePrice = 0.0;
+      m_lockProfitDistancePrice = 0.0;
+      m_lockSafetyBufferPrice = 0.0;
+      m_rehedgeGapTicks = 0;
       m_seenWrite = 0;
       m_seenStored = 0;
       m_t5CycleSerial[0] = 0;
       m_t5CycleSerial[1] = 0;
       Recovery_T5RuntimeInit(m_t5[0]);
       Recovery_T5RuntimeInit(m_t5[1]);
+      ResetT6Cycle(0);
+      ResetT6Cycle(1);
       for(int i = 0; i < BD_RECOVERY_T5_SEEN_DEALS; i++) m_seenDeals[i] = 0;
    }
 
@@ -389,6 +440,8 @@ public:
       m_registry.Init();
       Recovery_T5RuntimeInit(m_t5[0]);
       Recovery_T5RuntimeInit(m_t5[1]);
+      ResetT6Cycle(0);
+      ResetT6Cycle(1);
       m_t5CycleSerial[0] = 1;
       m_t5CycleSerial[1] = 1;
       m_seenWrite = 0;
@@ -411,9 +464,21 @@ public:
          return false;
       }
 
+      string t6Why = "";
+      if(!Recovery_ValidateT6Config(m_cfg.mode,
+                                    m_cfg.hedgeLockNetProfitPips,
+                                    m_cfg.hedgeLockSafetyBufferPips,
+                                    m_cfg.reHedgeGapPips,
+                                    m_cfg.maxHedgeGenerations,
+                                    t6Why))
+      {
+         Log_Error("Recovery", "invalid T6 config: " + t6Why);
+         return false;
+      }
+
       if(m_cfg.mode == recovery_ACTIVE)
       {
-         Log_Error("Recovery", "ACTIVE is not enabled in T5 exit-mechanics build — use SHADOW until T9 durable ACTIVE wiring");
+         Log_Error("Recovery", "ACTIVE is not enabled in T6 lock/re-hedge build — use SHADOW until T9 durable ACTIVE wiring");
          return false;
       }
 
@@ -438,6 +503,12 @@ public:
                                             _Point, _Digits, m_tickSize);
       m_tpDistancePrice = Recovery_PipsToPricePure(m_cfg.hedgeTpPips, m_isGold,
                                                    _Point, _Digits);
+      m_lockProfitDistancePrice = Recovery_PipsToPricePure(m_cfg.hedgeLockNetProfitPips,
+                                                           m_isGold, _Point, _Digits);
+      m_lockSafetyBufferPrice = Recovery_PipsToPricePure(m_cfg.hedgeLockSafetyBufferPips,
+                                                         m_isGold, _Point, _Digits);
+      m_rehedgeGapTicks = Recovery_PipsToTicksPure(m_cfg.reHedgeGapPips, m_isGold,
+                                                   _Point, _Digits, m_tickSize);
       if(m_cfg.hedgeGapPips > 0.0 && m_gapTicks <= 0)
       {
          Log_Error("Recovery", "HedgeGapPips_ is not representable in symbol ticks");
@@ -448,9 +519,24 @@ public:
          Log_Error("Recovery", "HedgeTPPips_ is not representable in price units");
          return false;
       }
+      if(m_cfg.hedgeLockNetProfitPips > 0.0 && m_lockProfitDistancePrice <= 0.0)
+      {
+         Log_Error("Recovery", "HedgeLockNetProfitPips_ is not representable in price units");
+         return false;
+      }
+      if(m_lockSafetyBufferPrice <= 0.0)
+      {
+         Log_Error("Recovery", "HedgeLockSafetyBufferPips_ is not representable in price units");
+         return false;
+      }
+      if(m_cfg.reHedgeGapPips > 0.0 && m_rehedgeGapTicks <= 0)
+      {
+         Log_Error("Recovery", "ReHedgeGapPips_ is not representable in symbol ticks");
+         return false;
+      }
 
       m_initialized = true;
-      Log_Info("Recovery", "SHADOW registry/FSM + smart-split + T5 exit planning enabled; no Recovery trade requests will be sent");
+      Log_Info("Recovery", "SHADOW registry/FSM + smart-split + T5/T6 mechanics enabled; no Recovery trade requests will be sent");
       return true;
    }
 
@@ -494,7 +580,7 @@ public:
          return;
       }
 
-      // T5 ledger path is intentionally dormant while ACTIVE init is blocked.
+      // T5/T6 ledger/anchor path is intentionally dormant while ACTIVE init is blocked.
       if(m_cfg.mode != recovery_ACTIVE) return;
       if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;
       if(DealSeen(trans.deal)) return;
@@ -514,8 +600,15 @@ public:
          m_registry.GetCycle(dir, cycle);
          if(cycle.state != recovery_HEDGE_TP_PENDING) return;
          EnsureT5Cycle(dir);
+         int idx = DirIndex(dir);
          long actualUnits = Recovery_VolumeToUnitsFloor(HistoryDealGetDouble(trans.deal, DEAL_VOLUME), m_volumeStep);
-         Recovery_LedgerApplyHedgeDeal(m_t5[DirIndex(dir)].ledger, cash, actualUnits);
+         double dealPrice = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+         if(actualUnits > 0 && dealPrice > 0.0)
+         {
+            m_t6AnchorWeighted[idx] += dealPrice * (double)actualUnits;
+            m_t6AnchorUnits[idx] += actualUnits;
+         }
+         Recovery_LedgerApplyHedgeDeal(m_t5[idx].ledger, cash, actualUnits);
          MarkDealSeen(trans.deal);
          return;
       }
@@ -551,6 +644,11 @@ public:
       if(cycle.state != recovery_ARMED || !cycle.armed)
       {
          why = "cycle is not ARMED";
+         return false;
+      }
+      if(!Recovery_GenerationCanStartPure(cycle.hedgeGeneration, m_cfg.maxHedgeGenerations))
+      {
+         why = "starting the next logical hedge generation would exceed MaxHedgeGenerations_";
          return false;
       }
       long coreUnits = Recovery_VolumeToUnitsFloor(cycle.coreLots, m_volumeStep);
@@ -744,6 +842,14 @@ public:
       m_t5[idx].hedgeCloseObservedUnits = 0;
       m_t5[idx].hedgeNetBE = netBE;
       m_t5[idx].tpTriggerPrice = dir == recovery_CORE_BUY ? ctx.ask : ctx.bid;
+      // Per-TP-window baselines are required once re-hedge creates G2+.
+      // Ledger cash remains cumulative across the cycle; only unit evidence
+      // is compared as a delta for this logical partial-close window.
+      m_t5HedgeRealizedBaseline[idx] = m_t5[idx].ledger.hedgeRealizedCloseUnits;
+      m_t6AnchorWeighted[idx] = 0.0;
+      m_t6AnchorUnits[idx] = 0;
+      m_t6RehedgeAnchorTicks[idx] = 0;
+      m_t6LockTargetPrice[idx] = 0.0;
       return true;
    }
 
@@ -780,18 +886,35 @@ public:
 
       if(closedUnits == m_t5[idx].hedgeCloseTargetUnits && !exec.HasPendingForCycle(cycleKey))
       {
-         long realizedUnits = m_t5[idx].ledger.hedgeRealizedCloseUnits;
-         if(realizedUnits < closedUnits)
+         long realizedUnits = m_t5[idx].ledger.hedgeRealizedCloseUnits -
+                              m_t5HedgeRealizedBaseline[idx];
+         if(realizedUnits < 0)
          {
-            why = "broker volume changed but realized hedge deal evidence is not complete yet";
-            return true;
-         }
-         if(realizedUnits > closedUnits)
-         {
-            why = "realized hedge close units exceed broker-observed T5 target";
+            why = "T5 realized-unit baseline regressed";
             TransitionReconcile(dir, now, why);
             return false;
          }
+         if(realizedUnits < closedUnits || m_t6AnchorUnits[idx] < closedUnits)
+         {
+            why = "broker volume changed but realized hedge deal/anchor evidence is not complete yet";
+            return true;
+         }
+         if(realizedUnits > closedUnits || m_t6AnchorUnits[idx] > closedUnits)
+         {
+            why = "realized hedge close evidence exceeds broker-observed T5 target";
+            TransitionReconcile(dir, now, why);
+            return false;
+         }
+         long anchorTicks = Recovery_WeightedAnchorTicksPure(m_t6AnchorWeighted[idx],
+                                                             m_t6AnchorUnits[idx],
+                                                             m_tickSize);
+         if(anchorTicks <= 0)
+         {
+            why = "confirmed hedge-close deals did not yield a valid re-hedge anchor";
+            TransitionReconcile(dir, now, why);
+            return false;
+         }
+         m_t6RehedgeAnchorTicks[idx] = anchorTicks;
          if(!m_registry.Transition(dir, recovery_CORE_CLOSE_PENDING, now,
                                    "hedge partial close and realized cash confirmed"))
          {
@@ -959,12 +1082,242 @@ public:
       return sent;
    }
 
-   long RehedgeRequiredUnits(const eRecoveryCoreDirection dir) const
+   //--- T6 net-positive hedge lock + re-hedge bridge -----------------------
+   // Dormant until T9 enables ACTIVE. Existing stronger broker SL is never
+   // weakened. Each cycle still has at most one mutation command in flight.
+   bool RefreshHedgeLock(CExecutionLayer &exec,
+                         const eRecoveryCoreDirection dir,
+                         const datetime now,
+                         string &why)
    {
+      why = "";
+      if(m_cfg.mode != recovery_ACTIVE) return false;
       SRecoveryCycle cycle;
       m_registry.GetCycle(dir, cycle);
-      long coreUnits = Recovery_VolumeToUnitsFloor(cycle.coreLots, m_volumeStep);
+      if(cycle.state != recovery_HEDGE_LOCK_PENDING) return false;
+      EnsureT5Cycle(dir);
+      int idx = DirIndex(dir);
+      int cycleKey = Recovery_CycleKey(dir);
+      exec.ReconcileCycle(cycleKey);
+      if(exec.HasReconcileRequired(cycleKey))
+      {
+         why = "hedge lock modification requires reconciliation";
+         TransitionReconcile(dir, now, why);
+         return false;
+      }
+
+      SRecoveryLockTicket tickets[];
+      SRecoveryLockSnapshot snapshot;
+      double targetSl = 0.0;
+      if(!BuildT6LockPlan(dir, tickets, snapshot, targetSl, why))
+      {
+         TransitionReconcile(dir, now, "remaining Recovery hedge snapshot unavailable during required lock");
+         return false;
+      }
+      m_t6LockTargetPrice[idx] = targetSl;
+      m_registry.ObserveHedgeMetrics(dir, snapshot.activeLots, snapshot.netBE);
+      if(exec.HasPendingForCycle(cycleKey)) return true;
+
+      if(Recovery_FindWeakLockTicket(dir, tickets, targetSl, m_tickSize) >= 0)
+      {
+         why = "remaining hedge protection is not fully observable yet";
+         return true;
+      }
+      if(m_t6RehedgeAnchorTicks[idx] <= 0)
+      {
+         why = "actual hedge partial-close deal anchor is unavailable";
+         TransitionReconcile(dir, now, why);
+         return false;
+      }
+
+      if(!m_registry.Transition(dir, recovery_HEDGE_LOCKED, now,
+                                "all remaining Recovery hedge tickets have net-positive broker protection"))
+      {
+         why = "FSM rejected HEDGE_LOCK_PENDING -> HEDGE_LOCKED";
+         return false;
+      }
+      return true;
+   }
+
+   bool SubmitNextHedgeLock(CExecutionLayer &exec,
+                            const eRecoveryCoreDirection dir,
+                            const EAContext &ctx,
+                            string &why)
+   {
+      why = "";
+      if(m_cfg.mode != recovery_ACTIVE)
+      {
+         why = "T6 lock bridge requires RecoveryMode=ACTIVE";
+         return false;
+      }
+      SRecoveryCycle cycle;
+      m_registry.GetCycle(dir, cycle);
+      if(cycle.state != recovery_HEDGE_LOCK_PENDING)
+      {
+         why = "cycle is not HEDGE_LOCK_PENDING";
+         return false;
+      }
+      EnsureT5Cycle(dir);
+      int cycleKey = Recovery_CycleKey(dir);
+      if(exec.HasReconcileRequired(cycleKey) || exec.HasPendingForCycle(cycleKey))
+      {
+         why = "cycle has pending/reconcile execution evidence";
+         return false;
+      }
+
+      SRecoveryLockTicket tickets[];
+      SRecoveryLockSnapshot snapshot;
+      double targetSl = 0.0;
+      if(!BuildT6LockPlan(dir, tickets, snapshot, targetSl, why)) return false;
+      int weak = Recovery_FindWeakLockTicket(dir, tickets, targetSl, m_tickSize);
+      if(weak < 0)
+      {
+         why = "all remaining Recovery hedge tickets already satisfy lock target";
+         return false;
+      }
+
+      int stopsLevel = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      int freezeLevel = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+      if(!Recovery_LockBrokerDistanceValidPure(dir, targetSl,
+                                               ctx.bid, ctx.ask, ctx.point,
+                                               stopsLevel, freezeLevel,
+                                               m_tickSize))
+      {
+         why = "net-positive lock target is not currently placeable outside broker stops/freeze distance";
+         return false;
+      }
+
+      bool sent = exec.ModifySlTpOwned(tickets[weak].ticket,
+                                       targetSl,
+                                       tickets[weak].tp,
+                                       m_cfg.recoveryMagic,
+                                       cycleKey,
+                                       EXEC_CMD_RECOVERY_MODIFY,
+                                       EXEC_RECONCILE_FAIL_CLOSED);
+      if(!sent && exec.HasReconcileRequired(cycleKey))
+         TransitionReconcile(dir, TimeCurrent(), "ambiguous Recovery hedge lock modification outcome");
+      if(!sent && why == "") why = "Recovery hedge lock modification rejected";
+      return sent;
+   }
+
+   bool EvaluateRehedge(const eRecoveryCoreDirection dir,
+                        const EAContext &ctx,
+                        string &why)
+   {
+      why = "";
+      if(m_cfg.mode != recovery_ACTIVE)
+      {
+         why = "T6 re-hedge bridge requires RecoveryMode=ACTIVE";
+         return false;
+      }
+      SRecoveryCycle cycle;
+      m_registry.GetCycle(dir, cycle);
+      if(cycle.state != recovery_HEDGE_LOCKED)
+      {
+         why = "cycle is not HEDGE_LOCKED";
+         return false;
+      }
+      EnsureT5Cycle(dir);
+      int idx = DirIndex(dir);
+      if(!Recovery_GenerationCanStartPure(cycle.hedgeGeneration, m_cfg.maxHedgeGenerations))
+      {
+         // D-15: equality with Max blocks Max+1; it is not an automatic stop.
+         why = "MaxHedgeGenerations_ reached; no further generation may start";
+         return false;
+      }
+      if(m_t6RehedgeAnchorTicks[idx] <= 0)
+      {
+         why = "re-hedge anchor from confirmed hedge-close deal is unavailable";
+         TransitionReconcile(dir, ctx.now, why);
+         return false;
+      }
+
+      long bidTicks = Recovery_PriceToTicksPure(ctx.bid, m_tickSize);
+      long askTicks = Recovery_PriceToTicksPure(ctx.ask, m_tickSize);
+      if(!Recovery_RehedgeGapHitPure(dir, m_t6RehedgeAnchorTicks[idx],
+                                     bidTicks, askTicks, m_rehedgeGapTicks))
+      {
+         why = "ReHedgeGapPips_ not reached from actual hedge-close anchor";
+         return false;
+      }
+
+      long coreUnits = Recovery_CurrentCoreUnits(_Symbol, (long)Magic, dir, m_volumeStep);
+      long activeHedgeUnits = ActiveRecoveryHedgeUnits(dir);
+      long required = Recovery_RehedgeRequiredUnits(coreUnits, activeHedgeUnits);
+      if(coreUnits <= 0)
+      {
+         why = "Core exposure is flat; no re-hedge is required";
+         return false;
+      }
+      if(required <= 0)
+      {
+         why = "current Recovery hedge already covers Core exposure; deficit is zero";
+         return false;
+      }
+
+      if(!m_registry.Transition(dir, recovery_REHEDGE_PENDING, ctx.now,
+                                "actual close anchor moved by ReHedgeGap and exposure deficit exists"))
+      {
+         why = "FSM rejected HEDGE_LOCKED -> REHEDGE_PENDING";
+         return false;
+      }
+      return true;
+   }
+
+   bool PrepareRehedgeBundle(const eRecoveryCoreDirection dir,
+                             const datetime now,
+                             string &why)
+   {
+      why = "";
+      if(m_cfg.mode != recovery_ACTIVE)
+      {
+         why = "T6 re-hedge bridge requires RecoveryMode=ACTIVE";
+         return false;
+      }
+      SRecoveryCycle cycle;
+      m_registry.GetCycle(dir, cycle);
+      if(cycle.state != recovery_REHEDGE_PENDING)
+      {
+         why = "cycle is not REHEDGE_PENDING";
+         return false;
+      }
+      if(!Recovery_GenerationCanStartPure(cycle.hedgeGeneration, m_cfg.maxHedgeGenerations))
+      {
+         why = "starting the next logical hedge generation would exceed MaxHedgeGenerations_";
+         return false;
+      }
+
+      long coreUnits = Recovery_CurrentCoreUnits(_Symbol, (long)Magic, dir, m_volumeStep);
+      long activeHedgeUnits = ActiveRecoveryHedgeUnits(dir);
+      long required = Recovery_RehedgeRequiredUnits(coreUnits, activeHedgeUnits);
+      if(required <= 0)
+      {
+         why = "re-hedge exposure deficit is zero";
+         return false;
+      }
+
+      SRecoveryBundleVolumeMeta meta;
+      long children[];
+      if(!BuildCurrentSplitPlan(dir, required, meta, children, why)) return false;
+      return m_registry.BeginBundle(dir, required, activeHedgeUnits, now);
+   }
+
+   long RehedgeRequiredUnits(const eRecoveryCoreDirection dir) const
+   {
+      long coreUnits = Recovery_CurrentCoreUnits(_Symbol, (long)Magic, dir, m_volumeStep);
       return Recovery_RehedgeRequiredUnits(coreUnits, ActiveRecoveryHedgeUnits(dir));
+   }
+
+   long RehedgeAnchorTicks(const eRecoveryCoreDirection dir)
+   {
+      EnsureT5Cycle(dir);
+      return m_t6RehedgeAnchorTicks[DirIndex(dir)];
+   }
+
+   double LockTargetPrice(const eRecoveryCoreDirection dir)
+   {
+      EnsureT5Cycle(dir);
+      return m_t6LockTargetPrice[DirIndex(dir)];
    }
 
    void GetCycle(const eRecoveryCoreDirection dir, SRecoveryCycle &out) const

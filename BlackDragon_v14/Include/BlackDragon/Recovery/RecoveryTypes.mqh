@@ -56,13 +56,17 @@ enum eRecoveryShadowDecision
 };
 
 input group "16 — Adaptive Recovery Hedge"
-input eRecoveryMode          RecoveryMode_             = recovery_OFF;     // OFF / SHADOW / ACTIVE
-input long                   RecoveryMagic_            = 20260807;        // Separate from Core Magic
-input int                    RecoveryStartAfterDca_    = 5;               // Initial Core order is excluded
-input double                 HedgeGapPips_             = 50.0;            // XAU: 50 pips = 5.00 price
-input double                 HedgeTPPips_              = 50.0;            // Soft/virtual TP; never broker TP
-input double                 HedgePartialClosePercent_ = 50.0;            // Logical hedge partial-close target
-input eRecoveryCoreCloseMode CoreCloseMode_            = recovery_Oldest; // user-selectable Core allocator
+input eRecoveryMode          RecoveryMode_               = recovery_OFF;     // OFF / SHADOW / ACTIVE
+input long                   RecoveryMagic_              = 20260807;        // Separate from Core Magic
+input int                    RecoveryStartAfterDca_      = 5;               // Initial Core order is excluded
+input double                 HedgeGapPips_               = 50.0;            // XAU: 50 pips = 5.00 price
+input double                 HedgeTPPips_                = 50.0;            // Soft/virtual TP; never broker TP
+input double                 HedgePartialClosePercent_   = 50.0;            // Logical hedge partial-close target
+input eRecoveryCoreCloseMode CoreCloseMode_              = recovery_Oldest; // user-selectable Core allocator
+input double                 HedgeLockNetProfitPips_     = 3.0;             // Technical PRD baseline; net-positive lock
+input double                 HedgeLockSafetyBufferPips_  = 1.0;             // Close-spread/cost safety buffer
+input double                 ReHedgeGapPips_             = 50.0;            // Fixed v1 re-hedge gap
+input int                    MaxHedgeGenerations_        = 5;               // Valid generations are 1..Max
 
 struct SRecoveryFoundationConfig
 {
@@ -73,17 +77,25 @@ struct SRecoveryFoundationConfig
    double                 hedgeTpPips;
    double                 hedgePartialClosePercent;
    eRecoveryCoreCloseMode coreCloseMode;
+   double                 hedgeLockNetProfitPips;
+   double                 hedgeLockSafetyBufferPips;
+   double                 reHedgeGapPips;
+   int                    maxHedgeGenerations;
 };
 
 void Recovery_LoadFoundationConfig(SRecoveryFoundationConfig &cfg)
 {
-   cfg.mode                     = RecoveryMode_;
-   cfg.recoveryMagic            = RecoveryMagic_;
-   cfg.startAfterDca            = RecoveryStartAfterDca_;
-   cfg.hedgeGapPips             = HedgeGapPips_;
-   cfg.hedgeTpPips              = HedgeTPPips_;
-   cfg.hedgePartialClosePercent = HedgePartialClosePercent_;
-   cfg.coreCloseMode            = CoreCloseMode_;
+   cfg.mode                      = RecoveryMode_;
+   cfg.recoveryMagic             = RecoveryMagic_;
+   cfg.startAfterDca             = RecoveryStartAfterDca_;
+   cfg.hedgeGapPips              = HedgeGapPips_;
+   cfg.hedgeTpPips               = HedgeTPPips_;
+   cfg.hedgePartialClosePercent  = HedgePartialClosePercent_;
+   cfg.coreCloseMode             = CoreCloseMode_;
+   cfg.hedgeLockNetProfitPips    = HedgeLockNetProfitPips_;
+   cfg.hedgeLockSafetyBufferPips = HedgeLockSafetyBufferPips_;
+   cfg.reHedgeGapPips            = ReHedgeGapPips_;
+   cfg.maxHedgeGenerations       = MaxHedgeGenerations_;
 }
 
 bool Recovery_ModeValid(const eRecoveryMode mode)
@@ -208,6 +220,38 @@ bool Recovery_ValidateT5Config(const eRecoveryMode mode,
    if(!Recovery_CoreCloseModeValid(coreCloseMode))
    {
       why = "CoreCloseMode_ invalid";
+      return false;
+   }
+   return true;
+}
+
+bool Recovery_ValidateT6Config(const eRecoveryMode mode,
+                               const double lockNetProfitPips,
+                               const double lockSafetyBufferPips,
+                               const double reHedgeGapPips,
+                               const int maxHedgeGenerations,
+                               string &why)
+{
+   why = "";
+   if(mode == recovery_OFF) return true;
+   if(lockNetProfitPips < 0.0)
+   {
+      why = "HedgeLockNetProfitPips_ must be >= 0";
+      return false;
+   }
+   if(lockSafetyBufferPips <= 0.0)
+   {
+      why = "HedgeLockSafetyBufferPips_ must be > 0 for strict net-positive protection";
+      return false;
+   }
+   if(reHedgeGapPips < 0.0)
+   {
+      why = "ReHedgeGapPips_ must be >= 0";
+      return false;
+   }
+   if(maxHedgeGenerations < 1)
+   {
+      why = "MaxHedgeGenerations_ must be >= 1";
       return false;
    }
    return true;
