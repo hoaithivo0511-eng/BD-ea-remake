@@ -1,0 +1,118 @@
+name: Verify BlackDragon Native RunTests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - verify/adaptive-recovery-runtime
+    paths:
+      - '.github/workflows/verify-mt5-runtests.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  runtests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+      T9_ARTIFACT_ID: '9268636368'
+      T9_ARTIFACT_SHA256: '30de810bab53a8078c61b9653c20f99e8b285be50b153dbaf1d5fae82b8e12bf'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: verify/adaptive-recovery-runtime
+          fetch-depth: 1
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'terminal64.exe missing' }
+
+      - name: Reuse exact T9 native RunTests artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $uri = "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$env:T9_ARTIFACT_ID/zip"
+          Invoke-WebRequest -Uri $uri -Headers $headers -OutFile 't9-native.zip' -UseBasicParsing
+          $digest = (Get-FileHash 't9-native.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "artifact sha256=$digest"
+          if ($digest -ne $env:T9_ARTIFACT_SHA256) { throw "T9 artifact digest mismatch: $digest" }
+          Expand-Archive -LiteralPath 't9-native.zip' -DestinationPath 't9-native' -Force
+          $script = Get-ChildItem 't9-native' -Filter 'RunTests.ex5' -Recurse | Select-Object -First 1
+          if ($null -eq $script) { throw 'RunTests.ex5 missing from exact T9 artifact' }
+          $dst = "$env:MT5_DIR\MQL5\Scripts\BlackDragon\Tests"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -LiteralPath $script.FullName -Destination "$dst\RunTests.ex5" -Force
+          Write-Host "RunTests EX5 bytes=$((Get-Item "$dst\RunTests.ex5").Length)"
+
+      - name: Execute RunTests as startup script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = '${{ github.workspace }}\verify-runtests'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $cfg = Join-Path $out 'runtests.ini'
+          $text = @"
+          [Common]
+          NewsEnable=0
+          
+          [Experts]
+          AllowLiveTrading=0
+          AllowDllImport=0
+          Enabled=1
+          
+          [StartUp]
+          Script=BlackDragon\Tests\RunTests
+          Symbol=EURUSD
+          Period=M1
+          ShutdownTerminal=1
+          "@
+          [IO.File]::WriteAllText($cfg, $text, [Text.Encoding]::Unicode)
+          $terminal = "$env:MT5_DIR\terminal64.exe"
+          $p = Start-Process -FilePath $terminal -ArgumentList "/portable /config:`"$cfg`"" -PassThru
+          $deadline = (Get-Date).AddMinutes(4)
+          while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 3
+            $p.Refresh()
+          }
+          if (-not $p.HasExited) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw 'RunTests startup script timed out'
+          }
+          Write-Host "terminal exit=$($p.ExitCode)"
+          $logs = Get-ChildItem "$env:MT5_DIR\MQL5\Logs" -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
+          if (-not $logs) { throw 'No MQL5 expert/script log produced' }
+          $latest = $logs[-1]
+          Copy-Item -LiteralPath $latest.FullName -Destination (Join-Path $out 'runtests-mql5.log') -Force
+          $raw = Get-Content -LiteralPath $latest.FullName -Raw -ErrorAction Stop
+          Write-Host '--- MQL5 RunTests log ---'
+          Write-Host $raw
+          $summary = [regex]::Match($raw, 'BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed')
+          if (-not $summary.Success) { throw 'RunTests summary not found in native MQL5 log' }
+          $passed = [int]$summary.Groups[1].Value
+          $failed = [int]$summary.Groups[2].Value
+          Write-Host "NATIVE_RUNTESTS passed=$passed failed=$failed"
+          if ($failed -ne 0) { throw "Native RunTests failed: $failed assertion(s)" }
+          if ($passed -le 0) { throw 'Native RunTests reported zero assertions' }
+          if ($raw -notmatch 'ALL GREEN') { throw 'ALL GREEN marker missing despite zero failures' }
+
+      - name: Upload native assertion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-native-runtests
+          path: verify-runtests/
+          if-no-files-found: warn
