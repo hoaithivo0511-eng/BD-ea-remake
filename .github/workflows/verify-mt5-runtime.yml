@@ -106,6 +106,7 @@ jobs:
           ExpertParameters=$setName
           Symbol=EURUSD
           Period=M1
+          Login=123456
           Model=1
           ExecutionMode=0
           Optimization=0
