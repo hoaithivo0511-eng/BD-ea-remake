@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryMath.mqh — Adaptive Recovery Hedge T1 foundation         |
+//| RecoveryMath.mqh — Adaptive Recovery Hedge unit/price helpers    |
 //| Purpose   : Pure counting/unit/price helpers only.               |
 //| Invariants: No trade API, no broker mutation, no global state.   |
 //+------------------------------------------------------------------+
@@ -30,6 +30,14 @@ long Recovery_VolumeToUnitsFloor(const double volume, const double volumeStep)
    // Tiny epsilon protects exact-grid values such as 0.30/0.10 from binary
    // representation drift while preserving the required floor for 0.245/0.01.
    return (long)MathFloor(volume / volumeStep + 1e-9);
+}
+
+// Minimum broker volume must never be rounded down. This is intentionally
+// separate from target/max/limit conversion, which remain floor-only.
+long Recovery_VolumeToUnitsCeil(const double volume, const double volumeStep)
+{
+   if(volume <= 0.0 || volumeStep <= 0.0) return 0;
+   return (long)MathCeil(volume / volumeStep - 1e-9);
 }
 
 double Recovery_UnitsToVolume(const long units, const double volumeStep)
