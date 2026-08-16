@@ -1,0 +1,90 @@
+name: Apply T9 static-review fixes once
+on:
+  push:
+    branches:
+      - feat/adaptive-recovery-t9-persistence-active
+    paths:
+      - .github/workflows/t9-static-fix-once.yml
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/adaptive-recovery-t9-persistence-active
+          fetch-depth: 0
+      - name: Apply static fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          root = Path('.')
+          eng = root/'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh'
+          reg = root/'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryRegistry.mqh'
+          per = root/'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryPersistence.mqh'
+
+          def once(path, old, new):
+              s = path.read_text(encoding='utf-8')
+              if s.count(old) != 1:
+                  raise SystemExit(f'{path}: expected exactly one match for {old[:80]!r}, got {s.count(old)}')
+              path.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          # Restore exact T8 registry and add only the T9 restore hook.
+          base = subprocess.check_output([
+              'git','show','e210ea90088fea978ed57a44b6f68a547547134c:BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryRegistry.mqh'
+          ], text=True)
+          needle = '''   void GetCycle(const eRecoveryCoreDirection dir, SRecoveryCycle &out) const\n   {\n      out = m_cycle[Index(dir)];\n   }\n'''
+          hook = needle + '''\n   // T9 persistence import. Structural/config validation is performed by\n   // RecoveryPersistence before this registry-owned snapshot is accepted.\n   bool RestoreCycle(const eRecoveryCoreDirection dir, const SRecoveryCycle &src)\n   {\n      if(src.direction != dir || src.cycleKey != Recovery_CycleKey(dir) || src.cycleSerial < 1)\n         return false;\n      if(src.state < recovery_CORE_ONLY || src.state > recovery_COMPLETED)\n         return false;\n      m_cycle[Index(dir)] = src;\n      return true;\n   }\n'''
+          if base.count(needle) != 1:
+              raise SystemExit('base registry insertion point mismatch')
+          reg.write_text(base.replace(needle, hook, 1), encoding='utf-8')
+
+          # MQL syntax: avoid comma-expression around a void GetCycle call.
+          once(eng,
+          '''            if(!RefreshHedgePartialClose(exec, dir, now, why) &&\n               m_registry.GetCycle(dir, c), c.state == recovery_RECONCILE_REQUIRED)\n               return false;\n''',
+          '''            RefreshHedgePartialClose(exec, dir, now, why);\n            m_registry.GetCycle(dir, c);\n            if(c.state == recovery_RECONCILE_REQUIRED) return false;\n''')
+
+          # If a submit helper leaves an accepted/ambiguous durable command or
+          # strict journal evidence, this tick stays terminal. Next tick may
+          # fall through to legacy risk exits after fail-closed state is visible.
+          once(eng,
+          '''         if(SubmitNextBundleChild(exec, dir, why)) return true;\n         return false;\n''',
+          '''         if(SubmitNextBundleChild(exec, dir, why)) return true;\n         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||\n            exec.HasReconcileRequired(cycleKey)) return true;\n         return false;\n''')
+          once(eng,
+          '''         if(SubmitNextHedgePartialClose(exec, dir, why)) return true;\n         return false;\n''',
+          '''         if(SubmitNextHedgePartialClose(exec, dir, why)) return true;\n         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||\n            exec.HasReconcileRequired(cycleKey)) return true;\n         return false;\n''')
+          once(eng,
+          '''         if(SubmitNextCoreClose(exec, dir, why)) return true;\n         return false;\n''',
+          '''         if(SubmitNextCoreClose(exec, dir, why)) return true;\n         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||\n            exec.HasReconcileRequired(cycleKey)) return true;\n         return false;\n''')
+          once(eng,
+          '''         if(SubmitNextHedgeLock(exec, dir, ctx, why)) return true;\n         return false;\n''',
+          '''         if(SubmitNextHedgeLock(exec, dir, ctx, why)) return true;\n         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||\n            exec.HasReconcileRequired(cycleKey)) return true;\n         return false;\n''')
+
+          # Persist a newly forced RECONCILE_REQUIRED state when the loaded file
+          # itself was valid/writable. Never overwrite a corrupt/mismatched file.
+          once(eng,
+          '''      if(!ok)\n      {\n         m_activeReady = false;\n         return false;\n      }\n''',
+          '''      if(!ok)\n      {\n         m_activeReady = false;\n         if(m_dirty && !m_persistenceBlocked)\n         {\n            string failSaveWhy = "";\n            if(!SaveState(failSaveWhy) && why == "") why = failSaveWhy;\n         }\n         return false;\n      }\n''')
+
+          # FileMove provides staged replacement, but the API docs do not promise
+          # OS-level atomicity; keep comments/error wording evidence-bounded.
+          s = per.read_text(encoding='utf-8')
+          s = s.replace('versioned, checksummed and atomically replaced.',
+                        'versioned, checksummed and staged temp-to-final replaced.')
+          s = s.replace('Recovery atomic replace failed', 'Recovery staged replace failed')
+          per.write_text(s, encoding='utf-8')
+          PY
+      - name: Verify and commit
+        shell: bash
+        run: |
+          git diff --check
+          git status --short
+          git config user.name "hoaithivo0511-eng"
+          git config user.email "hoaithivo0511@gmail.com"
+          git add BlackDragon_v14
+          git commit -m "fix(recovery): tighten T9 restart and scheduler invariants"
+          git push origin HEAD:feat/adaptive-recovery-t9-persistence-active
