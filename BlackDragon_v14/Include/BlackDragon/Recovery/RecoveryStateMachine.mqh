@@ -12,8 +12,10 @@ bool Recovery_StateTransitionAllowed(const eRecoveryState fromState,
 {
    if(fromState == toState) return false;
 
-   // Safety exits are legal from every non-terminal state.
-   if(fromState != recovery_COMPLETED)
+   // Safety exits are legal from every non-terminal state. GLOBAL_STOP is
+   // terminal except for cleanup completion; COMPLETED may only start a new
+   // logical Core cycle.
+   if(fromState != recovery_COMPLETED && fromState != recovery_GLOBAL_STOP)
    {
       if(toState == recovery_PAUSE_SOFT ||
          toState == recovery_PAUSE_HARD ||
@@ -60,7 +62,7 @@ bool Recovery_StateTransitionAllowed(const eRecoveryState fromState,
 
       case recovery_PAUSE_HARD:
       case recovery_RECONCILE_REQUIRED:
-         return false; // later explicit manual/reconcile APIs own these exits
+         return false; // only safety escalation is handled above
 
       case recovery_GLOBAL_STOP:
          return toState == recovery_COMPLETED;
@@ -71,8 +73,6 @@ bool Recovery_StateTransitionAllowed(const eRecoveryState fromState,
    return false;
 }
 
-// Trigger is evaluated in integer price ticks. Gap 0 means immediate once
-// armed, independent of current spread/price relative to the anchor.
 bool Recovery_AdverseGapHitTicks(const eRecoveryCoreDirection dir,
                                  const long anchorTicks,
                                  const long bidTicks,
