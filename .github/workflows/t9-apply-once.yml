@@ -1,0 +1,31 @@
+name: Apply T9 source patch once
+on:
+  push:
+    branches:
+      - feat/adaptive-recovery-t9-persistence-active
+    paths:
+      - tools/t9_patch.py
+      - .github/workflows/t9-apply-once.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/adaptive-recovery-t9-persistence-active
+          fetch-depth: 0
+      - name: Apply deterministic patch
+        run: python3 tools/t9_patch.py
+      - name: Verify and commit
+        shell: bash
+        run: |
+          git diff --check
+          git status --short
+          test -n "$(git status --porcelain)"
+          git config user.name "hoaithivo0511-eng"
+          git config user.email "hoaithivo0511@gmail.com"
+          git add BlackDragon_v14
+          git commit -m "feat(recovery): wire T9 persistence restart and ACTIVE scheduler"
+          git push origin HEAD:feat/adaptive-recovery-t9-persistence-active
