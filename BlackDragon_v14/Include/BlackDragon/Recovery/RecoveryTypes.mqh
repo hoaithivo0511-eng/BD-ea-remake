@@ -22,8 +22,6 @@ enum eRecoveryCoreDirection
    recovery_CORE_SELL = 1
 };
 
-// Full contract state set. T3 SHADOW only transitions CORE_ONLY <-> ARMED /
-// COMPLETED; later slices activate mutation states after broker evidence.
 enum eRecoveryState
 {
    recovery_CORE_ONLY = 0,
@@ -107,8 +105,6 @@ string Recovery_StateName(const eRecoveryState state)
    return "UNKNOWN";
 }
 
-// T1-compatible foundation validation. OFF deliberately bypasses Recovery
-// specifics so legacy v14.9 initialization remains unchanged.
 bool Recovery_ValidateFoundation(const eRecoveryMode mode,
                                  const long coreMagic,
                                  const long recoveryMagic,
@@ -125,6 +121,13 @@ bool Recovery_ValidateFoundation(const eRecoveryMode mode,
 
    if(mode == recovery_OFF) return true;
 
+   // Core Magic 0 is indistinguishable from manual magic-0 positions. Legacy
+   // OFF behavior still permits it; Recovery requires an unambiguous owner.
+   if(coreMagic <= 0)
+   {
+      why = "Core Magic must be > 0 when Recovery is enabled";
+      return false;
+   }
    if(recoveryMagic <= 0)
    {
       why = "RecoveryMagic_ must be > 0 when Recovery is enabled";
@@ -148,8 +151,6 @@ bool Recovery_ValidateFoundation(const eRecoveryMode mode,
    return true;
 }
 
-// T3 parameter gate. Gap 0 is valid and means immediate shadow eligibility
-// once the DCA threshold has a confirmed anchor; negative gaps are invalid.
 bool Recovery_ValidateShadowConfig(const eRecoveryMode mode,
                                    const double hedgeGapPips,
                                    string &why)
