@@ -25,6 +25,7 @@
 #include "ExecutionLayer.mqh"
 #include "MoneyGuard.mqh"
 #include "Panel.mqh"
+#include "Recovery/RecoveryExitCoordinator.mqh"
 
 class CStrategy
 {
@@ -34,9 +35,45 @@ private:
    ILotSizer         *m_sizer;
    CMoneyGuard       *m_guard;    // FE-401/402 (v14.3), NULL = disabled
    CDistancePlan     *m_dist;     // FE-407 (v14.7): classic or manual pip chain
+   CRecoveryExitCoordinator *m_recoveryExit; // T8: ACTIVE-only safety coordinator
    CVirtualExitPolicy m_exitPolicy;
    CFilterChain       m_newSeriesFilters;  // spread + pause + news (+ extensions)
    CFilterChain       m_gridFilters;       // pause + news (v13 behavior)
+
+   eRecoveryCoreDirection RecoveryDir(const int dir) const
+   {
+      return dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;
+   }
+
+   eRecoveryExitCoordRequest BeginFullSideClose(const int dir,
+                                                const eRecoveryExitCoordReason reason,
+                                                const datetime now)
+   {
+      if(RecoveryMode_ != recovery_ACTIVE) return recovery_EXIT_BYPASS;
+      if(m_recoveryExit == NULL) return recovery_EXIT_BLOCKED;
+      return m_recoveryExit.BeginFullSideClose(RecoveryDir(dir), reason, now);
+   }
+
+   eRecoveryExitCoordRequest BeginTicketClose(const int dir,
+                                              const ulong firstTicket,
+                                              const ulong secondTicket,
+                                              const eRecoveryExitCoordReason reason,
+                                              const datetime now)
+   {
+      if(RecoveryMode_ != recovery_ACTIVE) return recovery_EXIT_BYPASS;
+      if(m_recoveryExit == NULL) return recovery_EXIT_BLOCKED;
+      return m_recoveryExit.BeginTicketClose(RecoveryDir(dir), firstTicket,
+                                             secondTicket, reason, now);
+   }
+
+   void DriveRecoveryExit(const datetime now)
+   {
+      if(m_recoveryExit == NULL || RecoveryMode_ != recovery_ACTIVE) return;
+      string why = "";
+      m_recoveryExit.Drive(now, why);
+      if(why != "")
+         Log_Warn("Recovery", "exitcoord", "T8 exit coordination: " + why);
+   }
 
    //--- v13: first order of a series --------------------------------
    void TryOpenSeries(const EAContext &ctx)
@@ -93,17 +130,35 @@ private:
       if(d.kind == EXIT_NONE) return false;
       if(d.kind == EXIT_OVERLAP)
       {
-         Log_Info("Strategy", "Overlap close: last " + (string)d.pairLast + " + first " + (string)d.pairFirst);
-         m_exec.ClosePosition(d.pairLast);   // v13 order: last first
-         m_exec.ClosePosition(d.pairFirst);
+         eRecoveryExitCoordRequest cr = BeginTicketClose(dir, d.pairLast, d.pairFirst,
+                                                          recovery_EXIT_REASON_LEGACY_OVERLAP,
+                                                          ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            Log_Info("Strategy", "Overlap close: last " + (string)d.pairLast + " + first " + (string)d.pairFirst);
+            m_exec.ClosePosition(d.pairLast);   // v13 order: last first
+            m_exec.ClosePosition(d.pairFirst);
+            m_basket.Invalidate();
+         }
+         else if(cr == recovery_EXIT_BLOCKED)
+            Log_Warn("Recovery", "exitblocked", "Overlap Core close blocked until Recovery reconciliation is safe");
       }
       else
       {
-         string why = d.kind == EXIT_TP ? "virtual TP" : d.kind == EXIT_SL ? "virtual SL" : "virtual trailing";
-         Log_Info("Strategy", "Basket close (" + why + ") dir=" + (string)dir + " positions=" + (string)side.count);
-         m_exec.CloseBasket(side);
+         eRecoveryExitCoordReason rr = d.kind == EXIT_TP ? recovery_EXIT_REASON_LEGACY_TP :
+                                           d.kind == EXIT_SL ? recovery_EXIT_REASON_LEGACY_SL :
+                                                               recovery_EXIT_REASON_LEGACY_TRAIL;
+         eRecoveryExitCoordRequest cr = BeginFullSideClose(dir, rr, ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            string why = d.kind == EXIT_TP ? "virtual TP" : d.kind == EXIT_SL ? "virtual SL" : "virtual trailing";
+            Log_Info("Strategy", "Basket close (" + why + ") dir=" + (string)dir + " positions=" + (string)side.count);
+            m_exec.CloseBasket(side);
+            m_basket.Invalidate();
+         }
+         else if(cr == recovery_EXIT_BLOCKED)
+            Log_Warn("Recovery", "exitblocked", "Core basket exit blocked until Recovery reconciliation is safe");
       }
-      m_basket.Invalidate();
       return true;   // BD-001: a close decision is terminal for this tick
    }
 
@@ -156,30 +211,88 @@ private:
       eGuardAction a  = m_guard.Check(ctx.now, m_basket.buy.totalProfit, m_basket.sell.totalProfit,
                                       bothOpen, dayNet, m_basket.DayStartBalance());
       if(a == GUARD_NONE) return false;
+
+      bool coordinated = false;
+      bool legacyMutation = false;
       if(a == GUARD_CLOSE_ACCOUNT)
-         m_exec.CloseAllAccount();
+      {
+         if(RecoveryMode_ == recovery_ACTIVE && m_recoveryExit != NULL)
+         {
+            m_recoveryExit.BeginAccountWideClose(ctx.now);
+            coordinated = true;
+         }
+         else
+         {
+            m_exec.CloseAllAccount();
+            legacyMutation = true;
+         }
+      }
       else if(a == GUARD_CLOSE_BUY)
-         m_exec.CloseBasket(m_basket.buy);
+      {
+         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY,
+                                                            recovery_EXIT_REASON_GUARD_SIDE,
+                                                            ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            m_exec.CloseBasket(m_basket.buy);
+            legacyMutation = true;
+         }
+         else coordinated = true;
+      }
       else if(a == GUARD_CLOSE_SELL)
-         m_exec.CloseBasket(m_basket.sell);
+      {
+         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL,
+                                                            recovery_EXIT_REASON_GUARD_SIDE,
+                                                            ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            m_exec.CloseBasket(m_basket.sell);
+            legacyMutation = true;
+         }
+         else coordinated = true;
+      }
       else   // GUARD_CLOSE_MAGIC / GUARD_CLOSE_MAGIC_DAILY
       {
-         m_exec.CloseBasket(m_basket.buy);
-         m_exec.CloseBasket(m_basket.sell);
+         eRecoveryExitCoordReason rr = a == GUARD_CLOSE_MAGIC_DAILY ?
+                                       recovery_EXIT_REASON_GUARD_DAILY :
+                                       recovery_EXIT_REASON_GUARD_MAGIC;
+         if(m_basket.buy.count > 0)
+         {
+            eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY, rr, ctx.now);
+            if(cr == recovery_EXIT_BYPASS)
+            {
+               m_exec.CloseBasket(m_basket.buy);
+               legacyMutation = true;
+            }
+            else coordinated = true;
+         }
+         if(m_basket.sell.count > 0)
+         {
+            eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL, rr, ctx.now);
+            if(cr == recovery_EXIT_BYPASS)
+            {
+               m_exec.CloseBasket(m_basket.sell);
+               legacyMutation = true;
+            }
+            else coordinated = true;
+         }
       }
-      m_basket.Invalidate();
+      if(coordinated) DriveRecoveryExit(ctx.now);
+      if(legacyMutation) m_basket.Invalidate();
       return true;   // BD-001: widest-scope close suppresses all later work
    }
 
 public:
    void Init(CBasketManager *basket, CExecutionLayer *exec, ILotSizer *sizer,
-             CMoneyGuard *guard, CDistancePlan *dist)
+             CMoneyGuard *guard, CDistancePlan *dist,
+             CRecoveryExitCoordinator *recoveryExit)
    {
-      m_basket = basket;
-      m_exec   = exec;
-      m_sizer  = sizer;
-      m_guard  = guard;
-      m_dist   = dist;
+      m_basket       = basket;
+      m_exec         = exec;
+      m_sizer        = sizer;
+      m_guard        = guard;
+      m_dist         = dist;
+      m_recoveryExit = recoveryExit;
       // Registration point: ALL enabled behaviors are visible right here.
       m_newSeriesFilters.Add(new CSpreadFilter());
       m_newSeriesFilters.Add(new CPauseFilter());
@@ -203,21 +316,49 @@ public:
       bool panelClose = false;
       if(panelCloseBuy && m_basket.buy.count > 0)
       {
-         m_exec.CloseBasket(m_basket.buy);
-         m_basket.Invalidate();
+         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY,
+                                                            recovery_EXIT_REASON_PANEL,
+                                                            ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            m_exec.CloseBasket(m_basket.buy);
+            m_basket.Invalidate();
+         }
+         else if(cr == recovery_EXIT_BLOCKED)
+            Log_Warn("Recovery", "panelclose", "panel Close Buy blocked until Recovery reconciliation is safe");
          panelClose = true;
       }
       if(panelCloseSell && m_basket.sell.count > 0)
       {
-         m_exec.CloseBasket(m_basket.sell);
-         m_basket.Invalidate();
+         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL,
+                                                            recovery_EXIT_REASON_PANEL,
+                                                            ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            m_exec.CloseBasket(m_basket.sell);
+            m_basket.Invalidate();
+         }
+         else if(cr == recovery_EXIT_BLOCKED)
+            Log_Warn("Recovery", "panelclose", "panel Close Sell blocked until Recovery reconciliation is safe");
          panelClose = true;
       }
       if(panelClose)
       {
+         DriveRecoveryExit(ctx.now);
          if(panelOpenBuy || panelOpenSell)
             Log_Warn("Strategy", "panelclosewins", "panel open ignored because a panel close is active");
          return;   // BD-001: no open/DCA/modify after a panel close
+      }
+
+      // T8: an already-latched cleanup/reconcile chain is terminal for the
+      // whole Strategy tick. Drive it before the legacy global pending-close
+      // guard so each Recovery cycle can reconcile/submit its next safe step.
+      if(m_recoveryExit != NULL && m_recoveryExit.HasBlockingWork())
+      {
+         DriveRecoveryExit(ctx.now);
+         if(panelOpenBuy || panelOpenSell)
+            Log_Warn("Recovery", "cleanupactive", "panel open ignored while Recovery exit cleanup/reconciliation is active");
+         return;
       }
 
       // A close sent on an earlier tick remains terminal until ExecutionLayer
@@ -250,6 +391,7 @@ public:
       bool exitSell = ApplyExit(ctx, m_basket.sell, BD_DIR_SELL);
       if(exitBuy || exitSell)
       {
+         DriveRecoveryExit(ctx.now); // one strict cleanup mutation per cycle at a time
          if(panelOpenBuy || panelOpenSell)
             Log_Warn("Strategy", "basketclose", "panel open ignored because a basket exit fired");
          return;   // BD-001
