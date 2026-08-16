@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| RecoveryPersistence.mqh — T9 durable Recovery state store        |
 //| Invariants: Recovery OFF never mutates this file; payload is     |
-//|             versioned, checksummed and atomically replaced.      |
+//|             versioned, checksummed and staged temp-to-final replaced.      |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_PERSISTENCE_MQH
 #define BD_RECOVERY_PERSISTENCE_MQH
@@ -350,7 +350,7 @@ public:
       if(!FileMove(m_temp, 0, m_file, FILE_REWRITE))
       {
          FileDelete(m_temp);
-         why = "Recovery atomic replace failed";
+         why = "Recovery staged replace failed";
          return false;
       }
       return true;

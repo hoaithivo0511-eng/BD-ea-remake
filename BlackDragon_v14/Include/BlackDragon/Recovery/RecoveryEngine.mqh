@@ -1009,9 +1009,9 @@ private:
                ForceReconcile(dir, now, why);
                return false;
             }
-            if(!RefreshHedgePartialClose(exec, dir, now, why) &&
-               m_registry.GetCycle(dir, c), c.state == recovery_RECONCILE_REQUIRED)
-               return false;
+            RefreshHedgePartialClose(exec, dir, now, why);
+            m_registry.GetCycle(dir, c);
+            if(c.state == recovery_RECONCILE_REQUIRED) return false;
             break;
 
          case recovery_CORE_CLOSE_PENDING:
@@ -1135,6 +1135,8 @@ private:
          if(c.state != recovery_HEDGE_BUILDING) return true;
          if(exec.HasPendingForCycle(cycleKey) || m_pending[DirIndex(dir)].active) return true;
          if(SubmitNextBundleChild(exec, dir, why)) return true;
+         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||
+            exec.HasReconcileRequired(cycleKey)) return true;
          return false;
       }
 
@@ -1153,6 +1155,8 @@ private:
          if(c.state != recovery_HEDGE_TP_PENDING) return true;
          if(exec.HasPendingForCycle(cycleKey) || m_pending[DirIndex(dir)].active) return true;
          if(SubmitNextHedgePartialClose(exec, dir, why)) return true;
+         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||
+            exec.HasReconcileRequired(cycleKey)) return true;
          return false;
       }
 
@@ -1164,6 +1168,8 @@ private:
          if(c.state != recovery_CORE_CLOSE_PENDING) return true;
          if(exec.HasPendingForCycle(cycleKey) || m_pending[DirIndex(dir)].active) return true;
          if(SubmitNextCoreClose(exec, dir, why)) return true;
+         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||
+            exec.HasReconcileRequired(cycleKey)) return true;
          return false;
       }
 
@@ -1175,6 +1181,8 @@ private:
          if(c.state != recovery_HEDGE_LOCK_PENDING) return true;
          if(exec.HasPendingForCycle(cycleKey) || m_pending[DirIndex(dir)].active) return true;
          if(SubmitNextHedgeLock(exec, dir, ctx, why)) return true;
+         if(m_pending[DirIndex(dir)].active || exec.HasPendingForCycle(cycleKey) ||
+            exec.HasReconcileRequired(cycleKey)) return true;
          return false;
       }
 
@@ -2178,6 +2186,11 @@ public:
       if(!ok)
       {
          m_activeReady = false;
+         if(m_dirty && !m_persistenceBlocked)
+         {
+            string failSaveWhy = "";
+            if(!SaveState(failSaveWhy) && why == "") why = failSaveWhy;
+         }
          return false;
       }
       m_activeReady = true;
