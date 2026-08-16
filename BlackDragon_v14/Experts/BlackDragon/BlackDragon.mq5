@@ -8,6 +8,7 @@
 
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Recovery/RecoveryTypes.mqh>
+#include <BlackDragon/Recovery/RecoveryEngine.mqh>
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/License.mqh>
@@ -31,6 +32,7 @@ CWmfSignal       g_sigWMF;     // FE-405: WMF signal (TradingView port)
 ISignal         *g_signal = NULL;
 CBasketManager   g_basket;
 CExecutionLayer  g_exec;
+CRecoveryEngine  g_recovery;   // Adaptive Recovery T3: registry/FSM SHADOW only
 CSequenceSizer   g_seqSizer;    // explicit DCA lot sequence
 CChainSizer      g_chainSizer;  // DCA multiplier chain
 CDistancePlan    g_distPlan;    // DCA pip-distance chain
@@ -48,7 +50,7 @@ int OnInit()
 {
    Config_Init();
 
-   //--- Adaptive Recovery Hedge T1 foundation. OFF is deliberately
+   //--- Adaptive Recovery Hedge foundation. OFF is deliberately
    //    permissive so legacy v14.9 initialization stays unchanged.
    string recoveryWhy = "";
    if(!Recovery_ValidateFoundation(RecoveryMode_, (long)Magic, RecoveryMagic_,
@@ -59,6 +61,11 @@ int OnInit()
       Log_Error("Init", "Recovery foundation invalid: " + recoveryWhy);
       return INIT_PARAMETERS_INCORRECT;
    }
+   if(!Recovery_ValidateShadowConfig(RecoveryMode_, HedgeGapPips_, recoveryWhy))
+   {
+      Log_Error("Init", "Recovery shadow config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
 
    //--- FE-201: gold pip convention (1 USD = 10 pips). Reference quote is
    //    2-digit gold; on a 3-digit broker every point-based input is x10.
@@ -67,6 +74,10 @@ int OnInit()
       Log_Info("Init", "Gold detected (" + (string)_Digits + " digits): PointScale=" +
                (string)Cfg.PointScale + " — 200 input points = 2.00 USD = 20 pips on any broker" +
                (AutoGoldPip ? "" : " (AutoGoldPip=OFF: scale forced 1)"));
+
+   // T3 is SHADOW-only. ACTIVE intentionally fails closed inside Init until
+   // the later execution/persistence slices complete the full contract.
+   if(!g_recovery.Init()) return INIT_PARAMETERS_INCORRECT;
 
    Persist_Load();                       // restore panel toggles after restart
 
@@ -226,6 +237,7 @@ void OnTick()
    }
 
    g_basket.Update(ctx);        // rebuild only when invalidated (C1)
+   g_recovery.OnTick(ctx);      // T3 SHADOW observer only; never sends/blocks trades
    g_strategy.OnTick(ctx, g_panel);
    //--- BD-R8 (v14.7.2): g_panel.DrawLevels() moved to OnTimer. ARCHITECTURE
    //    rule C3 puts UI redraws on the 500ms timer, not on the tick stream;
@@ -269,6 +281,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeResult &result)
 {
    g_exec.OnTransaction(trans, request, result);      // confirm async journal
+   g_recovery.OnTradeTransaction(trans);              // T3: capture confirmed Core entry evidence only
    if(trans.type == TRADE_TRANSACTION_POSITION && trans.symbol == _Symbol)
       g_basket.Invalidate();                          // audit fix: SL/TP modify has no DEAL_ADD
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.symbol == _Symbol)
