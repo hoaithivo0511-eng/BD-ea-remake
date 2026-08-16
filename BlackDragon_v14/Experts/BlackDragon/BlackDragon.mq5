@@ -7,6 +7,7 @@
 #property version   "14.90"
 
 #include <BlackDragon/Config.mqh>
+#include <BlackDragon/Recovery/RecoveryTypes.mqh>
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/License.mqh>
@@ -46,6 +47,18 @@ datetime         g_lastSavedHalt = 0;   // BD-R4 (v14.7.2): last Cfg.HaltUntil w
 int OnInit()
 {
    Config_Init();
+
+   //--- Adaptive Recovery Hedge T1 foundation. OFF is deliberately
+   //    permissive so legacy v14.9 initialization stays unchanged.
+   string recoveryWhy = "";
+   if(!Recovery_ValidateFoundation(RecoveryMode_, (long)Magic, RecoveryMagic_,
+                                   RecoveryStartAfterDca_,
+                                   AccountInfoInteger(ACCOUNT_MARGIN_MODE),
+                                   recoveryWhy))
+   {
+      Log_Error("Init", "Recovery foundation invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
 
    //--- FE-201: gold pip convention (1 USD = 10 pips). Reference quote is
    //    2-digit gold; on a 3-digit broker every point-based input is x10.
