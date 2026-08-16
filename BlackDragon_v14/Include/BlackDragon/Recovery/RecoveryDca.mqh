@@ -119,6 +119,80 @@ bool Recovery_DcaGateAllows(const eRecoveryMode mode,
    return true;
 }
 
+// Read current broker-observable Recovery hedge exposure for T7 gates.
+// Registry metrics remain useful for telemetry, but DCA permission must not
+// depend on a cached value that may lag the HEDGE_BUILDING -> HEDGE_ACTIVE
+// transition. Entry costs are read only when the corridor gate is enabled.
+double Recovery_DcaPositionEntryCosts(const ulong positionIdentifier,
+                                      const string symbol,
+                                      const long recoveryMagic)
+{
+   if(positionIdentifier == 0 || !HistorySelectByPosition(positionIdentifier)) return 0.0;
+   double costs = 0.0;
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0) continue;
+      if(HistoryDealGetString(deal, DEAL_SYMBOL) != symbol ||
+         HistoryDealGetInteger(deal, DEAL_MAGIC) != recoveryMagic)
+         continue;
+      long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
+      costs += HistoryDealGetDouble(deal, DEAL_COMMISSION)
+             + HistoryDealGetDouble(deal, DEAL_FEE);
+   }
+   return costs;
+}
+
+bool Recovery_ReadDcaHedgeMetrics(const string symbol,
+                                  const long recoveryMagic,
+                                  const eRecoveryCoreDirection dir,
+                                  const bool needNetBE,
+                                  double &activeLots,
+                                  double &netBE)
+{
+   activeLots = 0.0;
+   netBE = 0.0;
+   long wantedType = Recovery_HedgeDirection(dir) == 0 ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   double weighted = 0.0;
+   double signedCosts = 0.0;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != symbol ||
+         PositionGetInteger(POSITION_MAGIC) != recoveryMagic ||
+         PositionGetInteger(POSITION_TYPE) != wantedType)
+         continue;
+
+      double lots = PositionGetDouble(POSITION_VOLUME);
+      if(lots <= 0.0) continue;
+      activeLots += lots;
+      if(!needNetBE) continue;
+
+      weighted += PositionGetDouble(POSITION_PRICE_OPEN) * lots;
+      signedCosts += PositionGetDouble(POSITION_SWAP);
+      ulong identifier = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      signedCosts += Recovery_DcaPositionEntryCosts(identifier, symbol, recoveryMagic);
+   }
+
+   if(activeLots <= 0.0) return false;
+   if(!needNetBE) return true;
+
+   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+   if(tickSize <= 0.0 || tickValue <= 0.0) return false;
+   bool hedgeIsBuy = wantedType == POSITION_TYPE_BUY;
+   netBE = Recovery_NetBreakevenFromCosts(weighted / activeLots,
+                                           activeLots,
+                                           signedCosts,
+                                           tickValue,
+                                           tickSize,
+                                           hedgeIsBuy);
+   return netBE > 0.0;
+}
+
 // Adapter into the existing Strategy grid-filter chain. It never opens a
 // hedge or a Core order and never mutates Recovery state. Recovery children
 // remain outside CBasketManager because they use RecoveryMagic_.
@@ -146,9 +220,26 @@ public:
       SRecoveryCycle cycle;
       m_recovery.GetCycle(recoveryDir, cycle);
 
+      // State/owner switch can decide most calls without broker scans.
+      if(!Recovery_DcaStateAllows(RecoveryMode_, ContinueDcaAfterHedge_, cycle.state))
+         return false;
+      if(!Recovery_DcaPostHedgeStableState(cycle.state))
+         return true;
+
       double coreLots = dir == BD_DIR_BUY ? m_basket.buy.totalLots : m_basket.sell.totalLots;
       double coreBE   = dir == BD_DIR_BUY ? m_basket.buy.breakeven : m_basket.sell.breakeven;
       double pipSize  = Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
+
+      double hedgeLots = cycle.activeHedgeLots;
+      double hedgeBE   = cycle.hedgeNetBE;
+      bool needCoverage = MinHedgeCoveragePercent_ > 0.0;
+      bool needCorridor = TargetRecoveryCorridorPips_ > 0.0;
+      if(needCoverage || needCorridor)
+      {
+         if(!Recovery_ReadDcaHedgeMetrics(_Symbol, RecoveryMagic_, recoveryDir,
+                                          needCorridor, hedgeLots, hedgeBE))
+            return false;
+      }
 
       return Recovery_DcaGateAllows(RecoveryMode_,
                                     ContinueDcaAfterHedge_,
@@ -158,8 +249,8 @@ public:
                                     recoveryDir,
                                     coreLots,
                                     coreBE,
-                                    cycle.activeHedgeLots,
-                                    cycle.hedgeNetBE,
+                                    hedgeLots,
+                                    hedgeBE,
                                     pipSize);
    }
 };
