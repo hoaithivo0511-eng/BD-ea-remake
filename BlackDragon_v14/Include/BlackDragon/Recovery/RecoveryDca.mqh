@@ -7,6 +7,7 @@
 #define BD_RECOVERY_DCA_MQH
 
 #include "RecoveryEngine.mqh"
+#include <BlackDragon/EntryFilters.mqh>
 #include <BlackDragon/BasketManager.mqh>
 
 input group "17 — Recovery DCA / Corridor"
