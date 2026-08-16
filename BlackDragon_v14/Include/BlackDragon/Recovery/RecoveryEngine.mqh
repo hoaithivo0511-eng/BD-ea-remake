@@ -62,8 +62,6 @@ private:
          ulong ticket = PositionGetTicket(i);
          if(ticket == 0) continue;
          if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         // Recovery activation is Core-EA ownership only. Manual magic-0
-         // remains a legacy BasketManager policy but cannot arm Recovery.
          if(PositionGetInteger(POSITION_MAGIC) != (long)Magic) continue;
 
          long type = PositionGetInteger(POSITION_TYPE);
@@ -157,7 +155,6 @@ private:
       if(!cycle.armed && cycle.state == recovery_CORE_ONLY &&
          Recovery_DcaThresholdReached(cycle.coreCount, m_cfg.startAfterDca))
       {
-         // Initial Core is index 0, therefore DCA N is oldest-sorted index N.
          int thresholdIndex = m_cfg.startAfterDca;
          if(thresholdIndex >= 0 && thresholdIndex < ArraySize(positions))
          {
@@ -178,8 +175,6 @@ private:
             }
             else if(!m_registry.AnchorEvidenceWaitLogged(dir))
             {
-               // Do not guess an anchor from a stale/reconstructed basket in
-               // T3/T4. T9 owns restart/history reconciliation.
                Log_Warn("Recovery", "anchor" + (string)Recovery_CycleKey(dir),
                         "SHADOW threshold reached for " + Recovery_DirectionName(dir) +
                         " but confirmed threshold deal evidence is unavailable — waiting for reconciliation");
@@ -245,9 +240,6 @@ public:
          return true;
       }
 
-      // T4 still keeps EA-level ACTIVE fail-closed. Bundle execution methods
-      // exist for integration/testing, but T9 owns final ACTIVE scheduling,
-      // persistence and restart reconciliation before this gate is removed.
       if(m_cfg.mode == recovery_ACTIVE)
       {
          Log_Error("Recovery", "ACTIVE is not enabled in T4 HedgeBundle build — use SHADOW until ACTIVE wiring is complete");
@@ -297,8 +289,6 @@ public:
       EvaluateDirection(recovery_CORE_SELL, sellPos, sellLots, ctx);
    }
 
-   // Transaction callback stays minimal: capture only confirmed inbound Core
-   // evidence. Heavy state evaluation remains on OnTick.
    void OnTradeTransaction(const MqlTradeTransaction &trans)
    {
       if(!m_initialized || m_cfg.mode != recovery_SHADOW) return;
@@ -325,12 +315,18 @@ public:
 
    //--- T4 execution bridge -------------------------------------------------
    // These methods are deliberately NOT called by BlackDragon.mq5 in T4.
-   // They establish the exact one-child-in-flight contract for later ACTIVE.
+   // RecoveryMode must also be ACTIVE; T4 Init still rejects ACTIVE, so there
+   // is no reachable trade path until the later ACTIVE-wiring gate is removed.
    bool PrepareInitialBundle(const eRecoveryCoreDirection dir,
                              const datetime now,
                              string &why)
    {
       why = "";
+      if(m_cfg.mode != recovery_ACTIVE)
+      {
+         why = "T4 bundle execution bridge requires RecoveryMode=ACTIVE";
+         return false;
+      }
       SRecoveryCycle cycle;
       m_registry.GetCycle(dir, cycle);
       if(cycle.state != recovery_ARMED || !cycle.armed)
@@ -361,6 +357,7 @@ public:
                                 const eRecoveryCoreDirection dir,
                                 const datetime now)
    {
+      if(m_cfg.mode != recovery_ACTIVE) return false;
       SRecoveryCycle cycle;
       m_registry.GetCycle(dir, cycle);
       if(cycle.state != recovery_HEDGE_BUILDING) return false;
@@ -378,6 +375,11 @@ public:
                               string &why)
    {
       why = "";
+      if(m_cfg.mode != recovery_ACTIVE)
+      {
+         why = "T4 bundle execution bridge requires RecoveryMode=ACTIVE";
+         return false;
+      }
       SRecoveryCycle cycle;
       m_registry.GetCycle(dir, cycle);
       if(cycle.state != recovery_HEDGE_BUILDING)
@@ -403,7 +405,8 @@ public:
       long childUnits = m_registry.BundleNextChildUnits(dir, meta.minUnits, meta.maxOrderUnits);
       if(childUnits <= 0)
       {
-         why = "remaining exact bundle target cannot form a legal child";
+         why = "remaining exact bundle target cannot form a legal child; reconciliation required";
+         m_registry.ObserveBundle(dir, ActiveRecoveryHedgeUnits(dir), false, true, TimeCurrent());
          return false;
       }
 
@@ -426,6 +429,14 @@ public:
       }
 
       double volume = Recovery_UnitsToVolume(childUnits, meta.volumeStep);
+      double normalized = Grid_NormalizeVolume(volume);
+      if(MathAbs(normalized - volume) > meta.volumeStep * 1e-7)
+      {
+         why = "legacy execution normalization would alter exact T4 child volume";
+         m_registry.MarkBundleChildRejected(dir);
+         return false;
+      }
+
       int childNo = cycle.bundleSubmittedChildren + 1;
       string comment = "BDR|C=" + (string)cycleKey +
                        "|G=" + (string)cycle.hedgeGeneration +
