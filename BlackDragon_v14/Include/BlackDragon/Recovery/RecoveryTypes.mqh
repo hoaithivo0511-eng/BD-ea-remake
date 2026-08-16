@@ -22,6 +22,14 @@ enum eRecoveryCoreDirection
    recovery_CORE_SELL = 1
 };
 
+enum eRecoveryCoreCloseMode
+{
+   recovery_Oldest   = 0,
+   recovery_Newest   = 1,
+   recovery_Lossiest = 2,
+   recovery_ProRata  = 3
+};
+
 enum eRecoveryState
 {
    recovery_CORE_ONLY = 0,
@@ -48,30 +56,45 @@ enum eRecoveryShadowDecision
 };
 
 input group "16 — Adaptive Recovery Hedge"
-input eRecoveryMode RecoveryMode_          = recovery_OFF; // OFF / SHADOW / ACTIVE
-input long          RecoveryMagic_         = 20260807;     // Separate from Core Magic
-input int           RecoveryStartAfterDca_ = 5;            // Initial Core order is excluded
-input double        HedgeGapPips_          = 50.0;         // Technical baseline: XAU 50 pips = 5.00 price
+input eRecoveryMode          RecoveryMode_             = recovery_OFF;     // OFF / SHADOW / ACTIVE
+input long                   RecoveryMagic_            = 20260807;        // Separate from Core Magic
+input int                    RecoveryStartAfterDca_    = 5;               // Initial Core order is excluded
+input double                 HedgeGapPips_             = 50.0;            // XAU: 50 pips = 5.00 price
+input double                 HedgeTPPips_              = 50.0;            // Soft/virtual TP; never broker TP
+input double                 HedgePartialClosePercent_ = 50.0;            // Logical hedge partial-close target
+input eRecoveryCoreCloseMode CoreCloseMode_            = recovery_Oldest; // user-selectable Core allocator
 
 struct SRecoveryFoundationConfig
 {
-   eRecoveryMode mode;
-   long          recoveryMagic;
-   int           startAfterDca;
-   double        hedgeGapPips;
+   eRecoveryMode          mode;
+   long                   recoveryMagic;
+   int                    startAfterDca;
+   double                 hedgeGapPips;
+   double                 hedgeTpPips;
+   double                 hedgePartialClosePercent;
+   eRecoveryCoreCloseMode coreCloseMode;
 };
 
 void Recovery_LoadFoundationConfig(SRecoveryFoundationConfig &cfg)
 {
-   cfg.mode          = RecoveryMode_;
-   cfg.recoveryMagic = RecoveryMagic_;
-   cfg.startAfterDca = RecoveryStartAfterDca_;
-   cfg.hedgeGapPips  = HedgeGapPips_;
+   cfg.mode                     = RecoveryMode_;
+   cfg.recoveryMagic            = RecoveryMagic_;
+   cfg.startAfterDca            = RecoveryStartAfterDca_;
+   cfg.hedgeGapPips             = HedgeGapPips_;
+   cfg.hedgeTpPips              = HedgeTPPips_;
+   cfg.hedgePartialClosePercent = HedgePartialClosePercent_;
+   cfg.coreCloseMode            = CoreCloseMode_;
 }
 
 bool Recovery_ModeValid(const eRecoveryMode mode)
 {
    return mode == recovery_OFF || mode == recovery_SHADOW || mode == recovery_ACTIVE;
+}
+
+bool Recovery_CoreCloseModeValid(const eRecoveryCoreCloseMode mode)
+{
+   return mode == recovery_Oldest || mode == recovery_Newest ||
+          mode == recovery_Lossiest || mode == recovery_ProRata;
 }
 
 int Recovery_CycleKey(const eRecoveryCoreDirection dir)
@@ -122,8 +145,6 @@ bool Recovery_ValidateFoundation(const eRecoveryMode mode,
 
    if(mode == recovery_OFF) return true;
 
-   // Core Magic 0 is indistinguishable from manual magic-0 positions. Legacy
-   // OFF behavior still permits it; Recovery requires an unambiguous owner.
    if(coreMagic <= 0)
    {
       why = "Core Magic must be > 0 when Recovery is enabled";
@@ -161,6 +182,32 @@ bool Recovery_ValidateShadowConfig(const eRecoveryMode mode,
    if(hedgeGapPips < 0.0)
    {
       why = "HedgeGapPips_ must be >= 0";
+      return false;
+   }
+   return true;
+}
+
+bool Recovery_ValidateT5Config(const eRecoveryMode mode,
+                               const double hedgeTpPips,
+                               const double partialClosePercent,
+                               const eRecoveryCoreCloseMode coreCloseMode,
+                               string &why)
+{
+   why = "";
+   if(mode == recovery_OFF) return true;
+   if(hedgeTpPips < 0.0)
+   {
+      why = "HedgeTPPips_ must be >= 0";
+      return false;
+   }
+   if(partialClosePercent <= 0.0 || partialClosePercent > 100.0)
+   {
+      why = "HedgePartialClosePercent_ must be in (0,100]";
+      return false;
+   }
+   if(!Recovery_CoreCloseModeValid(coreCloseMode))
+   {
+      why = "CoreCloseMode_ invalid";
       return false;
    }
    return true;
