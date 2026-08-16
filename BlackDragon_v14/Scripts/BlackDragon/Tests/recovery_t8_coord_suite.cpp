@@ -17,7 +17,7 @@ long PostCore(long cur,long close){ if(cur<=0) return 0; if(close<=0) return cur
 long Cap(long cur,long target,bool external){ cur=std::max(0L,cur); if(external) return cur; target=std::max(0L,target); return std::min(cur,target); }
 long Excess(long cur,long target,long hedge,bool external){ if(hedge<=0)return 0; long cap=Cap(cur,target,external); return hedge>cap?hedge-cap:0; }
 long TrimReq(long excess,long ticket,long minU){ if(excess<=0||ticket<=0||minU<=0)return 0; if(excess<minU)return ticket; return std::min(excess,ticket); }
-Step Next(bool external,long cur,long target,long hedge,bool live){ if(Excess(cur,target,hedge,external)>0)return TRIM_HEDGE; if(external){ if(cur<=0&&hedge<=0)return COMPLETE; return RECONCILE_HOLD;} if(live||cur>target)return CLOSE_CORE; if(hedge>cur)return TRIM_HEDGE; return COMPLETE; }
+Step Next(bool external,long cur,long target,long hedge,bool managedLive){ if(Excess(cur,target,hedge,external)>0)return TRIM_HEDGE; if(external){ if(cur<=0&&hedge<=0)return COMPLETE; return RECONCILE_HOLD;} if(managedLive||cur>target)return CLOSE_CORE; if(hedge>cur)return TRIM_HEDGE; return COMPLETE; }
 
 int main(){
   CHECK("CORE_ONLY bypass", !StateNeeds(CORE_ONLY));
@@ -62,7 +62,8 @@ int main(){
 
   CHECK("full first trims hedge", Next(false,1237,0,1237,false)==TRIM_HEDGE);
   CHECK("full then closes core", Next(false,1237,0,0,false)==CLOSE_CORE);
-  CHECK("full completes flat", Next(false,0,0,0,false)==COMPLETE);
+  CHECK("full keeps closing managed manual", Next(false,0,0,0,true)==CLOSE_CORE);
+  CHECK("full completes only when managed side flat", Next(false,0,0,0,false)==COMPLETE);
   CHECK("overlap trims only excess", Next(false,1237,1000,1237,true)==TRIM_HEDGE);
   CHECK("overlap closes ticket after trim", Next(false,1237,1000,1000,true)==CLOSE_CORE);
   CHECK("overlap complete at target", Next(false,1000,1000,1000,false)==COMPLETE);
