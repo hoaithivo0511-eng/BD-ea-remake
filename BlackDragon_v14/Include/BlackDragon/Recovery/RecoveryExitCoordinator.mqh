@@ -36,9 +36,9 @@ enum eRecoveryExitCoordReason
 
 enum eRecoveryExitCoordRequest
 {
-   recovery_EXIT_BYPASS = 0,   // legacy path is safe and remains authoritative
-   recovery_EXIT_LATCHED,      // coordinator owns this exit until safe completion
-   recovery_EXIT_BLOCKED       // fail closed; do not fall back to legacy mutation
+   recovery_EXIT_BYPASS = 0,
+   recovery_EXIT_LATCHED,
+   recovery_EXIT_BLOCKED
 };
 
 enum eRecoveryExitCoordStep
@@ -64,9 +64,6 @@ struct SRecoveryExitCoordCycle
    datetime                 startedAt;
 };
 
-// CORE_ONLY has no Recovery mutation/exposure contract yet; ARMED has only a
-// latch/anchor. Any later state may own a hedge or unresolved command and must
-// therefore be coordinated before legacy Core exposure is reduced.
 bool Recovery_ExitStateNeedsCoordination(const eRecoveryState state)
 {
    return state != recovery_CORE_ONLY &&
@@ -104,9 +101,6 @@ long Recovery_ExitExcessHedgeUnits(const long currentCoreUnits,
    return activeHedgeUnits > cap ? activeHedgeUnits - cap : 0;
 }
 
-// Cleanup never opens/top-ups a hedge. If the exact excess is below broker
-// minimum, closing one complete child is allowed: under-coverage is safer than
-// knowingly retaining a naked/over-hedged residual during an exit sequence.
 long Recovery_ExitTrimRequestUnits(const long excessUnits,
                                    const long selectedTicketUnits,
                                    const long minUnits)
@@ -149,11 +143,11 @@ eRecoveryExitCoordStep Recovery_ExitNextStepPure(const bool externalMutation,
 class CRecoveryExitCoordinator
 {
 private:
-   CRecoveryEngine       *m_recovery;
-   CExecutionLayer       *m_exec;
-   SRecoveryExitCoordCycle m_cycle[2];
-   bool                   m_accountWidePending;
-   datetime               m_accountWideStartedAt;
+   CRecoveryEngine          *m_recovery;
+   CExecutionLayer          *m_exec;
+   SRecoveryExitCoordCycle   m_cycle[2];
+   bool                      m_accountWidePending;
+   datetime                  m_accountWideStartedAt;
 
    int Index(const eRecoveryCoreDirection dir) const
    {
@@ -301,11 +295,11 @@ private:
    {
       ticketOut = 0;
       ownerMagicOut = 0;
-      const SRecoveryExitCoordCycle &c = m_cycle[idx];
       ulong tickets[2];
-      tickets[0] = c.ticketFirst;
-      tickets[1] = c.ticketSecond;
-      for(int i = 0; i < c.ticketCount && i < 2; i++)
+      tickets[0] = m_cycle[idx].ticketFirst;
+      tickets[1] = m_cycle[idx].ticketSecond;
+      int count = m_cycle[idx].ticketCount;
+      for(int i = 0; i < count && i < 2; i++)
       {
          ulong ticket = tickets[i];
          if(ticket == 0 || !PositionSelectByTicket(ticket)) continue;
@@ -436,8 +430,6 @@ private:
          return sent;
       }
 
-      // Preserve legacy flag_Hand_Ord semantics. Manual magic-0 tickets are
-      // part of the legacy basket but not part of Recovery ownership/coverage.
       bool sent = m_exec.ClosePosition(ticket);
       if(sent) m_cycle[idx].legacyPendingTicket = ticket;
       else
@@ -459,17 +451,14 @@ private:
          m_cycle[idx].legacyPendingTicket = 0;
          return false;
       }
-      // Journal resolved/released but ticket still exists: allow deterministic
-      // retry through the normal selection path rather than assuming success.
       m_cycle[idx].legacyPendingTicket = 0;
       return false;
    }
 
    bool DriveCycle(const int idx, const datetime now, string &why)
    {
-      SRecoveryExitCoordCycle &c = m_cycle[idx];
-      if(c.reconcileHold && !c.active) return true;
-      if(!c.active) return false;
+      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active) return true;
+      if(!m_cycle[idx].active) return false;
       if(LegacyTicketStillPending(idx)) return true;
 
       eRecoveryCoreDirection dir = Direction(idx);
@@ -477,8 +466,8 @@ private:
       m_exec.ReconcileCycle(cycleKey);
       if(m_exec.HasReconcileRequired(cycleKey))
       {
-         c.active = false;
-         c.reconcileHold = true;
+         m_cycle[idx].active = false;
+         m_cycle[idx].reconcileHold = true;
          why = "Recovery execution journal requires reconciliation during exit cleanup";
          return true;
       }
@@ -489,34 +478,34 @@ private:
       bool specificLive = false;
       ulong selectedTicket = 0;
       long selectedOwner = 0;
-      if(c.kind == recovery_EXIT_COORD_TICKETS)
+      if(m_cycle[idx].kind == recovery_EXIT_COORD_TICKETS)
          specificLive = SpecificTicketLive(idx, selectedTicket, selectedOwner);
 
       eRecoveryExitCoordStep step = Recovery_ExitNextStepPure(
-         c.kind == recovery_EXIT_COORD_EXTERNAL,
+         m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL,
          currentCoreUnits,
-         c.targetCoreUnits,
+         m_cycle[idx].targetCoreUnits,
          activeHedgeUnits,
          specificLive);
 
       if(step == recovery_EXIT_STEP_TRIM_HEDGE)
       {
          long excess = Recovery_ExitExcessHedgeUnits(currentCoreUnits,
-                                                      c.targetCoreUnits,
+                                                      m_cycle[idx].targetCoreUnits,
                                                       activeHedgeUnits,
-                                                      c.kind == recovery_EXIT_COORD_EXTERNAL);
+                                                      m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL);
          SubmitRecoveryTrim(idx, excess, why);
          return true;
       }
 
       if(step == recovery_EXIT_STEP_CLOSE_CORE)
       {
-         if(c.kind == recovery_EXIT_COORD_TICKETS)
+         if(m_cycle[idx].kind == recovery_EXIT_COORD_TICKETS)
          {
             if(!specificLive)
             {
-               c.active = false;
-               c.reconcileHold = true;
+               m_cycle[idx].active = false;
+               m_cycle[idx].reconcileHold = true;
                why = "specific legacy exit tickets disappeared but Core exposure did not reach planned target";
                return true;
             }
@@ -528,8 +517,8 @@ private:
          long ownerMagic = 0;
          if(!SelectOldestManagedSideTicket(dir, ticket, ownerMagic))
          {
-            c.active = false;
-            c.reconcileHold = true;
+            m_cycle[idx].active = false;
+            m_cycle[idx].reconcileHold = true;
             why = "full-side exit target not reached but no legacy-managed Core ticket is selectable";
             return true;
          }
@@ -539,31 +528,26 @@ private:
 
       if(step == recovery_EXIT_STEP_RECONCILE_HOLD)
       {
-         // External Core/Recovery mutation was made outside the coordinator.
-         // Once over-hedge risk is removed, freeze normal Recovery/DCA work
-         // until T9 broker/history reconciliation proves a safe continuation.
-         c.active = false;
+         m_cycle[idx].active = false;
          SRecoveryCycle cycle;
          m_recovery.GetCycle(dir, cycle);
          if(currentCoreUnits <= 0 && activeHedgeUnits <= 0)
-            c.reconcileHold = false;
+            m_cycle[idx].reconcileHold = false;
          else if(cycle.state == recovery_CORE_ONLY && activeHedgeUnits <= 0 &&
                  !m_exec.HasPendingForCycle(cycleKey))
-            c.reconcileHold = false; // no Recovery state/exposure was involved
+            m_cycle[idx].reconcileHold = false;
          else
-            c.reconcileHold = true;
-         return c.reconcileHold;
+            m_cycle[idx].reconcileHold = true;
+         return m_cycle[idx].reconcileHold;
       }
 
       if(step == recovery_EXIT_STEP_COMPLETE)
       {
-         c.active = false;
-         // Partial deterministic exits (Overlap) leave a Core series alive.
-         // Keep a fail-closed reconcile hold until T9 refreshes the Recovery
-         // registry from broker/history. Full-side cleanup is exposure-flat.
-         c.reconcileHold = (c.kind == recovery_EXIT_COORD_TICKETS &&
-                            (currentCoreUnits > 0 || activeHedgeUnits > 0));
-         return c.reconcileHold;
+         bool wasTicketCleanup = m_cycle[idx].kind == recovery_EXIT_COORD_TICKETS;
+         m_cycle[idx].active = false;
+         m_cycle[idx].reconcileHold = wasTicketCleanup &&
+                                      (currentCoreUnits > 0 || activeHedgeUnits > 0);
+         return m_cycle[idx].reconcileHold;
       }
       return false;
    }
@@ -620,8 +604,6 @@ public:
       if(!CycleRequiresCoordination(dir) && !m_cycle[idx].reconcileHold)
          return recovery_EXIT_BYPASS;
 
-      // A full risk-reducing exit may override a previous reconcile hold or a
-      // narrower partial intent; it never falls back to unsafe legacy mutation.
       m_cycle[idx].active          = true;
       m_cycle[idx].reconcileHold   = false;
       m_cycle[idx].kind            = recovery_EXIT_COORD_FULL_SIDE;
@@ -648,10 +630,7 @@ public:
       if(firstTicket == 0 && secondTicket == 0) return recovery_EXIT_BLOCKED;
 
       if(m_cycle[idx].active)
-      {
-         // A previously latched full-side exit is stronger; do not downgrade it.
          return recovery_EXIT_LATCHED;
-      }
 
       long currentCore = CoreMagicUnits(dir);
       long intendedCoreClose = CoreMagicUnitsForTicket(dir, firstTicket);
@@ -675,7 +654,6 @@ public:
       if(RecoveryMode_ != recovery_ACTIVE || m_exec == NULL) return;
       m_accountWidePending = true;
       m_accountWideStartedAt = now;
-      // Account/global emergency preempts narrower per-cycle cleanup.
       ResetCycle(0);
       ResetCycle(1);
    }
@@ -711,9 +689,6 @@ public:
       return blocking || HasBlockingWork();
    }
 
-   // Returns true when RecoveryEngine must NOT consume this closing deal as
-   // normal T5 realized-credit evidence. Coordinator-owned closes and any
-   // non-EXPERT Core/Recovery close are cleanup/reconcile evidence instead.
    bool OnTradeTransaction(const MqlTradeTransaction &trans)
    {
       if(RecoveryMode_ != recovery_ACTIVE || m_recovery == NULL || m_exec == NULL)
@@ -739,8 +714,8 @@ public:
       }
       else
       {
-         if(type == DEAL_TYPE_BUY) dir = recovery_CORE_BUY;   // closes SELL Recovery hedge
-         else if(type == DEAL_TYPE_SELL) dir = recovery_CORE_SELL; // closes BUY Recovery hedge
+         if(type == DEAL_TYPE_BUY) dir = recovery_CORE_BUY;
+         else if(type == DEAL_TYPE_SELL) dir = recovery_CORE_SELL;
          else mapped = false;
       }
       if(!mapped) return false;
