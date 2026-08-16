@@ -14,10 +14,14 @@ enum State{ CORE_ONLY=0, ARMED, HEDGE_BUILDING, HEDGE_ACTIVE, HEDGE_TP_PENDING,
 
 static int DcaCount(int coreCount){ return coreCount<=1?0:coreCount-1; }
 static bool Threshold(int coreCount,int n){ return coreCount>0 && n>=0 && DcaCount(coreCount)>=n; }
+static bool EnabledOwnerValid(long coreMagic,long recoveryMagic){
+  return coreMagic>0 && recoveryMagic>0 && coreMagic!=recoveryMagic;
+}
 
 static bool TransitionAllowed(State f,State t){
   if(f==t) return false;
-  if(f!=COMPLETED && (t==PAUSE_SOFT||t==PAUSE_HARD||t==RECONCILE_REQUIRED||t==GLOBAL_STOP||t==COMPLETED)) return true;
+  if(f!=COMPLETED && f!=GLOBAL_STOP &&
+     (t==PAUSE_SOFT||t==PAUSE_HARD||t==RECONCILE_REQUIRED||t==GLOBAL_STOP||t==COMPLETED)) return true;
   switch(f){
     case CORE_ONLY:return t==ARMED;
     case ARMED:return t==HEDGE_BUILDING;
@@ -67,6 +71,13 @@ static bool ShadowDecision(Cycle& c,bool gapHit){
 }
 
 int main(){
+  // Ownership gate: Recovery OFF remains permissive in MQL; these checks model
+  // the stricter owner requirement only when Recovery is enabled.
+  Check("enabled owner magic valid",EnabledOwnerValid(1111,20260807));
+  Check("enabled core magic0 rejected",!EnabledOwnerValid(0,20260807));
+  Check("enabled recovery magic0 rejected",!EnabledOwnerValid(1111,0));
+  Check("enabled magic collision rejected",!EnabledOwnerValid(1111,1111));
+
   // N-DCA boundaries.
   Check("N0 flat false",!Threshold(0,0));
   Check("N0 initial true",Threshold(1,0));
@@ -93,6 +104,7 @@ int main(){
   Check("HARD fail closed",!TransitionAllowed(PAUSE_HARD,ARMED));
   Check("RECON fail closed",!TransitionAllowed(RECONCILE_REQUIRED,ARMED));
   Check("GLOBAL->COMPLETE",TransitionAllowed(GLOBAL_STOP,COMPLETED));
+  Check("GLOBAL terminal vs pause",!TransitionAllowed(GLOBAL_STOP,PAUSE_SOFT));
   Check("COMPLETE->CORE next cycle",TransitionAllowed(COMPLETED,CORE_ONLY));
   Check("same state not transition",!TransitionAllowed(ARMED,ARMED));
 
