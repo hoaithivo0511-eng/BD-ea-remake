@@ -423,12 +423,20 @@ private:
 
       double volume = Recovery_UnitsToVolume(requestUnits, step);
       int cycleKey = Recovery_CycleKey(dir);
+      bool durable = m_recovery != NULL && m_recovery.ActiveReady();
+      if(durable && !m_recovery.ArmDurableCommand(dir, EXEC_CMD_RECOVERY_CLOSE,
+                                                   (long)RecoveryMagic_, ticket,
+                                                   requestUnits, RecoveryUnits(dir),
+                                                   0.0, 0, 0, why))
+         return false;
       bool sent = m_exec.ClosePositionVolumeOwned(ticket, volume,
                                                   (long)RecoveryMagic_, cycleKey,
                                                   EXEC_CMD_RECOVERY_CLOSE,
                                                   EXEC_RECONCILE_FAIL_CLOSED);
       if(!sent)
       {
+         if(durable && !m_exec.HasReconcileRequired(cycleKey))
+            m_recovery.CancelDurableCommand(dir);
          why = m_exec.HasReconcileRequired(cycleKey) ?
                "Recovery cleanup hedge close is ambiguous; reconciliation required" :
                "Recovery cleanup hedge close request was rejected";
@@ -448,13 +456,23 @@ private:
       if(volume <= 0.0) return false;
       if(ownerMagic == (long)Magic)
       {
-         int cycleKey = Recovery_CycleKey(Direction(idx));
+         eRecoveryCoreDirection dir = Direction(idx);
+         int cycleKey = Recovery_CycleKey(dir);
+         long units = VolumeStepUnits(volume);
+         bool durable = m_recovery != NULL && m_recovery.ActiveReady();
+         if(durable && !m_recovery.ArmDurableCommand(dir, EXEC_CMD_RECOVERY_CLOSE,
+                                                      (long)Magic, ticket, units,
+                                                      CoreMagicUnits(dir), 0.0,
+                                                      0, 0, why))
+            return false;
          bool sent = m_exec.ClosePositionVolumeOwned(ticket, volume,
                                                      (long)Magic, cycleKey,
                                                      EXEC_CMD_RECOVERY_CLOSE,
                                                      EXEC_RECONCILE_FAIL_CLOSED);
          if(!sent)
          {
+            if(durable && !m_exec.HasReconcileRequired(cycleKey))
+               m_recovery.CancelDurableCommand(dir);
             why = m_exec.HasReconcileRequired(cycleKey) ?
                   "coordinated Core close is ambiguous; reconciliation required" :
                   "coordinated Core close request was rejected";
@@ -500,6 +518,17 @@ private:
 
       eRecoveryCoreDirection dir = Direction(idx);
       int cycleKey = Recovery_CycleKey(dir);
+      if(m_recovery != NULL && m_recovery.ActiveReady() && m_recovery.HasDurableCommand(dir))
+      {
+         string durableWhy = "";
+         if(!m_recovery.ResolveDurableCommand(*m_exec, dir, now, durableWhy))
+         {
+            m_cycle[idx].active = false;
+            m_cycle[idx].reconcileHold = true;
+            why = durableWhy;
+            return true;
+         }
+      }
       m_exec.ReconcileCycle(cycleKey);
       if(m_exec.HasReconcileRequired(cycleKey))
       {

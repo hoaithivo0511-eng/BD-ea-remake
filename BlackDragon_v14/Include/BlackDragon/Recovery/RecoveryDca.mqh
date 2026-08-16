@@ -194,6 +194,20 @@ bool Recovery_ReadDcaHedgeMetrics(const string symbol,
    return netBE > 0.0;
 }
 
+// ACTIVE startup gate for automated NEW SERIES. OFF/SHADOW are exact no-ops.
+class CRecoveryStartupFilter : public IEntryFilter
+{
+private:
+   CRecoveryEngine *m_recovery;
+public:
+   CRecoveryStartupFilter(CRecoveryEngine *recovery) { m_recovery = recovery; }
+   bool Allow(const EAContext &ctx, const int dir)
+   {
+      if(RecoveryMode_ != recovery_ACTIVE) return true;
+      return m_recovery != NULL && m_recovery.ActiveReady();
+   }
+};
+
 // Adapter into the existing Strategy grid-filter chain. It never opens a
 // hedge or a Core order and never mutates Recovery state. Recovery children
 // remain outside CBasketManager because they use RecoveryMagic_.
@@ -215,6 +229,7 @@ public:
       // Mandatory parity: SHADOW observes only and OFF is a no-op.
       if(RecoveryMode_ != recovery_ACTIVE) return true;
       if(m_recovery == NULL || m_basket == NULL) return false;
+      if(!m_recovery.ActiveReady()) return false;
 
       eRecoveryCoreDirection recoveryDir =
          dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;

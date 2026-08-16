@@ -35,6 +35,7 @@ private:
    ILotSizer         *m_sizer;
    CMoneyGuard       *m_guard;    // FE-401/402 (v14.3), NULL = disabled
    CDistancePlan     *m_dist;     // FE-407 (v14.7): classic or manual pip chain
+   CRecoveryEngine     *m_recovery;  // T9 ACTIVE scheduler/persistence gate
    CRecoveryExitCoordinator *m_recoveryExit; // T8: ACTIVE-only safety coordinator
    CVirtualExitPolicy m_exitPolicy;
    CFilterChain       m_newSeriesFilters;  // spread + pause + news (+ extensions)
@@ -285,13 +286,14 @@ private:
 public:
    void Init(CBasketManager *basket, CExecutionLayer *exec, ILotSizer *sizer,
              CMoneyGuard *guard, CDistancePlan *dist,
-             CRecoveryExitCoordinator *recoveryExit)
+             CRecoveryEngine *recovery, CRecoveryExitCoordinator *recoveryExit)
    {
       m_basket       = basket;
       m_exec         = exec;
       m_sizer        = sizer;
       m_guard        = guard;
       m_dist         = dist;
+      m_recovery     = recovery;
       m_recoveryExit = recoveryExit;
       // Registration point: ALL enabled behaviors are visible right here.
       m_newSeriesFilters.Add(new CSpreadFilter());
@@ -383,6 +385,22 @@ public:
          if(panelOpenBuy || panelOpenSell)
             Log_Warn("Strategy", "guardclose", "panel open ignored because a money guard close fired");
          return;   // BD-001: guard close ends the tick
+      }
+
+      // T9: after account/global guard, drive the Recovery mutation chain
+      // before legacy Core exits. Stable states that do not trigger a mutation
+      // fall through; an accepted/in-flight mutation is terminal for this tick.
+      if(m_recovery != NULL && RecoveryMode_ == recovery_ACTIVE && m_recovery.ActiveReady())
+      {
+         string recoveryWhy = "";
+         if(m_recovery.DriveActive(*m_exec, ctx, recoveryWhy))
+         {
+            if(recoveryWhy != "")
+               Log_Warn("Recovery", "activedrive", "ACTIVE mutation chain: " + recoveryWhy);
+            if(panelOpenBuy || panelOpenSell)
+               Log_Warn("Recovery", "activewins", "panel open ignored because an ACTIVE Recovery mutation is in flight");
+            return;
+         }
       }
 
       // 2. Evaluate BOTH directions so simultaneous exits can both be sent,
