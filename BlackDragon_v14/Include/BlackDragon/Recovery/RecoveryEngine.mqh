@@ -1,12 +1,14 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T3 Registry/FSM + SHADOW evaluator          |
+//| RecoveryEngine.mqh — T3 SHADOW + T4 HedgeBundle foundation       |
 //| Invariants: SHADOW sends NO trade request and never blocks Core. |
+//|             T4 execution bridge is not wired into EA ACTIVE yet. |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ENGINE_MQH
 #define BD_RECOVERY_ENGINE_MQH
 
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
+#include <BlackDragon/ExecutionLayer.mqh>
 #include "RecoveryRegistry.mqh"
 
 struct SRecoveryCorePositionSnapshot
@@ -93,6 +95,24 @@ private:
       SortOldestFirst(sellPos);
    }
 
+   long ActiveRecoveryHedgeUnits(const eRecoveryCoreDirection dir) const
+   {
+      if(m_volumeStep <= 0.0) return 0;
+      long wantedType = Recovery_HedgeDirection(dir) == 0 ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+      long units = 0;
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
+            PositionGetInteger(POSITION_MAGIC) != m_cfg.recoveryMagic ||
+            PositionGetInteger(POSITION_TYPE) != wantedType)
+            continue;
+         units += Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME), m_volumeStep);
+      }
+      return units;
+   }
+
    void LogObservedStateChange(const eRecoveryCoreDirection dir,
                                const SRecoveryCycle &before,
                                const SRecoveryCycle &after)
@@ -100,6 +120,26 @@ private:
       if(before.state == after.state) return;
       Log_Info("Recovery", "SHADOW " + Recovery_DirectionName(dir) + " " +
                Recovery_StateName(before.state) + " -> " + Recovery_StateName(after.state));
+   }
+
+   bool BuildCurrentSplitPlan(const eRecoveryCoreDirection dir,
+                              const long targetNewUnits,
+                              SRecoveryBundleVolumeMeta &meta,
+                              long &children[],
+                              string &why) const
+   {
+      if(!Recovery_ReadBundleVolumeMeta(_Symbol, meta, why)) return false;
+      int hedgeDir = Recovery_HedgeDirection(dir);
+      long existingDirectionalUnits = Recovery_DirectionalExposureUnits(_Symbol,
+                                                                         hedgeDir,
+                                                                         meta.volumeStep);
+      return Recovery_BuildBundlePlan(targetNewUnits,
+                                      meta.minUnits,
+                                      meta.maxOrderUnits,
+                                      existingDirectionalUnits,
+                                      meta.volumeLimitUnits,
+                                      children,
+                                      why);
    }
 
    void EvaluateDirection(const eRecoveryCoreDirection dir,
@@ -139,7 +179,7 @@ private:
             else if(!m_registry.AnchorEvidenceWaitLogged(dir))
             {
                // Do not guess an anchor from a stale/reconstructed basket in
-               // T3. T9 owns restart/history reconciliation.
+               // T3/T4. T9 owns restart/history reconciliation.
                Log_Warn("Recovery", "anchor" + (string)Recovery_CycleKey(dir),
                         "SHADOW threshold reached for " + Recovery_DirectionName(dir) +
                         " but confirmed threshold deal evidence is unavailable — waiting for reconciliation");
@@ -160,11 +200,25 @@ private:
 
       long targetUnits = Recovery_VolumeToUnitsFloor(cycle.coreLots, m_volumeStep);
       double triggerPrice = dir == recovery_CORE_BUY ? ctx.bid : ctx.ask;
-      if(m_registry.MarkShadowHedgeDecision(dir, targetUnits, triggerPrice, ctx.now))
+      SRecoveryBundleVolumeMeta meta;
+      long children[];
+      string planWhy = "";
+      if(!BuildCurrentSplitPlan(dir, targetUnits, meta, children, planWhy))
+      {
+         if(m_registry.MarkShadowHedgeBlocked(dir, targetUnits, triggerPrice, ctx.now))
+            Log_Warn("Recovery", "bundle" + (string)Recovery_CycleKey(dir),
+                     "SHADOW hedge bundle blocked for " + Recovery_DirectionName(dir) +
+                     ": " + planWhy);
+         return;
+      }
+
+      if(m_registry.MarkShadowHedgeDecision(dir, targetUnits, triggerPrice,
+                                             ArraySize(children), ctx.now))
       {
          string hedgeSide = Recovery_HedgeDirection(dir) == 0 ? "BUY" : "SELL";
-         Log_Info("Recovery", "SHADOW would open " + hedgeSide + " hedge for " +
+         Log_Info("Recovery", "SHADOW would open " + hedgeSide + " logical hedge for " +
                   Recovery_DirectionName(dir) + " targetUnits=" + (string)targetUnits +
+                  " children=" + (string)ArraySize(children) +
                   " trigger=" + DoubleToString(triggerPrice, _Digits));
       }
    }
@@ -191,11 +245,12 @@ public:
          return true;
       }
 
-      // T3 is intentionally SHADOW-only. ACTIVE is fail-closed until the
-      // later execution/persistence slices wire the full contract.
+      // T4 still keeps EA-level ACTIVE fail-closed. Bundle execution methods
+      // exist for integration/testing, but T9 owns final ACTIVE scheduling,
+      // persistence and restart reconciliation before this gate is removed.
       if(m_cfg.mode == recovery_ACTIVE)
       {
-         Log_Error("Recovery", "ACTIVE is not enabled in T3 Registry/FSM build — use SHADOW until ACTIVE wiring is complete");
+         Log_Error("Recovery", "ACTIVE is not enabled in T4 HedgeBundle build — use SHADOW until ACTIVE wiring is complete");
          return false;
       }
 
@@ -208,6 +263,14 @@ public:
          return false;
       }
 
+      SRecoveryBundleVolumeMeta meta;
+      string volumeWhy = "";
+      if(!Recovery_ReadBundleVolumeMeta(_Symbol, meta, volumeWhy))
+      {
+         Log_Error("Recovery", "invalid T4 bundle volume metadata: " + volumeWhy);
+         return false;
+      }
+
       m_gapTicks = Recovery_PipsToTicksPure(m_cfg.hedgeGapPips, m_isGold,
                                             _Point, _Digits, m_tickSize);
       if(m_cfg.hedgeGapPips > 0.0 && m_gapTicks <= 0)
@@ -217,7 +280,7 @@ public:
       }
 
       m_initialized = true;
-      Log_Info("Recovery", "SHADOW registry/FSM enabled; no Recovery trade requests will be sent");
+      Log_Info("Recovery", "SHADOW registry/FSM + T4 smart-split enabled; no Recovery trade requests will be sent");
       return true;
    }
 
@@ -258,6 +321,147 @@ public:
       double price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
       datetime dealTime = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
       m_registry.RecordCoreEntryEvidence(dir, trans.deal, trans.position, price, dealTime);
+   }
+
+   //--- T4 execution bridge -------------------------------------------------
+   // These methods are deliberately NOT called by BlackDragon.mq5 in T4.
+   // They establish the exact one-child-in-flight contract for later ACTIVE.
+   bool PrepareInitialBundle(const eRecoveryCoreDirection dir,
+                             const datetime now,
+                             string &why)
+   {
+      why = "";
+      SRecoveryCycle cycle;
+      m_registry.GetCycle(dir, cycle);
+      if(cycle.state != recovery_ARMED || !cycle.armed)
+      {
+         why = "cycle is not ARMED";
+         return false;
+      }
+      long coreUnits = Recovery_VolumeToUnitsFloor(cycle.coreLots, m_volumeStep);
+      long activeUnits = ActiveRecoveryHedgeUnits(dir);
+      if(coreUnits <= 0)
+      {
+         why = "Core exposure is not representable in volume units";
+         return false;
+      }
+      if(activeUnits != 0)
+      {
+         why = "initial bundle requires zero pre-existing Recovery hedge units";
+         return false;
+      }
+
+      SRecoveryBundleVolumeMeta meta;
+      long children[];
+      if(!BuildCurrentSplitPlan(dir, coreUnits, meta, children, why)) return false;
+      return m_registry.BeginBundle(dir, coreUnits, activeUnits, now);
+   }
+
+   bool RefreshBundleFromBroker(CExecutionLayer &exec,
+                                const eRecoveryCoreDirection dir,
+                                const datetime now)
+   {
+      SRecoveryCycle cycle;
+      m_registry.GetCycle(dir, cycle);
+      if(cycle.state != recovery_HEDGE_BUILDING) return false;
+      int cycleKey = Recovery_CycleKey(dir);
+      exec.ReconcileCycle(cycleKey);
+      return m_registry.ObserveBundle(dir,
+                                      ActiveRecoveryHedgeUnits(dir),
+                                      exec.HasPendingForCycle(cycleKey),
+                                      exec.HasReconcileRequired(cycleKey),
+                                      now);
+   }
+
+   bool SubmitNextBundleChild(CExecutionLayer &exec,
+                              const eRecoveryCoreDirection dir,
+                              string &why)
+   {
+      why = "";
+      SRecoveryCycle cycle;
+      m_registry.GetCycle(dir, cycle);
+      if(cycle.state != recovery_HEDGE_BUILDING)
+      {
+         why = "cycle is not HEDGE_BUILDING";
+         return false;
+      }
+
+      int cycleKey = Recovery_CycleKey(dir);
+      if(exec.HasReconcileRequired(cycleKey))
+      {
+         why = "execution layer requires reconciliation";
+         return false;
+      }
+      if(exec.HasPendingForCycle(cycleKey) || !m_registry.BundleCanSubmitNext(dir))
+      {
+         why = "one child is already in flight or bundle is blocked/complete";
+         return false;
+      }
+
+      SRecoveryBundleVolumeMeta meta;
+      if(!Recovery_ReadBundleVolumeMeta(_Symbol, meta, why)) return false;
+      long childUnits = m_registry.BundleNextChildUnits(dir, meta.minUnits, meta.maxOrderUnits);
+      if(childUnits <= 0)
+      {
+         why = "remaining exact bundle target cannot form a legal child";
+         return false;
+      }
+
+      int hedgeDir = Recovery_HedgeDirection(dir);
+      long existingDirectionalUnits = Recovery_DirectionalExposureUnits(_Symbol,
+                                                                         hedgeDir,
+                                                                         meta.volumeStep);
+      if(!Recovery_VolumeLimitAllows(childUnits, existingDirectionalUnits,
+                                     meta.volumeLimitUnits))
+      {
+         why = "next child would exceed current SYMBOL_VOLUME_LIMIT";
+         m_registry.MarkBundleChildRejected(dir);
+         return false;
+      }
+      if(!Recovery_ChildMarginPreflight(_Symbol, hedgeDir, childUnits,
+                                        meta.volumeStep, why))
+      {
+         m_registry.MarkBundleChildRejected(dir);
+         return false;
+      }
+
+      double volume = Recovery_UnitsToVolume(childUnits, meta.volumeStep);
+      int childNo = cycle.bundleSubmittedChildren + 1;
+      string comment = "BDR|C=" + (string)cycleKey +
+                       "|G=" + (string)cycle.hedgeGeneration +
+                       "|B=" + (string)cycle.bundleId +
+                       "|N=" + (string)childNo;
+      bool sent = exec.OpenMarketOwned(hedgeDir, volume,
+                                       m_cfg.recoveryMagic, cycleKey,
+                                       EXEC_CMD_RECOVERY_OPEN,
+                                       EXEC_RECONCILE_FAIL_CLOSED,
+                                       comment);
+      if(!sent)
+      {
+         if(exec.HasReconcileRequired(cycleKey))
+            why = "child send outcome ambiguous; reconciliation required";
+         else
+         {
+            why = "child request rejected; bundle blocked pending explicit review/retry policy";
+            m_registry.MarkBundleChildRejected(dir);
+         }
+         return false;
+      }
+
+      if(!m_registry.MarkBundleChildSubmitted(dir, childUnits))
+      {
+         why = "execution accepted child but registry could not mark it in-flight";
+         return false;
+      }
+      return true;
+   }
+
+   long RehedgeRequiredUnits(const eRecoveryCoreDirection dir) const
+   {
+      SRecoveryCycle cycle;
+      m_registry.GetCycle(dir, cycle);
+      long coreUnits = Recovery_VolumeToUnitsFloor(cycle.coreLots, m_volumeStep);
+      return Recovery_RehedgeRequiredUnits(coreUnits, ActiveRecoveryHedgeUnits(dir));
    }
 
    void GetCycle(const eRecoveryCoreDirection dir, SRecoveryCycle &out) const
