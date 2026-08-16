@@ -43,7 +43,8 @@ enum eRecoveryState
 enum eRecoveryShadowDecision
 {
    recovery_SHADOW_NONE = 0,
-   recovery_SHADOW_WOULD_OPEN_HEDGE
+   recovery_SHADOW_WOULD_OPEN_HEDGE,
+   recovery_SHADOW_HEDGE_PLAN_BLOCKED
 };
 
 input group "16 — Adaptive Recovery Hedge"

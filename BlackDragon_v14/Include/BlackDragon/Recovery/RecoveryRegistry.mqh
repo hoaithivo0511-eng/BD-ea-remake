@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//| RecoveryRegistry.mqh — T3 BUY/SELL cycle registry                |
+//| RecoveryRegistry.mqh — BUY/SELL cycle + T4 bundle registry       |
 //| Invariants: two independent Core cycles; bounded in-memory audit.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_REGISTRY_MQH
 #define BD_RECOVERY_REGISTRY_MQH
 
-#include "RecoveryStateMachine.mqh"
+#include "RecoveryBundle.mqh"
 
 #define BD_RECOVERY_ENTRY_EVIDENCE_CAP 16
 #define BD_RECOVERY_TRANSITION_AUDIT_CAP 32
@@ -53,11 +53,28 @@ struct SRecoveryCycle
    long                   anchorTicks;
    datetime               anchorTime;
 
+   // T4 logical bundle runtime. One generation == one logical bundle, never
+   // one physical child order.
+   int                    hedgeGeneration;
+   int                    bundleId;
+   long                   bundleTargetUnits;
+   long                   bundleBaselineActiveUnits;
+   long                   bundleConfirmedUnits;
+   int                    bundleSubmittedChildren;
+   bool                   bundleChildInFlight;
+   bool                   bundlePartialCoverage;
+   bool                   bundleBlockedAfterReject;
+   bool                   bundleReconcileRequired;
+   bool                   bundleComplete;
+   double                 bundleCoveragePercent;
+
    eRecoveryShadowDecision shadowDecision;
    bool                   shadowDecisionLatched;
    long                   shadowTargetUnits;
    double                 shadowTriggerPrice;
    datetime               shadowDecisionAt;
+   int                    shadowPlannedChildren;
+   bool                   shadowPlanValid;
 
    bool                   anchorEvidenceWaitLogged;
    int                    transitionSequence;
@@ -77,6 +94,20 @@ private:
    int Index(const eRecoveryCoreDirection dir) const
    {
       return dir == recovery_CORE_BUY ? 0 : 1;
+   }
+
+   void ClearBundleRuntime(SRecoveryCycle &c)
+   {
+      c.bundleTargetUnits          = 0;
+      c.bundleBaselineActiveUnits  = 0;
+      c.bundleConfirmedUnits       = 0;
+      c.bundleSubmittedChildren    = 0;
+      c.bundleChildInFlight        = false;
+      c.bundlePartialCoverage      = false;
+      c.bundleBlockedAfterReject   = false;
+      c.bundleReconcileRequired    = false;
+      c.bundleComplete             = false;
+      c.bundleCoveragePercent      = 0.0;
    }
 
    void ClearCycleRuntime(SRecoveryCycle &c, const bool keepSerial)
@@ -99,11 +130,16 @@ private:
       c.anchorPrice              = 0.0;
       c.anchorTicks              = 0;
       c.anchorTime               = 0;
+      c.hedgeGeneration          = 0;
+      c.bundleId                 = 0;
+      ClearBundleRuntime(c);
       c.shadowDecision           = recovery_SHADOW_NONE;
       c.shadowDecisionLatched    = false;
       c.shadowTargetUnits        = 0;
       c.shadowTriggerPrice       = 0.0;
       c.shadowDecisionAt         = 0;
+      c.shadowPlannedChildren    = 0;
+      c.shadowPlanValid          = false;
       c.anchorEvidenceWaitLogged = false;
       c.transitionSequence       = 0;
       c.lastTransitionAt         = 0;
@@ -266,11 +302,12 @@ public:
    bool MarkShadowHedgeDecision(const eRecoveryCoreDirection dir,
                                 const long targetUnits,
                                 const double triggerPrice,
+                                const int plannedChildren,
                                 const datetime now)
    {
       int idx = Index(dir);
       if(!m_cycle[idx].armed || m_cycle[idx].state != recovery_ARMED ||
-         m_cycle[idx].shadowDecisionLatched || targetUnits <= 0)
+         m_cycle[idx].shadowDecisionLatched || targetUnits <= 0 || plannedChildren <= 0)
          return false;
 
       m_cycle[idx].shadowDecision        = recovery_SHADOW_WOULD_OPEN_HEDGE;
@@ -278,6 +315,135 @@ public:
       m_cycle[idx].shadowTargetUnits     = targetUnits;
       m_cycle[idx].shadowTriggerPrice    = triggerPrice;
       m_cycle[idx].shadowDecisionAt      = now;
+      m_cycle[idx].shadowPlannedChildren = plannedChildren;
+      m_cycle[idx].shadowPlanValid       = true;
+      return true;
+   }
+
+   bool MarkShadowHedgeBlocked(const eRecoveryCoreDirection dir,
+                               const long targetUnits,
+                               const double triggerPrice,
+                               const datetime now)
+   {
+      int idx = Index(dir);
+      if(!m_cycle[idx].armed || m_cycle[idx].state != recovery_ARMED ||
+         m_cycle[idx].shadowDecisionLatched || targetUnits <= 0)
+         return false;
+      m_cycle[idx].shadowDecision        = recovery_SHADOW_HEDGE_PLAN_BLOCKED;
+      m_cycle[idx].shadowDecisionLatched = true;
+      m_cycle[idx].shadowTargetUnits     = targetUnits;
+      m_cycle[idx].shadowTriggerPrice    = triggerPrice;
+      m_cycle[idx].shadowDecisionAt      = now;
+      m_cycle[idx].shadowPlannedChildren = 0;
+      m_cycle[idx].shadowPlanValid       = false;
+      return true;
+   }
+
+   //--- T4 ACTIVE-capable bundle lifecycle. Not wired from BlackDragon yet. --
+   bool BeginBundle(const eRecoveryCoreDirection dir,
+                    const long targetNewUnits,
+                    const long baselineActiveHedgeUnits,
+                    const datetime now)
+   {
+      int idx = Index(dir);
+      if(targetNewUnits <= 0 || baselineActiveHedgeUnits < 0) return false;
+      if(m_cycle[idx].state != recovery_ARMED &&
+         m_cycle[idx].state != recovery_REHEDGE_PENDING)
+         return false;
+      if(!Transition(dir, recovery_HEDGE_BUILDING, now, "logical HedgeBundle started"))
+         return false;
+
+      m_cycle[idx].hedgeGeneration++;
+      m_cycle[idx].bundleId++;
+      ClearBundleRuntime(m_cycle[idx]);
+      m_cycle[idx].bundleTargetUnits         = targetNewUnits;
+      m_cycle[idx].bundleBaselineActiveUnits = baselineActiveHedgeUnits;
+      return true;
+   }
+
+   bool BundleCanSubmitNext(const eRecoveryCoreDirection dir) const
+   {
+      const int idx = Index(dir);
+      if(m_cycle[idx].state != recovery_HEDGE_BUILDING) return false;
+      return Recovery_BundleCanSubmitNext(m_cycle[idx].bundleConfirmedUnits,
+                                          m_cycle[idx].bundleTargetUnits,
+                                          m_cycle[idx].bundleChildInFlight,
+                                          m_cycle[idx].bundleReconcileRequired,
+                                          m_cycle[idx].bundleBlockedAfterReject);
+   }
+
+   long BundleNextChildUnits(const eRecoveryCoreDirection dir,
+                             const long minUnits,
+                             const long maxOrderUnits) const
+   {
+      int idx = Index(dir);
+      if(!BundleCanSubmitNext(dir)) return 0;
+      long remaining = m_cycle[idx].bundleTargetUnits - m_cycle[idx].bundleConfirmedUnits;
+      return Recovery_BundleNextChildUnits(remaining, minUnits, maxOrderUnits);
+   }
+
+   bool MarkBundleChildSubmitted(const eRecoveryCoreDirection dir,
+                                 const long childUnits)
+   {
+      int idx = Index(dir);
+      if(!BundleCanSubmitNext(dir) || childUnits <= 0) return false;
+      long remaining = m_cycle[idx].bundleTargetUnits - m_cycle[idx].bundleConfirmedUnits;
+      if(childUnits > remaining) return false;
+      m_cycle[idx].bundleChildInFlight = true;
+      m_cycle[idx].bundleSubmittedChildren++;
+      return true;
+   }
+
+   void MarkBundleChildRejected(const eRecoveryCoreDirection dir)
+   {
+      int idx = Index(dir);
+      if(m_cycle[idx].state != recovery_HEDGE_BUILDING) return;
+      m_cycle[idx].bundleChildInFlight      = false;
+      m_cycle[idx].bundleBlockedAfterReject = true;
+   }
+
+   bool ObserveBundle(const eRecoveryCoreDirection dir,
+                      const long currentActiveHedgeUnits,
+                      const bool pendingForCycle,
+                      const bool reconcileRequired,
+                      const datetime now)
+   {
+      int idx = Index(dir);
+      if(m_cycle[idx].state != recovery_HEDGE_BUILDING || currentActiveHedgeUnits < 0)
+         return false;
+
+      m_cycle[idx].bundleChildInFlight = pendingForCycle;
+      long confirmed = Recovery_BundleConfirmedNewUnits(currentActiveHedgeUnits,
+                                                         m_cycle[idx].bundleBaselineActiveUnits);
+      m_cycle[idx].bundleConfirmedUnits  = confirmed;
+      m_cycle[idx].bundlePartialCoverage = confirmed > 0 && confirmed < m_cycle[idx].bundleTargetUnits;
+      m_cycle[idx].bundleCoveragePercent = Recovery_BundleCoveragePercent(confirmed,
+                                                                           m_cycle[idx].bundleTargetUnits);
+
+      if(reconcileRequired)
+      {
+         m_cycle[idx].bundleReconcileRequired = true;
+         Transition(dir, recovery_RECONCILE_REQUIRED, now,
+                    "HedgeBundle execution requires reconciliation");
+         return false;
+      }
+
+      if(confirmed > m_cycle[idx].bundleTargetUnits)
+      {
+         m_cycle[idx].bundleReconcileRequired = true;
+         Transition(dir, recovery_RECONCILE_REQUIRED, now,
+                    "HedgeBundle confirmed volume exceeded exact target");
+         return false;
+      }
+
+      if(confirmed == m_cycle[idx].bundleTargetUnits && !pendingForCycle)
+      {
+         m_cycle[idx].bundleComplete = true;
+         m_cycle[idx].bundlePartialCoverage = false;
+         m_cycle[idx].bundleCoveragePercent = 100.0;
+         return Transition(dir, recovery_HEDGE_ACTIVE, now,
+                           "logical HedgeBundle target fully confirmed");
+      }
       return true;
    }
 
