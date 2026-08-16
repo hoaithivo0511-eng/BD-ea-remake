@@ -52,18 +52,21 @@ double Recovery_DealCashPure(const double profit,
 
 void Recovery_LedgerInit(SRecoveryRealizedLedger &ledger)
 {
-   ledger.hedgeNetCash          = 0.0;
-   ledger.coreLossSpent         = 0.0;
-   ledger.availableCredit       = 0.0;
+   ledger.hedgeNetCash = 0.0;
+   ledger.coreLossSpent = 0.0;
+   ledger.availableCredit = 0.0;
    ledger.hedgeRealizedCloseUnits = 0;
-   ledger.deficit               = false;
+   ledger.deficit = false;
 }
 
 void Recovery_LedgerRecompute(SRecoveryRealizedLedger &ledger)
 {
-   double raw = ledger.hedgeNetCash - ledger.coreLossSpent;
+   double positiveHedgeCredit = ledger.hedgeNetCash > 0.0 ? ledger.hedgeNetCash : 0.0;
+   double raw = positiveHedgeCredit - ledger.coreLossSpent;
    ledger.availableCredit = raw > 0.0 ? raw : 0.0;
-   ledger.deficit = ledger.coreLossSpent > ledger.hedgeNetCash + 1e-8;
+   // Negative/zero hedge realization with no Core spend is not a credit
+   // deficit; it simply provides no spendable credit.
+   ledger.deficit = ledger.coreLossSpent > positiveHedgeCredit + 1e-8;
 }
 
 void Recovery_LedgerApplyHedgeDeal(SRecoveryRealizedLedger &ledger,
@@ -78,8 +81,6 @@ void Recovery_LedgerApplyHedgeDeal(SRecoveryRealizedLedger &ledger,
 void Recovery_LedgerApplyCoreDeal(SRecoveryRealizedLedger &ledger,
                                   const double dealCash)
 {
-   // Only actual realized Core loss consumes Recovery credit. A profitable
-   // Core close never manufactures extra Recovery credit.
    if(dealCash < 0.0) ledger.coreLossSpent += -dealCash;
    Recovery_LedgerRecompute(ledger);
 }
@@ -106,13 +107,9 @@ bool Recovery_VirtualHedgeTpHit(const eRecoveryCoreDirection coreDir,
 {
    if(hedgeNetBE <= 0.0 || bid <= 0.0 || ask <= 0.0 || tpDistancePrice < 0.0)
       return false;
-
-   // BUY Core -> SELL hedge, which exits by BUY at ask.
    if(coreDir == recovery_CORE_BUY)
-      return ask <= hedgeNetBE - tpDistancePrice;
-
-   // SELL Core -> BUY hedge, which exits by SELL at bid.
-   return bid >= hedgeNetBE + tpDistancePrice;
+      return ask <= hedgeNetBE - tpDistancePrice; // SELL hedge exits at ask
+   return bid >= hedgeNetBE + tpDistancePrice;    // BUY hedge exits at bid
 }
 
 long Recovery_PartialCloseTargetUnits(const long activeUnits,
@@ -122,17 +119,13 @@ long Recovery_PartialCloseTargetUnits(const long activeUnits,
    if(activeUnits <= 0 || percent <= 0.0 || percent > 100.0 || minUnits <= 0)
       return 0;
    if(percent >= 100.0 - 1e-12) return activeUnits;
-
    long target = (long)MathFloor((double)activeUnits * percent / 100.0 + 1e-9);
    if(target < minUnits) return 0;
    if(target >= activeUnits) return activeUnits;
-
-   // Never round the requested percentage upward. If that would strand a
-   // below-minimum remainder, reduce the close target to leave exactly min.
    long remaining = activeUnits - target;
    if(remaining > 0 && remaining < minUnits)
    {
-      target = activeUnits - minUnits;
+      target = activeUnits - minUnits; // reduce, never round exposure close upward
       if(target < minUnits) return 0;
    }
    return target;
@@ -145,7 +138,6 @@ long Recovery_LegalCloseUnits(const long requestedUnits,
    if(requestedUnits <= 0 || positionUnits <= 0 || minUnits <= 0) return 0;
    if(requestedUnits >= positionUnits) return positionUnits;
    if(requestedUnits < minUnits) return 0;
-
    long target = requestedUnits;
    long remaining = positionUnits - target;
    if(remaining > 0 && remaining < minUnits)
@@ -170,8 +162,6 @@ void Recovery_AppendCloseAction(SRecoveryCloseAction &actions[],
 
 void Recovery_SortHedgeCloseCandidates(SRecoveryCloseCandidate &items[])
 {
-   // Largest physical child first minimizes requests. Ticket is deterministic
-   // tie-break. A typical 12.37 bundle closes 5.00 then partial next child.
    for(int i = 1; i < ArraySize(items); i++)
    {
       SRecoveryCloseCandidate key = items[i];
@@ -216,7 +206,6 @@ bool Recovery_BuildHedgeClosePlan(SRecoveryCloseCandidate &candidates[],
          remaining -= sorted[i].units;
          continue;
       }
-
       long partial = Recovery_LegalCloseUnits(remaining, sorted[i].units, minUnits);
       if(partial == remaining)
       {
@@ -255,7 +244,6 @@ bool Recovery_CoreBefore(const SRecoveryCloseCandidate &a,
       double lb = Recovery_LossPerUnit(b);
       if(MathAbs(la - lb) > 1e-12) return la > lb;
    }
-   // OLDEST and LOSSIEST ties use oldest first. PRO_RATA also remains stable.
    if(a.openTime != b.openTime) return a.openTime < b.openTime;
    return a.ticket < b.ticket;
 }
@@ -297,7 +285,6 @@ bool Recovery_BuildCoreClosePlan(SRecoveryCloseCandidate &candidates[],
    ArrayResize(sorted, ArraySize(candidates));
    for(int i = 0; i < ArraySize(candidates); i++) sorted[i] = candidates[i];
    Recovery_SortCoreCandidates(sorted, mode);
-
    double remainingCredit = availableCredit;
 
    if(mode == recovery_ProRata)
@@ -313,17 +300,63 @@ bool Recovery_BuildCoreClosePlan(SRecoveryCloseCandidate &candidates[],
       }
 
       double fraction = MathMin(1.0, availableCredit / totalLoss);
-      for(int i = 0; i < ArraySize(sorted); i++)
+      int n = ArraySize(sorted);
+      long planned[];
+      double remainderRank[];
+      ArrayResize(planned, n);
+      ArrayResize(remainderRank, n);
+      for(int i = 0; i < n; i++)
       {
+         planned[i] = 0;
+         remainderRank[i] = -1.0;
          if(sorted[i].units <= 0 || sorted[i].floatingCash >= 0.0) continue;
-         long wanted = (long)MathFloor((double)sorted[i].units * fraction + 1e-9);
-         long closeUnits = Recovery_LegalCloseUnits(wanted, sorted[i].units, minUnits);
-         if(closeUnits <= 0) continue;
-         double loss = Recovery_LossPerUnit(sorted[i]) * closeUnits;
-         if(loss > remainingCredit + 1e-8) continue;
-         Recovery_AppendCloseAction(actions, sorted[i].ticket, closeUnits, loss);
+         double raw = (double)sorted[i].units * fraction;
+         long wanted = (long)MathFloor(raw + 1e-9);
+         planned[i] = Recovery_LegalCloseUnits(wanted, sorted[i].units, minUnits);
+         remainderRank[i] = raw - MathFloor(raw);
+         if(planned[i] > 0)
+         {
+            double loss = Recovery_LossPerUnit(sorted[i]) * planned[i];
+            if(loss <= remainingCredit + 1e-8) remainingCredit -= loss;
+            else planned[i] = 0;
+         }
+      }
+
+      // Largest-remainder pass: deterministic by rank then current stable
+      // order. At most one extra volume-step per losing ticket.
+      bool used[];
+      ArrayResize(used, n);
+      for(int i = 0; i < n; i++) used[i] = false;
+      for(int pass = 0; pass < n; pass++)
+      {
+         int best = -1;
+         for(int i = 0; i < n; i++)
+         {
+            if(used[i] || remainderRank[i] < 0.0) continue;
+            if(best < 0 || remainderRank[i] > remainderRank[best] + 1e-12)
+               best = i;
+         }
+         if(best < 0) break;
+         used[best] = true;
+
+         long requested = planned[best] > 0 ? planned[best] + 1 : minUnits;
+         long next = Recovery_LegalCloseUnits(requested, sorted[best].units, minUnits);
+         if(next <= planned[best]) continue;
+         long delta = next - planned[best];
+         double extraLoss = Recovery_LossPerUnit(sorted[best]) * delta;
+         if(extraLoss <= remainingCredit + 1e-8)
+         {
+            planned[best] = next;
+            remainingCredit -= extraLoss;
+         }
+      }
+
+      for(int i = 0; i < n; i++)
+      {
+         if(planned[i] <= 0) continue;
+         double loss = Recovery_LossPerUnit(sorted[i]) * planned[i];
+         Recovery_AppendCloseAction(actions, sorted[i].ticket, planned[i], loss);
          estimatedLoss += loss;
-         remainingCredit -= loss;
       }
    }
    else
@@ -334,7 +367,7 @@ bool Recovery_BuildCoreClosePlan(SRecoveryCloseCandidate &candidates[],
          if(lossPerUnit <= 0.0) continue;
          long maxByCredit = (long)MathFloor(remainingCredit / lossPerUnit + 1e-9);
          if(maxByCredit <= 0) continue;
-         long wanted = MathMin(sorted[i].units, maxByCredit);
+         long wanted = sorted[i].units < maxByCredit ? sorted[i].units : maxByCredit;
          long closeUnits = Recovery_LegalCloseUnits(wanted, sorted[i].units, minUnits);
          if(closeUnits <= 0) continue;
          double loss = lossPerUnit * closeUnits;
