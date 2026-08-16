@@ -157,7 +157,7 @@ jobs:
               Get-Content -LiteralPath $latestT.FullName -Tail 80 -ErrorAction SilentlyContinue
             }
             if (-not (Test-Path $reportPath)) { throw "$name did not produce a Strategy Tester report" }
-            Write-Host "=== PASS $name: Strategy Tester report produced ==="
+            Write-Host "=== PASS ${name}: Strategy Tester report produced ==="
           }
 
           Run-Test 'off-smoke' 'verify-off.set'
