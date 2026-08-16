@@ -9,6 +9,7 @@
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Recovery/RecoveryTypes.mqh>
 #include <BlackDragon/Recovery/RecoveryEngine.mqh>
+#include <BlackDragon/Recovery/RecoveryDca.mqh>
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/License.mqh>
@@ -64,6 +65,12 @@ int OnInit()
    if(!Recovery_ValidateShadowConfig(RecoveryMode_, HedgeGapPips_, recoveryWhy))
    {
       Log_Error("Init", "Recovery shadow config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
+                                  TargetRecoveryCorridorPips_, recoveryWhy))
+   {
+      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
       return INIT_PARAMETERS_INCORRECT;
    }
 
@@ -153,6 +160,9 @@ int OnInit()
    //    (panel manual orders stay bypassed — Chu nha's decision)
    g_strategy.AddNewSeriesFilter(new CHaltFilter(&g_guard));
    g_strategy.AddGridFilter(new CHaltFilter(&g_guard));
+   // T7: a pure allow/block filter around the existing TryGridAdd path.
+   // OFF/SHADOW always allow, preserving legacy and shadow-observer parity.
+   g_strategy.AddGridFilter(new CRecoveryDcaFilter(&g_recovery, &g_basket));
 
    //--- FE-403 / v14.8.0: the detailed PC/local HH:MM schedule is now
    //    the only time-window filter (legacy Start_Hour/End_Hour removed).
