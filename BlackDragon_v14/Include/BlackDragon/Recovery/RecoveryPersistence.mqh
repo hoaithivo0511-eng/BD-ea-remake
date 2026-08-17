@@ -6,6 +6,7 @@
 #ifndef BD_RECOVERY_PERSISTENCE_MQH
 #define BD_RECOVERY_PERSISTENCE_MQH
 
+#include <BlackDragon/Types.mqh>
 #include "RecoveryRegistry.mqh"
 #include "RecoveryExit.mqh"
 
