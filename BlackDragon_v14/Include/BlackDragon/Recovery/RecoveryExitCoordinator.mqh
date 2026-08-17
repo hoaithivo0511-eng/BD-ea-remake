@@ -118,6 +118,24 @@ bool Recovery_ExitExternalDealReason(const long dealReason)
    return dealReason != DEAL_REASON_EXPERT;
 }
 
+// T10 runtime regression: a broker-side SL can be an EXPECTED Recovery event
+// when it is the net-positive protective lock placed by T6. Treating every
+// non-EXPERT close as external made those expected SL fills latch T8 into an
+// indefinite reconciliation hold. Keep this helper pure so the classification
+// can be regression-tested independently from broker history plumbing.
+bool Recovery_ExitExpectedLockSlPure(const eRecoveryState state,
+                                     const long dealReason,
+                                     const double dealPrice,
+                                     const double targetSl,
+                                     const double tolerance)
+{
+   if(dealReason != DEAL_REASON_SL) return false;
+   if(state != recovery_HEDGE_LOCK_PENDING && state != recovery_HEDGE_LOCKED)
+      return false;
+   if(dealPrice <= 0.0 || targetSl <= 0.0 || tolerance < 0.0) return false;
+   return MathAbs(dealPrice - targetSl) <= tolerance + 1e-12;
+}
+
 eRecoveryExitCoordStep Recovery_ExitNextStepPure(const bool externalMutation,
                                                  const long currentCoreUnits,
                                                  const long targetCoreUnits,
@@ -370,6 +388,29 @@ private:
       return owner;
    }
 
+   bool IsExpectedRecoveryLockSl(const eRecoveryCoreDirection dir,
+                                 const ulong closingDeal) const
+   {
+      if(m_recovery == NULL || closingDeal == 0 || !HistoryDealSelect(closingDeal))
+         return false;
+      SRecoveryCycle cycle;
+      m_recovery.GetCycle(dir, cycle);
+      double targetSl = m_recovery.LockTargetPrice(dir);
+      double dealPrice = HistoryDealGetDouble(closingDeal, DEAL_PRICE);
+      long reason = HistoryDealGetInteger(closingDeal, DEAL_REASON);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      double spreadPrice = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point;
+      if(tickSize <= 0.0) return false;
+
+      // Protective stops can fill a few ticks/spread away from the requested
+      // SL. Keep the acceptance window bounded and require the locked-state +
+      // owner/reason evidence as well; anything outside this remains fail-closed.
+      double tolerance = MathMax(25.0 * tickSize,
+                                 2.0 * spreadPrice + 2.0 * tickSize);
+      return Recovery_ExitExpectedLockSlPure(cycle.state, reason, dealPrice,
+                                             targetSl, tolerance);
+   }
+
    void LatchExternal(const eRecoveryCoreDirection dir,
                       const eRecoveryExitCoordReason reason,
                       const datetime now)
@@ -423,12 +464,20 @@ private:
 
       double volume = Recovery_UnitsToVolume(requestUnits, step);
       int cycleKey = Recovery_CycleKey(dir);
+      bool durable = m_recovery != NULL && m_recovery.ActiveReady();
+      if(durable && !m_recovery.ArmDurableCommand(dir, EXEC_CMD_RECOVERY_CLOSE,
+                                                   (long)RecoveryMagic_, ticket,
+                                                   requestUnits, RecoveryUnits(dir),
+                                                   0.0, 0, 0, why))
+         return false;
       bool sent = m_exec.ClosePositionVolumeOwned(ticket, volume,
                                                   (long)RecoveryMagic_, cycleKey,
                                                   EXEC_CMD_RECOVERY_CLOSE,
                                                   EXEC_RECONCILE_FAIL_CLOSED);
       if(!sent)
       {
+         if(durable && !m_exec.HasReconcileRequired(cycleKey))
+            m_recovery.CancelDurableCommand(dir);
          why = m_exec.HasReconcileRequired(cycleKey) ?
                "Recovery cleanup hedge close is ambiguous; reconciliation required" :
                "Recovery cleanup hedge close request was rejected";
@@ -448,13 +497,23 @@ private:
       if(volume <= 0.0) return false;
       if(ownerMagic == (long)Magic)
       {
-         int cycleKey = Recovery_CycleKey(Direction(idx));
+         eRecoveryCoreDirection dir = Direction(idx);
+         int cycleKey = Recovery_CycleKey(dir);
+         long units = VolumeStepUnits(volume);
+         bool durable = m_recovery != NULL && m_recovery.ActiveReady();
+         if(durable && !m_recovery.ArmDurableCommand(dir, EXEC_CMD_RECOVERY_CLOSE,
+                                                      (long)Magic, ticket, units,
+                                                      CoreMagicUnits(dir), 0.0,
+                                                      0, 0, why))
+            return false;
          bool sent = m_exec.ClosePositionVolumeOwned(ticket, volume,
                                                      (long)Magic, cycleKey,
                                                      EXEC_CMD_RECOVERY_CLOSE,
                                                      EXEC_RECONCILE_FAIL_CLOSED);
          if(!sent)
          {
+            if(durable && !m_exec.HasReconcileRequired(cycleKey))
+               m_recovery.CancelDurableCommand(dir);
             why = m_exec.HasReconcileRequired(cycleKey) ?
                   "coordinated Core close is ambiguous; reconciliation required" :
                   "coordinated Core close request was rejected";
@@ -500,6 +559,17 @@ private:
 
       eRecoveryCoreDirection dir = Direction(idx);
       int cycleKey = Recovery_CycleKey(dir);
+      if(m_recovery != NULL && m_recovery.ActiveReady() && m_recovery.HasDurableCommand(dir))
+      {
+         string durableWhy = "";
+         if(!m_recovery.ResolveDurableCommand(*m_exec, dir, now, durableWhy))
+         {
+            m_cycle[idx].active = false;
+            m_cycle[idx].reconcileHold = true;
+            why = durableWhy;
+            return true;
+         }
+      }
       m_exec.ReconcileCycle(cycleKey);
       if(m_exec.HasReconcileRequired(cycleKey))
       {
@@ -758,6 +828,20 @@ public:
 
       int idx = Index(dir);
       bool coordinatorOwned = m_accountWidePending || m_cycle[idx].active;
+
+      // A T6 protective lock is submitted by the EA but its eventual fill is
+      // reported by MT5 as DEAL_REASON_SL, not DEAL_REASON_EXPERT. When the
+      // owner/state/target-price evidence matches, this is an expected internal
+      // lifecycle event and must not latch an external reconciliation hold.
+      if(!coordinatorOwned && ownerMagic == (long)RecoveryMagic_ &&
+         IsExpectedRecoveryLockSl(dir, trans.deal))
+      {
+         Log_Info("Recovery", "locksl" + (string)Recovery_CycleKey(dir),
+                  "expected Recovery protective SL executed for " +
+                  Recovery_DirectionName(dir) + " — external latch skipped");
+         return false;
+      }
+
       if(Recovery_ExitExternalDealReason(reason))
       {
          if(!m_accountWidePending)

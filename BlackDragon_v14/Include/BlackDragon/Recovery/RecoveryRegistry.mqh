@@ -179,6 +179,18 @@ public:
       out = m_cycle[Index(dir)];
    }
 
+   // T9 persistence import. Structural/config validation is performed by
+   // RecoveryPersistence before this registry-owned snapshot is accepted.
+   bool RestoreCycle(const eRecoveryCoreDirection dir, const SRecoveryCycle &src)
+   {
+      if(src.direction != dir || src.cycleKey != Recovery_CycleKey(dir) || src.cycleSerial < 1)
+         return false;
+      if(src.state < recovery_CORE_ONLY || src.state > recovery_COMPLETED)
+         return false;
+      m_cycle[Index(dir)] = src;
+      return true;
+   }
+
    bool Transition(const eRecoveryCoreDirection dir, const eRecoveryState toState,
                    const datetime now, const string reason)
    {

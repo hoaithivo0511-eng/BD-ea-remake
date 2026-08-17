@@ -152,15 +152,23 @@ int OnInit()
       g_signal = &g_sigBD;
    }
    g_exec.Init();
-   g_recoveryExit.Init(&g_recovery, &g_exec); // inert in OFF/SHADOW; ACTIVE remains gated until T9
+   if(RecoveryMode_ == recovery_ACTIVE)
+   {
+      string startupWhy = "";
+      if(!g_recovery.StartupReconcile(g_exec, startupWhy))
+         Log_Error("Recovery", "ACTIVE startup is FAIL-CLOSED: " + startupWhy);
+   }
+   g_recoveryExit.Init(&g_recovery, &g_exec); // T8 cleanup; T9 ACTIVE may now be reconciled
    g_news.Init();
    g_guard.Init();                       // FE-401/402: validate thresholds (wrong sign -> warn + off)
    g_basket.SeedDayProfit();             // also snapshots day-start balance (FE-402)
    g_panel.Init();
-   g_strategy.Init(&g_basket, &g_exec, sizer, &g_guard, &g_distPlan, &g_recoveryExit);
+   g_strategy.Init(&g_basket, &g_exec, sizer, &g_guard, &g_distPlan,
+                   &g_recovery, &g_recoveryExit);
 
    //--- FE-402: daily halt blocks AUTOMATED entries on BOTH chains
    //    (panel manual orders stay bypassed — Chu nha's decision)
+   g_strategy.AddNewSeriesFilter(new CRecoveryStartupFilter(&g_recovery));
    g_strategy.AddNewSeriesFilter(new CHaltFilter(&g_guard));
    g_strategy.AddGridFilter(new CHaltFilter(&g_guard));
    // T7: a pure allow/block filter around the existing TryGridAdd path.
@@ -207,6 +215,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   g_recovery.FlushPersistence();
    Persist_Save();
    g_strategy.Deinit();   // deletes registered filters (incl. g_adx)
    g_sigBD.Deinit();      // FE-405: both are guard-safe on unopened handles
@@ -264,6 +273,7 @@ void OnTimer()
 {
    g_news.Refresh();            // hourly cache; never blocks OnTick (Nhom D)
    g_exec.Watchdog();           // async journal reconciliation (Nhom B)
+   g_recovery.FlushPersistence(); // T9: transition/deal-driven durable state only
    // T8: process broker/manual exit cleanup on the existing 500ms cadence.
    // No competing timer is introduced; OFF/SHADOW are no-ops.
    string exitWhy = "";
@@ -305,6 +315,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    bool suppressRecoveryDeal = g_recoveryExit.OnTradeTransaction(trans);
    if(!suppressRecoveryDeal)
       g_recovery.OnTradeTransaction(trans);
+   else if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal != 0)
+   {
+      g_recovery.RecordDealCursor(trans.deal);
+      g_recovery.FlushPersistence();
+   }
    if(trans.type == TRADE_TRANSACTION_POSITION && trans.symbol == _Symbol)
       g_basket.Invalidate();                          // audit fix: SL/TP modify has no DEAL_ADD
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.symbol == _Symbol)

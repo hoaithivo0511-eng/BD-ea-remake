@@ -11,9 +11,9 @@
 
 enum eRecoveryMode
 {
-   recovery_OFF    = 0,
-   recovery_SHADOW = 1,
-   recovery_ACTIVE = 2
+   recovery_OFF    = 0, // TẮT — không chạy Recovery
+   recovery_SHADOW = 1, // QUAN SÁT — chỉ tính/log, không gửi lệnh Recovery
+   recovery_ACTIVE = 2  // HOẠT ĐỘNG — thực thi Recovery Hedge
 };
 
 enum eRecoveryCoreDirection
@@ -24,10 +24,10 @@ enum eRecoveryCoreDirection
 
 enum eRecoveryCoreCloseMode
 {
-   recovery_Oldest   = 0,
-   recovery_Newest   = 1,
-   recovery_Lossiest = 2,
-   recovery_ProRata  = 3
+   recovery_Oldest   = 0, // Cũ nhất — ưu tiên lệnh Core mở sớm nhất
+   recovery_Newest   = 1, // Mới nhất — ưu tiên lệnh Core mở gần nhất
+   recovery_Lossiest = 2, // Lỗ nặng nhất — theo mức lỗ trên mỗi đơn vị khối lượng
+   recovery_ProRata  = 3  // Theo tỷ lệ — phân bổ đóng đều theo tỷ trọng
 };
 
 enum eRecoveryState
@@ -55,18 +55,18 @@ enum eRecoveryShadowDecision
    recovery_SHADOW_HEDGE_PLAN_BLOCKED
 };
 
-input group "16 — Adaptive Recovery Hedge"
-input eRecoveryMode          RecoveryMode_               = recovery_OFF;     // OFF / SHADOW / ACTIVE
-input long                   RecoveryMagic_              = 20260807;        // Separate from Core Magic
-input int                    RecoveryStartAfterDca_      = 5;               // Initial Core order is excluded
-input double                 HedgeGapPips_               = 50.0;            // XAU: 50 pips = 5.00 price
-input double                 HedgeTPPips_                = 50.0;            // Soft/virtual TP; never broker TP
-input double                 HedgePartialClosePercent_   = 50.0;            // Logical hedge partial-close target
-input eRecoveryCoreCloseMode CoreCloseMode_              = recovery_Oldest; // user-selectable Core allocator
-input double                 HedgeLockNetProfitPips_     = 3.0;             // Technical PRD baseline; net-positive lock
-input double                 HedgeLockSafetyBufferPips_  = 1.0;             // Close-spread/cost safety buffer
-input double                 ReHedgeGapPips_             = 50.0;            // Fixed v1 re-hedge gap
-input int                    MaxHedgeGenerations_        = 5;               // Valid generations are 1..Max
+input group "16 — Phục hồi thích ứng bằng Hedge"
+input eRecoveryMode          RecoveryMode_               = recovery_OFF;     // Chế độ Recovery: TẮT / QUAN SÁT / HOẠT ĐỘNG
+input long                   RecoveryMagic_              = 20260807;        // Magic riêng cho lệnh Hedge Recovery; phải khác Core Magic
+input int                    RecoveryStartAfterDca_      = 5;               // Kích hoạt sau số lệnh DCA; không tính lệnh Core đầu tiên
+input double                 HedgeGapPips_               = 50.0;            // Giá đi bất lợi thêm bao nhiêu pip sau điểm kích hoạt thì mở Hedge
+input double                 HedgeTPPips_                = 50.0;            // TP ảo của Hedge tính từ hòa vốn ròng; không đặt broker TP
+input double                 HedgePartialClosePercent_   = 50.0;            // Phần trăm khối lượng Hedge sẽ chốt khi TP ảo đạt
+input eRecoveryCoreCloseMode CoreCloseMode_              = recovery_Oldest; // Cách dùng lợi nhuận Hedge đã chốt để giảm Core đang lỗ
+input double                 HedgeLockNetProfitPips_     = 3.0;             // Mức lợi nhuận tối thiểu muốn khóa bằng SL cho Hedge còn lại (pip)
+input double                 HedgeLockSafetyBufferPips_  = 1.0;             // Biên an toàn vượt hòa vốn ròng khi đặt SL khóa Hedge (pip)
+input double                 ReHedgeGapPips_             = 50.0;            // Khoảng bất lợi từ điểm chốt Hedge để mở thế hệ Hedge kế tiếp (pip)
+input int                    MaxHedgeGenerations_        = 5;               // Số thế hệ Hedge tối đa; hợp lệ từ 1 đến Max
 
 struct SRecoveryFoundationConfig
 {

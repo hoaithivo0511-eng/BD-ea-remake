@@ -35,6 +35,7 @@ private:
    ILotSizer         *m_sizer;
    CMoneyGuard       *m_guard;    // FE-401/402 (v14.3), NULL = disabled
    CDistancePlan     *m_dist;     // FE-407 (v14.7): classic or manual pip chain
+   CRecoveryEngine     *m_recovery;  // T9 ACTIVE scheduler/persistence gate
    CRecoveryExitCoordinator *m_recoveryExit; // T8: ACTIVE-only safety coordinator
    CVirtualExitPolicy m_exitPolicy;
    CFilterChain       m_newSeriesFilters;  // spread + pause + news (+ extensions)
@@ -285,13 +286,14 @@ private:
 public:
    void Init(CBasketManager *basket, CExecutionLayer *exec, ILotSizer *sizer,
              CMoneyGuard *guard, CDistancePlan *dist,
-             CRecoveryExitCoordinator *recoveryExit)
+             CRecoveryEngine *recovery, CRecoveryExitCoordinator *recoveryExit)
    {
       m_basket       = basket;
       m_exec         = exec;
       m_sizer        = sizer;
       m_guard        = guard;
       m_dist         = dist;
+      m_recovery     = recovery;
       m_recoveryExit = recoveryExit;
       // Registration point: ALL enabled behaviors are visible right here.
       m_newSeriesFilters.Add(new CSpreadFilter());
@@ -350,9 +352,29 @@ public:
          return;   // BD-001: no open/DCA/modify after a panel close
       }
 
-      // T8: an already-latched cleanup/reconcile chain is terminal for the
-      // whole Strategy tick. Drive it before the legacy global pending-close
-      // guard so each Recovery cycle can reconcile/submit its next safe step.
+      // A close sent on an earlier tick remains terminal until ExecutionLayer
+      // observes/reconciles its broker state (BD-002). Do not launch a second
+      // close chain while a broker close is still unresolved.
+      if(m_exec.HasAnyPendingClose())
+      {
+         if(panelOpenBuy || panelOpenSell)
+            Log_Warn("Strategy", "pendingclose", "panel open ignored while an async close is pending");
+         return;
+      }
+
+      // T10 runtime QA: MoneyGuard must be evaluated BEFORE a latched Recovery
+      // cleanup/reconcile hold. Account/global risk actions are contractually
+      // stronger than normal Recovery scheduling and BeginAccountWideClose()
+      // safely preempts/reset narrower Recovery exit coordinators.
+      if(ApplyGuard(ctx))
+      {
+         if(panelOpenBuy || panelOpenSell)
+            Log_Warn("Strategy", "guardclose", "panel open ignored because a money guard close fired");
+         return;   // BD-001: guard close ends the tick
+      }
+
+      // T8 cleanup remains terminal for ordinary trading work, but only AFTER
+      // the money-risk layer above has had the opportunity to preempt it.
       if(m_recoveryExit != NULL && m_recoveryExit.HasBlockingWork())
       {
          DriveRecoveryExit(ctx.now);
@@ -361,28 +383,20 @@ public:
          return;
       }
 
-      // A close sent on an earlier tick remains terminal until ExecutionLayer
-      // observes/reconciles its broker state (BD-002).
-      // BD-R1 (v14.7.2, quyet dinh Chu nha 11/08/2026): this ordering STAYS —
-      // MoneyGuard deliberately does NOT run above this early return, because
-      // a guard close fired while an earlier close is unresolved would double
-      // the exit traffic. The exposure it creates (money/daily stops frozen
-      // while an async close hangs) is bounded instead, in
-      // ExecutionLayer::Watchdog: BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC = 10s for a
-      // CLOSE/MODIFY, down from the 30s shared with OPEN intents.
-      if(m_exec.HasAnyPendingClose())
+      // T9: after account/global guard and any cleanup chain, drive the
+      // Recovery mutation scheduler before legacy Core exits. Stable states
+      // that do not trigger a mutation fall through.
+      if(m_recovery != NULL && RecoveryMode_ == recovery_ACTIVE && m_recovery.ActiveReady())
       {
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "pendingclose", "panel open ignored while an async close is pending");
-         return;
-      }
-
-      // 1.5 FE-401/402: widest-scope risk exits run before every open path.
-      if(ApplyGuard(ctx))
-      {
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "guardclose", "panel open ignored because a money guard close fired");
-         return;   // BD-001: guard close ends the tick
+         string recoveryWhy = "";
+         if(m_recovery.DriveActive(*m_exec, ctx, recoveryWhy))
+         {
+            if(recoveryWhy != "")
+               Log_Warn("Recovery", "activedrive", "ACTIVE mutation chain: " + recoveryWhy);
+            if(panelOpenBuy || panelOpenSell)
+               Log_Warn("Recovery", "activewins", "panel open ignored because an ACTIVE Recovery mutation is in flight");
+            return;
+         }
       }
 
       // 2. Evaluate BOTH directions so simultaneous exits can both be sent,
@@ -393,7 +407,7 @@ public:
       {
          DriveRecoveryExit(ctx.now); // one strict cleanup mutation per cycle at a time
          if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "basketclose", "panel open ignored because a basket exit fired");
+            Log_Warn("Recovery", "basketclose", "panel open ignored because a basket exit fired");
          return;   // BD-001
       }
 

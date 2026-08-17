@@ -10,10 +10,10 @@
 #include <BlackDragon/EntryFilters.mqh>
 #include <BlackDragon/BasketManager.mqh>
 
-input group "17 — Recovery DCA / Corridor"
-input bool   ContinueDcaAfterHedge_       = false; // OFF = lock DCA after hedge becomes active
-input double MinHedgeCoveragePercent_     = 0.0;   // 0 = disabled
-input double TargetRecoveryCorridorPips_  = 0.0;   // 0 = disabled
+input group "17 — DCA khi Recovery đang hoạt động"
+input bool   ContinueDcaAfterHedge_       = false; // Tiếp tục DCA Core sau khi Hedge đã hoạt động; false = khóa DCA
+input double MinHedgeCoveragePercent_     = 0.0;   // Coverage Hedge tối thiểu để cho phép DCA (%); 0 = tắt điều kiện
+input double TargetRecoveryCorridorPips_  = 0.0;   // Hành lang lợi nhuận mục tiêu (pip); đạt mục tiêu thì dừng thêm DCA; 0 = tắt
 
 bool Recovery_ValidateDcaConfig(const eRecoveryMode mode,
                                 const double minCoveragePercent,
@@ -194,6 +194,20 @@ bool Recovery_ReadDcaHedgeMetrics(const string symbol,
    return netBE > 0.0;
 }
 
+// ACTIVE startup gate for automated NEW SERIES. OFF/SHADOW are exact no-ops.
+class CRecoveryStartupFilter : public IEntryFilter
+{
+private:
+   CRecoveryEngine *m_recovery;
+public:
+   CRecoveryStartupFilter(CRecoveryEngine *recovery) { m_recovery = recovery; }
+   bool Allow(const EAContext &ctx, const int dir)
+   {
+      if(RecoveryMode_ != recovery_ACTIVE) return true;
+      return m_recovery != NULL && m_recovery.ActiveReady();
+   }
+};
+
 // Adapter into the existing Strategy grid-filter chain. It never opens a
 // hedge or a Core order and never mutates Recovery state. Recovery children
 // remain outside CBasketManager because they use RecoveryMagic_.
@@ -215,6 +229,7 @@ public:
       // Mandatory parity: SHADOW observes only and OFF is a no-op.
       if(RecoveryMode_ != recovery_ACTIVE) return true;
       if(m_recovery == NULL || m_basket == NULL) return false;
+      if(!m_recovery.ActiveReady()) return false;
 
       eRecoveryCoreDirection recoveryDir =
          dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;
