@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: verify/adaptive-recovery-runtime
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Record exact source
