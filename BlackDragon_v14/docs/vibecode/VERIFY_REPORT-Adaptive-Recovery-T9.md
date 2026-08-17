@@ -1,124 +1,183 @@
 # VERIFY REPORT — Adaptive Recovery T9
 
-Date: 2026-08-17 (Asia/Ho_Chi_Minh)
+Date: 2026-08-17 (Asia/Ho_Chi_Minh)  
 Methodology: VibeCodeKit-MQL5 Full — VERIFY / EVIDENCE
 
 ## Source under verification
 
-- Product branch: `feat/adaptive-recovery-t9-persistence-active`
-- Product head: `1d323c2afcc213dcd6eaaa296eb71a20788a8de9`
-- Product tree: `f73b0daefea96f4300ea89bca68f28ac19ccc4b3`
-- Native build artifact: `mql5-build`, ID `9268636368`
-- Artifact ZIP SHA256: `30de810bab53a8078c61b9653c20f99e8b285be50b153dbaf1d5fae82b8e12bf`
-- `BlackDragon.ex5` from that artifact: 272490 bytes
-- `RunTests.ex5` from that artifact: 62864 bytes
+Current product source:
 
-Verification branch is evidence-only. Comparing T9 head to the VERIFY branch before this report showed only `.github/workflows/verify-mt5-runtime.yml` and `.github/workflows/verify-mt5-runtests.yml`; no product `.mq5`, `.mqh`, `.set`, or trading logic changed.
+- Product branch: `feat/adaptive-recovery-t9-persistence-active`
+- Product head: `0d7e20c1d024bb5d19a54128d3ddb3e346075235`
+- Product tree: `89da566597ee98367b5ccdee5acc6c95a6e08002`
+- Exact product native compile run: `32043966939`
+- Compile job: `95428026318`
+- PR compile merge ref: `2f6983080599fe6ca4d759823510d94aa33dfc36`
+- Compile merge tree: `89da566597ee98367b5ccdee5acc6c95a6e08002`
+- Product artifact: `mql5-build`, ID `9292469963`
+- Product artifact ZIP SHA256: `f3389034aa861ce8eaa91e11d5c510585a82dc4ba93dc066f5ab1322810193e9`
+
+The compile merge tree equals the product-head tree, so the Windows MetaEditor gate compiled the exact current product source.
+
+Current verification source used for Recovery-specific native assertions:
+
+- Verification branch: `verify/adaptive-recovery-runtime`
+- Exact verification head: `adfa2740819fa8f11a0ab916ada1d241127c2fca`
+- Exact verification tree: `f71c68a055d7cb96e1893d0f71ba76727bc8cdca`
+- Recovery-native run: `32044044948`
+- Recovery-native job: `95428229063`
+- Evidence artifact: `mt5-recovery-native`, ID `9292476373`
+- Evidence artifact ZIP SHA256: `03a1150edfeb708c2f8114392fb058c9d02b2d6ec11e56191a0431d78dccca5d`
+
+The verification branch adds test/evidence workflows, test scripts and documentation. The only product-header defect discovered during this VERIFY cycle was propagated back to the T9 product branch before the final product compile.
+
+## Defect found during VERIFY and fixed
+
+Isolated native compilation of `RunRecoveryNativeTests.mq5` exposed a hidden include-order dependency:
+
+- `RecoveryPersistence.mqh` uses `eExecCommandType`.
+- The header did not directly include the declaration source `Types.mqh`.
+- It compiled previously only when another include happened to provide that type first.
+
+Fix:
+
+```text
+#include <BlackDragon/Types.mqh>
+```
+
+was added to `RecoveryPersistence.mqh` and documented as an explicit dependency.
+
+This is a header self-containment fix; it does not alter Recovery trading semantics. After the fix, the current product tree was recompiled through the normal Windows MetaEditor gate and passed 0 errors / 0 warnings.
 
 ## Gate matrix
 
 | Gate | Verdict | Evidence |
 |---|---|---|
-| T9 deterministic C++ model | PASS | Run `31966361472`, job `95212024330`: 117/117 regular and 117/117 ASan+UBSan |
-| Native MetaEditor compile | PASS | Run `31966480439`, job `95212302452`: RunTests 0/0; BlackDragon 0/0; physical EX5 |
-| Native MQL5 RunTests execution | PASS | Run `31980612807`, job `95246600350`: **221 passed, 0 failed**, `ALL GREEN` |
-| Exact EX5 provenance for native runtime | PASS | Runtime job re-downloaded artifact `9268636368` and rejected it unless ZIP SHA256 matched exact T9 build digest |
-| Strategy Tester launcher syntax/config | PASS to account gate | Terminal build 6116 loaded the generated `/config:` file and started Tester initialization |
-| Strategy Tester / backtest | UNTESTABLE | Hosted terminal stops before test: `tester not started because the account is not specified` |
-| T9 persistence restart with broker positions/history | UNTESTABLE | Requires a Strategy Tester or terminal account context capable of positions/deals across restart |
-| Async broker fill/reject/reconnect ordering | UNTESTABLE | No account-backed broker/tester runtime in current hosted environment |
-| Forward demo soak | UNTESTABLE | No connected demo account/environment supplied |
-| Live | UNTESTABLE | Not attempted; no live claim |
+| T9 deterministic C++ model | PASS | Run `31966361472`, job `95212024330`: 117/117 regular + 117/117 ASan/UBSan |
+| Current product MetaEditor compile | PASS | Run `32043966939`, job `95428026318`: `RunTests.mq5` 0/0; `BlackDragon.mq5` 0/0; physical EX5; exact tree `89da566...` |
+| BlackDragon native regression | PASS | Run `32044230221`, job `95428717349`: **221 passed, 0 failed**, `ALL GREEN`; exact current product artifact `9292469963` SHA-gated |
+| Recovery T1 native deterministic assertions | PASS | Run `32044044948`, job `95428229063`: **26 passed, 0 failed**, `ALL GREEN` |
+| Recovery T3–T9 native deterministic assertions | PASS | Run `32044044948`, job `95428229063`: **106 passed, 0 failed**, `ALL GREEN` |
+| Recovery native compile targets | PASS | `RunRecoveryFoundationTests` 0/0; `RunRecoveryNativeTests` 0/0; `BlackDragon` 0/0 |
+| Strategy Tester launcher/config historical attempt | PASS to account gate | Hosted MT5 accepted `/config:` and reached Tester initialization before account prerequisite stopped execution |
+| Strategy Tester / backtest | UNTESTABLE | No account-backed MT5 terminal context is available in current environment |
+| Recovery OFF golden A/B | UNTESTABLE | Requires actual Strategy Tester execution |
+| Recovery ACTIVE trade lifecycle | UNTESTABLE | Requires tester/broker positions and deals |
+| Persistence/restart with broker state | UNTESTABLE | Requires account-backed positions/history across restart |
+| Async delayed fill/reject/reconnect ordering | UNTESTABLE | No broker/tester runtime capable of exercising these events |
+| SHADOW forward soak | UNTESTABLE | No connected demo environment supplied |
+| ACTIVE demo soak / broker parity | UNTESTABLE | No connected demo environment supplied |
+| Live | UNTESTABLE | Not attempted and must not be inferred |
 
-## Native RunTests execution
+## Evidence scope: three native assertion layers
+
+### 1. Existing BlackDragon regression — 221/221
 
 Workflow: `.github/workflows/verify-mt5-runtests.yml`
 
-The workflow:
+Current exact-product run:
 
-1. Installs a fresh MetaTrader 5 terminal on Windows Server 2025.
-2. Downloads GitHub Actions artifact ID `9268636368` from the final T9 native compile.
-3. Computes SHA256 of the downloaded ZIP and requires exact equality with `30de810bab53a8078c61b9653c20f99e8b285be50b153dbaf1d5fae82b8e12bf`.
-4. Extracts the exact `RunTests.ex5` (62864 bytes) from that artifact.
-5. Executes it in MetaTrader 5 through `[StartUp] Script=BlackDragon\Tests\RunTests` with `ShutdownTerminal=1`.
-6. Parses the native MQL5 journal and fails unless the summary exists, failed assertions are zero, passed assertions are positive, and the `ALL GREEN` marker exists.
+- Run: `32044230221`
+- Job: `95428717349`
+- Product artifact reused: `9292469963`
+- Required artifact SHA256: `f3389034aa861ce8eaa91e11d5c510585a82dc4ba93dc066f5ab1322810193e9`
+- Extracted `RunTests.ex5`: 62976 bytes
+- Native result: **221 passed / 0 failed**
+- Evidence artifact: `mt5-native-runtests-current-t9`, ID `9292501605`
+- Evidence artifact SHA256: `6c55b00821855878b993753a259e2ce7c5ee765f838a74ff032f57d56ec41510`
+- Live trading: disabled.
 
-Observed native MQL5 journal:
-
-```text
-RunTests (EURUSD,M1) BlackDragon v14 unit tests: 221 passed, 0 failed
-RunTests (EURUSD,M1) ALL GREEN — safe to proceed to backtest comparison (golden baseline).
-```
-
-Run: `31980612807`
-Job: `95246600350`
-Evidence artifact: `mt5-native-runtests`, ID `9272236350`
-Evidence artifact ZIP SHA256: `30547d12e5de212e35fcdb023dd2dd568c2c6b6a6aa7ed3efa14871e1c7a6e7a`
-
-This closes the previous evidence gap where `RunTests.mq5` had only been compiled but not executed.
-
-## Strategy Tester attempts and blocker
-
-Workflow: `.github/workflows/verify-mt5-runtime.yml`
-
-The smoke matrix reuses the exact T9 `BlackDragon.ex5` artifact and attempts:
-
-1. Recovery OFF smoke.
-2. Recovery ACTIVE smoke with VERIFY-only aggressive trigger inputs (`RecoveryStartAfterDca_=0`, `HedgeGapPips_=0`, `HedgeTPPips_=0`) to maximize the chance of reaching Recovery state transitions if Core entries occur.
-
-No product source or release `.set` is changed by this harness.
-
-### Attempt 1 — harness parse defect
-
-Run `31980274962` never launched Strategy Tester because a PowerShell interpolation string used `$name:`. This is a VERIFY harness defect only and provides no EA runtime verdict.
-
-### Attempt 2 — account context gate
-
-Run `31980360705`, job `95246002257`:
-
-- MT5 install: PASS
-- exact T9 artifact SHA gate: PASS
-- generated tester parameter sets: PASS
-- terminal accepted the `/config:` file
-- Tester stopped with: `tester not started because the account is not specified`
-
-### Attempt 3 — official `[Tester] Login` supplied
-
-Run `31980480759`, job `95246279099` added `Login=123456`, matching the MetaTrader documentation example for the emulated tester account number.
-
-Result remained:
+Observed journal:
 
 ```text
-Tester tester not started because the account is not specified
-Terminal tester didn't start
+BlackDragon v14 unit tests: 221 passed, 0 failed
+ALL GREEN — safe to proceed to backtest comparison (golden baseline).
 ```
 
-Therefore the current MetaTrader 5 build 6116 on a clean GitHub-hosted runner requires terminal account context beyond the emulated `[Tester] Login` value before this backtest can start. No real/demo account credentials are available in the environment, and no credentials were fabricated.
+**Scope lock:** this is the existing BlackDragon regression suite. It is not the Adaptive Recovery assertion count.
 
-Evidence artifact for attempt 3: `mt5-runtime-smoke`, ID `9272205030`, SHA256 `292873043c1977affbc81ec8514ca1c83adc212802d68da50bcc81be30b5dae2`.
+### 2. Recovery T1 native assertions — 26/26
+
+`RunRecoveryFoundationTests.mq5` was compiled and executed in a real MetaTrader 5 terminal:
+
+```text
+Recovery T1 foundation tests: 26 passed, 0 failed
+ALL GREEN — T1 pure foundation behavior passed.
+```
+
+This closes the earlier T1 gap where the Recovery foundation script existed but had not been natively compiled/executed.
+
+### 3. Recovery T3–T9 native deterministic assertions — 106/106
+
+`RunRecoveryNativeTests.mq5` directly exercises deterministic MQL5 Recovery helpers covering:
+
+- FSM transition legality and activation boundaries,
+- coverage/corridor direction rules,
+- exact integer-unit HedgeBundle split and exposure-deficit sizing,
+- realized ledger and virtual TP math,
+- partial-close planning and deterministic Core allocation,
+- hedge-lock geometry and generation boundaries,
+- Continue-DCA state/coverage/corridor gates,
+- persistence hashes/tokens/state validation and pending-effect dedupe helpers.
+
+Native result:
+
+```text
+Adaptive Recovery native tests: 106 passed, 0 failed
+ALL GREEN — Adaptive Recovery T3-T9 deterministic MQL5 behavior passed.
+```
+
+Live trading was disabled. This evidence proves deterministic MQL5 rule execution; it does **not** substitute for Strategy Tester or broker lifecycle evidence.
+
+## Strategy Tester attempts and external blocker
+
+Historical workflow: `.github/workflows/verify-mt5-runtime.yml`
+
+Prior attempts established the current GitHub-hosted MT5 limitation:
+
+- Run `31980360705`: terminal accepted `/config:` but Tester stopped with `tester not started because the account is not specified`.
+- Run `31980480759`, job `95246279099`: adding the documented `[Tester] Login=123456` example value still stopped at the same terminal-account prerequisite.
+
+No broker/demo credential was available and none was fabricated.
+
+The T9 source change made during the current VERIFY cycle is a header dependency declaration/self-containment fix. Repeating the same account-less hosted Strategy Tester workaround would not remove the external terminal-account prerequisite, so the higher runtime gates remain `UNTESTABLE`, not PASS and not EA FAIL.
 
 ## Evidence-bounded conclusion
 
 ### PASS
 
-- T1–T9 implementation evidence already recorded in their stacked PRs.
-- Final T9 native MetaEditor compile 0 errors / 0 warnings and physical EX5.
-- T9 deterministic model/sanitizer suite.
-- Native MetaTrader execution of the exact T9 `RunTests.ex5`: **221/221 PASS**.
-- Exact artifact provenance for that runtime execution.
+- T1–T9 implementation exists in the stacked product branches.
+- T9 deterministic C++ model/sanitizer evidence.
+- Current T9 product exact-tree MetaEditor compile: 0 errors / 0 warnings with physical EX5.
+- Current-product BlackDragon regression: 221/221 native PASS.
+- Recovery T1 native deterministic assertions: 26/26 PASS.
+- Recovery T3–T9 native deterministic assertions: 106/106 PASS.
+- Exact artifact SHA gating for current-product regression evidence.
+- Hidden include-order dependency found and fixed, then recompiled/retested.
 
-### UNTESTABLE in current environment
+### UNTESTABLE in the current environment
 
-- Actual Strategy Tester backtest.
-- Recovery ACTIVE trade lifecycle against broker/tester positions and deals.
-- Persistence/restart recovery while Recovery hedge/Core positions exist.
-- Async delayed fills, broker reject, reconnect and history-sync fault injection.
-- Forward/demo soak.
+- Recovery OFF Strategy Tester golden A/B.
+- Actual ACTIVE Recovery trade lifecycle against tester/broker positions and deals.
+- Smart-split child fill/reject/delayed-event lifecycle.
+- Simultaneous BUY/SELL Recovery cycles in Strategy Tester.
+- Continue-DCA OFF/ON behavioral matrix in Strategy Tester.
+- Four Core allocation modes against actual tester deals.
+- Persistence/restart while Core/Recovery broker state exists.
+- Async delayed fills, reject, reconnect and history-sync fault injection.
+- SHADOW forward soak.
+- ACTIVE demo soak / broker parity.
 
-These items are not classified FAIL because the EA never reached Strategy Tester execution; the environment stopped at the missing terminal-account prerequisite.
+These are not classified FAIL because the required account-backed runtime is unavailable.
 
-## Release gate
+## Release / integration gate
 
 Release level remains **DRAFT**.
 
-Do **not** claim `BACKTEST_ELIGIBLE`, `FORWARD_ELIGIBLE`, or `LIVE_ELIGIBLE` from the current evidence. The next material gate requires an MT5 environment with a usable terminal/demo account context (or an equivalent authorized self-hosted runner) so Strategy Tester and restart scenarios can execute for real.
+Do **not** claim `BACKTEST_ELIGIBLE`, `FORWARD_ELIGIBLE` or `LIVE_ELIGIBLE` from deterministic/native-script evidence alone.
+
+The Adaptive Recovery stack remains outside `main`. Final integration/merge must not be represented as release completion while the contract-required Strategy Tester and forward gates remain unexecuted.
+
+## Next material dependency
+
+An authorized MetaTrader 5 environment with usable terminal/demo account context — for example a controlled self-hosted runner or supplied demo terminal environment — is required to continue the Strategy Tester, restart/reconnect and forward evidence ladder.
