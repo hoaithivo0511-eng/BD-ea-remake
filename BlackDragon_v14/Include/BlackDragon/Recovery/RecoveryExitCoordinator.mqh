@@ -118,6 +118,24 @@ bool Recovery_ExitExternalDealReason(const long dealReason)
    return dealReason != DEAL_REASON_EXPERT;
 }
 
+// T10 runtime regression: a broker-side SL can be an EXPECTED Recovery event
+// when it is the net-positive protective lock placed by T6. Treating every
+// non-EXPERT close as external made those expected SL fills latch T8 into an
+// indefinite reconciliation hold. Keep this helper pure so the classification
+// can be regression-tested independently from broker history plumbing.
+bool Recovery_ExitExpectedLockSlPure(const eRecoveryState state,
+                                     const long dealReason,
+                                     const double dealPrice,
+                                     const double targetSl,
+                                     const double tolerance)
+{
+   if(dealReason != DEAL_REASON_SL) return false;
+   if(state != recovery_HEDGE_LOCK_PENDING && state != recovery_HEDGE_LOCKED)
+      return false;
+   if(dealPrice <= 0.0 || targetSl <= 0.0 || tolerance < 0.0) return false;
+   return MathAbs(dealPrice - targetSl) <= tolerance + 1e-12;
+}
+
 eRecoveryExitCoordStep Recovery_ExitNextStepPure(const bool externalMutation,
                                                  const long currentCoreUnits,
                                                  const long targetCoreUnits,
@@ -368,6 +386,29 @@ private:
          }
       }
       return owner;
+   }
+
+   bool IsExpectedRecoveryLockSl(const eRecoveryCoreDirection dir,
+                                 const ulong closingDeal) const
+   {
+      if(m_recovery == NULL || closingDeal == 0 || !HistoryDealSelect(closingDeal))
+         return false;
+      SRecoveryCycle cycle;
+      m_recovery.GetCycle(dir, cycle);
+      double targetSl = m_recovery.LockTargetPrice(dir);
+      double dealPrice = HistoryDealGetDouble(closingDeal, DEAL_PRICE);
+      long reason = HistoryDealGetInteger(closingDeal, DEAL_REASON);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      double spreadPrice = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point;
+      if(tickSize <= 0.0) return false;
+
+      // Protective stops can fill a few ticks/spread away from the requested
+      // SL. Keep the acceptance window bounded and require the locked-state +
+      // owner/reason evidence as well; anything outside this remains fail-closed.
+      double tolerance = MathMax(25.0 * tickSize,
+                                 2.0 * spreadPrice + 2.0 * tickSize);
+      return Recovery_ExitExpectedLockSlPure(cycle.state, reason, dealPrice,
+                                             targetSl, tolerance);
    }
 
    void LatchExternal(const eRecoveryCoreDirection dir,
@@ -787,6 +828,20 @@ public:
 
       int idx = Index(dir);
       bool coordinatorOwned = m_accountWidePending || m_cycle[idx].active;
+
+      // A T6 protective lock is submitted by the EA but its eventual fill is
+      // reported by MT5 as DEAL_REASON_SL, not DEAL_REASON_EXPERT. When the
+      // owner/state/target-price evidence matches, this is an expected internal
+      // lifecycle event and must not latch an external reconciliation hold.
+      if(!coordinatorOwned && ownerMagic == (long)RecoveryMagic_ &&
+         IsExpectedRecoveryLockSl(dir, trans.deal))
+      {
+         Log_Info("Recovery", "locksl" + (string)Recovery_CycleKey(dir),
+                  "expected Recovery protective SL executed for " +
+                  Recovery_DirectionName(dir) + " — external latch skipped");
+         return false;
+      }
+
       if(Recovery_ExitExternalDealReason(reason))
       {
          if(!m_accountWidePending)

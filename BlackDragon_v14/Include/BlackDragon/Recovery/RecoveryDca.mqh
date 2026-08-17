@@ -10,10 +10,10 @@
 #include <BlackDragon/EntryFilters.mqh>
 #include <BlackDragon/BasketManager.mqh>
 
-input group "17 — Recovery DCA / Corridor"
-input bool   ContinueDcaAfterHedge_       = false; // OFF = lock DCA after hedge becomes active
-input double MinHedgeCoveragePercent_     = 0.0;   // 0 = disabled
-input double TargetRecoveryCorridorPips_  = 0.0;   // 0 = disabled
+input group "17 — DCA khi Recovery đang hoạt động"
+input bool   ContinueDcaAfterHedge_       = false; // Tiếp tục DCA Core sau khi Hedge đã hoạt động; false = khóa DCA
+input double MinHedgeCoveragePercent_     = 0.0;   // Coverage Hedge tối thiểu để cho phép DCA (%); 0 = tắt điều kiện
+input double TargetRecoveryCorridorPips_  = 0.0;   // Hành lang lợi nhuận mục tiêu (pip); đạt mục tiêu thì dừng thêm DCA; 0 = tắt
 
 bool Recovery_ValidateDcaConfig(const eRecoveryMode mode,
                                 const double minCoveragePercent,
