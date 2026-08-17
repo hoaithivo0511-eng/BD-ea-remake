@@ -2,7 +2,8 @@
 
 Date: 2026-08-17 (Asia/Ho_Chi_Minh)  
 Method: VibeCodeKit-MQL5 Full / SCAN  
-Product implementation head: `1d323c2afcc213dcd6eaaa296eb71a20788a8de9`  
+Product implementation head: `0d7e20c1d024bb5d19a54128d3ddb3e346075235`  
+Product tree: `89da566597ee98367b5ccdee5acc6c95a6e08002`  
 Verification branch: `verify/adaptive-recovery-runtime`
 
 ## Scope
@@ -22,7 +23,7 @@ Adaptive Recovery integration across T1–T9:
 
 ## Current implementation state
 
-The stacked feature chain contains all T1–T9 implementation slices. The verification branch is evidence-only above the exact T9 product source and does not intentionally alter trading semantics.
+The stacked feature chain contains all T1–T9 implementation slices. Product source remains outside `main` and release level remains DRAFT.
 
 The source contains:
 
@@ -40,21 +41,34 @@ The source contains:
 - startup reconciliation before ACTIVE automated mutation,
 - ACTIVE scheduler wiring in Strategy.
 
-## Evidence already present
+## Current evidence
 
-- T1–T9 deterministic C++ model suites: PASS per slice.
-- Sanitizer variants: PASS per slice where recorded.
-- Exact-tree native MetaEditor compile through T9: 0 errors / 0 warnings with physical EX5.
-- Existing BlackDragon native `RunTests.ex5`: 221 passed / 0 failed.
-- Exact artifact SHA gating is recorded for the T9 native artifact.
+- T1–T9 deterministic C++ model suites: PASS per recorded slice.
+- Sanitizer variants: PASS where recorded.
+- T9 deterministic persistence model: 117/117 regular + 117/117 ASan/UBSan.
+- Current product exact-tree MetaEditor compile: PASS, `RunTests.mq5` 0 errors / 0 warnings and `BlackDragon.mq5` 0 errors / 0 warnings, run `32043966939`.
+- Current product artifact: ID `9292469963`, SHA256 `f3389034aa861ce8eaa91e11d5c510585a82dc4ba93dc066f5ab1322810193e9`.
+- Existing BlackDragon native regression on the current product artifact: 221/221 PASS, run `32044230221`.
+- Recovery T1 native MQL5 deterministic assertions: 26/26 PASS, run `32044044948`.
+- Recovery T3–T9 native MQL5 deterministic assertions: 106/106 PASS, run `32044044948`.
+- Recovery-native evidence artifact: ID `9292476373`, SHA256 `03a1150edfeb708c2f8114392fb058c9d02b2d6ec11e56191a0431d78dccca5d`.
 
-## Critical evidence distinction
+## VERIFY finding closed
 
-The 221/221 native `RunTests.mq5` suite is the existing BlackDragon regression suite. It does not directly contain Adaptive Recovery T1–T9 assertions.
+Isolated compilation of the new Recovery-native script found that `RecoveryPersistence.mqh` referenced `eExecCommandType` without directly including `Types.mqh`.
 
-Therefore it proves native regression compatibility for the compiled T9 tree, but it must not be reported as 221 Adaptive Recovery runtime assertions.
+This hidden include-order dependency was fixed by making the header self-contained. The fix was propagated to the T9 product branch and the exact current product tree was recompiled 0/0 before evidence was accepted.
 
-`RunRecoveryFoundationTests.mq5` exists and a broader native deterministic Recovery script is added on the verification branch so the Recovery pure rules can be compiled and executed inside real MQL5 runtime.
+## Evidence distinction
+
+The 221/221 native `RunTests.mq5` suite is the existing BlackDragon regression suite. It proves regression compatibility on the current T9 compiled artifact, not 221 Adaptive Recovery assertions.
+
+Adaptive Recovery-specific deterministic native evidence is reported separately:
+
+- T1: 26/26.
+- T3–T9: 106/106.
+
+These native scripts execute deterministic rules in real MetaTrader 5 with live trading disabled. They do not emulate or replace Strategy Tester/broker lifecycle evidence.
 
 ## Remaining runtime gaps
 
@@ -72,14 +86,12 @@ The following are not evidenced as PASS:
 - ACTIVE demo soak,
 - broker parity / forward evidence.
 
-Current GitHub-hosted MT5 build stops Strategy Tester before execution because no terminal account context is available. This is `UNTESTABLE`, not EA PASS and not EA FAIL.
+Current GitHub-hosted MT5 stops Strategy Tester before execution because no terminal account context is available. This is `UNTESTABLE`, not EA PASS and not EA FAIL. No broker/demo credentials were fabricated.
 
 ## Repository/integration state
 
-The Adaptive Recovery stack remains outside `main`. PRs are stacked and open; the release level remains DRAFT.
+The Adaptive Recovery stack remains outside `main`. PRs are stacked and open. Do not represent the current deterministic/native-script evidence as backtest, forward or live readiness.
 
-Do not merge or promote based solely on compile/model/native legacy regression evidence if the intended release claim requires Strategy Tester or forward behavior.
+## Documentation hygiene
 
-## Documentation hygiene gap
-
-The generic `SCAN_REPORT.md`, `RRI_REPORT.md`, and `BLUEPRINT.md` in this directory belong to earlier BD-001/BD-002 work. This task-specific SCAN avoids treating those older artefacts as Adaptive Recovery evidence.
+The generic `SCAN_REPORT.md`, `RRI_REPORT.md`, and `BLUEPRINT.md` in this directory belong to earlier BD-001/BD-002 work. This task-specific SCAN is the canonical Adaptive Recovery scan record.
