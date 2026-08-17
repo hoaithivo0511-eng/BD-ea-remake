@@ -17,24 +17,23 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     env:
+      PRODUCT_ARTIFACT_ID: '9295709180'
+      PRODUCT_ARTIFACT_SHA256: '847a6e6e0bfa4c3efd8a3b9e614de0142514bd19233ecc553cbddcbb2e83d3e0'
+      PRODUCT_HEAD: '93c708191e5ac486feb40ed91be92d591aec38df'
+      PRODUCT_TREE: '67ec90da8ab413e3a393d43c3a61d9ff656f0f76'
       MT5_DIR: 'C:\Program Files\MetaTrader 5'
-      T9_ARTIFACT_ID: '9292469963'
-      T9_ARTIFACT_SHA256: 'f3389034aa861ce8eaa91e11d5c510585a82dc4ba93dc066f5ab1322810193e9'
-      T9_PRODUCT_HEAD: '0d7e20c1d024bb5d19a54128d3ddb3e346075235'
-      T9_PRODUCT_TREE: '89da566597ee98367b5ccdee5acc6c95a6e08002'
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Record verification and product provenance
+      - name: Record provenance
         shell: pwsh
         run: |
           Write-Host "VERIFY_HEAD=$(git rev-parse HEAD)"
-          Write-Host "VERIFY_TREE=$(git show -s --format=%T HEAD)"
-          Write-Host "PRODUCT_HEAD=$env:T9_PRODUCT_HEAD"
-          Write-Host "PRODUCT_TREE=$env:T9_PRODUCT_TREE"
+          Write-Host "PRODUCT_HEAD=$env:PRODUCT_HEAD"
+          Write-Host "PRODUCT_TREE=$env:PRODUCT_TREE"
 
       - name: Install MetaTrader 5
         shell: pwsh
@@ -45,102 +44,67 @@ jobs:
           Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
           if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'terminal64.exe missing' }
 
-      - name: Reuse exact current T9 native RunTests artifact
+      - name: Reuse exact T10 RunTests artifact
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = 'application/vnd.github+json'
-            'X-GitHub-Api-Version' = '2022-11-28'
-          }
-          $uri = "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$env:T9_ARTIFACT_ID/zip"
-          Invoke-WebRequest -Uri $uri -Headers $headers -OutFile 't9-native.zip' -UseBasicParsing
-          $digest = (Get-FileHash 't9-native.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "artifact sha256=$digest"
-          if ($digest -ne $env:T9_ARTIFACT_SHA256) { throw "T9 artifact digest mismatch: $digest" }
-          Expand-Archive -LiteralPath 't9-native.zip' -DestinationPath 't9-native' -Force
-          $script = Get-ChildItem 't9-native' -Filter 'RunTests.ex5' -Recurse | Select-Object -First 1
-          if ($null -eq $script) { throw 'RunTests.ex5 missing from exact current T9 artifact' }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+          $uri = "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$env:PRODUCT_ARTIFACT_ID/zip"
+          Invoke-WebRequest -Uri $uri -Headers $headers -OutFile 'product.zip' -UseBasicParsing
+          $digest = (Get-FileHash 'product.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($digest -ne $env:PRODUCT_ARTIFACT_SHA256) { throw "artifact digest mismatch: $digest" }
+          Expand-Archive 'product.zip' 'product' -Force
+          $script = Get-ChildItem 'product' -Filter 'RunTests.ex5' -Recurse | Select-Object -First 1
+          if ($null -eq $script) { throw 'RunTests.ex5 missing' }
           $dst = "$env:MT5_DIR\MQL5\Scripts\BlackDragon\Tests"
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
-          Copy-Item -LiteralPath $script.FullName -Destination "$dst\RunTests.ex5" -Force
-          Write-Host "RunTests EX5 bytes=$((Get-Item "$dst\RunTests.ex5").Length)"
+          Copy-Item $script.FullName "$dst\RunTests.ex5" -Force
 
-      - name: Execute current-product RunTests as startup script
+      - name: Execute native RunTests
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $out = '${{ github.workspace }}\verify-runtests'
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $cfg = Join-Path $out 'runtests.ini'
-          $text = @"
+          $out='${{ github.workspace }}\verify-runtests'; New-Item -ItemType Directory -Force $out|Out-Null
+          $cfg=Join-Path $out 'runtests.ini'
+          $text=@"
           [Common]
           NewsEnable=0
-
           [Experts]
           AllowLiveTrading=0
           AllowDllImport=0
           Enabled=1
-
           [StartUp]
           Script=BlackDragon\Tests\RunTests
           Symbol=EURUSD
           Period=M1
           ShutdownTerminal=1
           "@
-          [IO.File]::WriteAllText($cfg, $text, [Text.Encoding]::Unicode)
-          $terminal = "$env:MT5_DIR\terminal64.exe"
-          $p = Start-Process -FilePath $terminal -ArgumentList "/portable /config:`"$cfg`"" -PassThru
-          $deadline = (Get-Date).AddMinutes(4)
-          while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
-            Start-Sleep -Seconds 3
-            $p.Refresh()
-          }
-          if (-not $p.HasExited) {
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-            throw 'RunTests startup script timed out'
-          }
-          Write-Host "terminal exit=$($p.ExitCode)"
-          $logs = Get-ChildItem "$env:MT5_DIR\MQL5\Logs" -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
-          if (-not $logs) { throw 'No MQL5 expert/script log produced' }
-          $latest = $logs[-1]
-          Copy-Item -LiteralPath $latest.FullName -Destination (Join-Path $out 'runtests-mql5.log') -Force
-          $raw = Get-Content -LiteralPath $latest.FullName -Raw -ErrorAction Stop
-          Write-Host '--- MQL5 RunTests log ---'
-          Write-Host $raw
-          $summary = [regex]::Match($raw, 'BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed')
-          if (-not $summary.Success) { throw 'RunTests summary not found in native MQL5 log' }
-          $passed = [int]$summary.Groups[1].Value
-          $failed = [int]$summary.Groups[2].Value
+          [IO.File]::WriteAllText($cfg,$text,[Text.Encoding]::Unicode)
+          $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru
+          $deadline=(Get-Date).AddMinutes(4)
+          while(-not $p.HasExited -and (Get-Date)-lt $deadline){Start-Sleep 3;$p.Refresh()}
+          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'RunTests timeout'}
+          $logs=Get-ChildItem "$env:MT5_DIR\MQL5\Logs" -Filter '*.log'|Sort-Object LastWriteTime
+          if(-not $logs){throw 'No MQL5 log'}
+          $latest=$logs[-1];Copy-Item $latest.FullName (Join-Path $out 'runtests-mql5.log') -Force
+          $raw=Get-Content $latest.FullName -Raw;Write-Host $raw
+          $s=[regex]::Match($raw,'BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed')
+          if(-not $s.Success){throw 'summary missing'}
+          $passed=[int]$s.Groups[1].Value;$failed=[int]$s.Groups[2].Value
           Write-Host "NATIVE_RUNTESTS passed=$passed failed=$failed"
-          if ($failed -ne 0) { throw "Native RunTests failed: $failed assertion(s)" }
-          if ($passed -le 0) { throw 'Native RunTests reported zero assertions' }
-          if ($raw -notmatch 'ALL GREEN') { throw 'ALL GREEN marker missing despite zero failures' }
+          if($failed -ne 0 -or $passed -le 0 -or $raw -notmatch 'ALL GREEN'){throw 'native regression failed'}
 
-      - name: Write regression evidence summary
+      - name: Write summary
         if: always()
         shell: pwsh
         run: |
-          $out = '${{ github.workspace }}\verify-runtests'
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          @"
-          # BlackDragon Native Regression Verification
+          $out='${{ github.workspace }}\verify-runtests';New-Item -ItemType Directory -Force $out|Out-Null
+          "T10 product head: $env:PRODUCT_HEAD`nT10 product tree: $env:PRODUCT_TREE`nArtifact: $env:PRODUCT_ARTIFACT_ID`nSHA256: $env:PRODUCT_ARTIFACT_SHA256`nLive trading: disabled"|Out-File (Join-Path $out 'SUMMARY.txt')
 
-          - verification commit: `${{ github.sha }}`
-          - product head: `$env:T9_PRODUCT_HEAD`
-          - product tree: `$env:T9_PRODUCT_TREE`
-          - product artifact ID: `$env:T9_ARTIFACT_ID`
-          - product artifact SHA256: `$env:T9_ARTIFACT_SHA256`
-          - live trading: disabled
-          - scope: existing BlackDragon regression `RunTests`; this is not the Adaptive Recovery assertion count
-          "@ | Out-File -FilePath (Join-Path $out 'SUMMARY.md') -Encoding utf8
-
-      - name: Upload native assertion evidence
+      - name: Upload native evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mt5-native-runtests-current-t9
+          name: mt5-native-runtests-t10
           path: verify-runtests/
           if-no-files-found: error
