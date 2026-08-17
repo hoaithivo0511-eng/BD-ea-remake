@@ -2,6 +2,7 @@
 //| RecoveryPersistence.mqh — T9 durable Recovery state store        |
 //| Invariants: Recovery OFF never mutates this file; payload is     |
 //|             versioned, checksummed and staged temp-to-final replaced.      |
+//| Depends on: Types.mqh for execution command metadata.            |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_PERSISTENCE_MQH
 #define BD_RECOVERY_PERSISTENCE_MQH
