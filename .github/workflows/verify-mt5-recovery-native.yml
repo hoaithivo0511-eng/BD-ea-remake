@@ -34,7 +34,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "VERIFY_HEAD=$(git rev-parse HEAD)"
-          Write-Host "VERIFY_TREE=$(git rev-parse HEAD^{tree})"
+          Write-Host "VERIFY_TREE=$(git show -s --format=%T HEAD)"
 
       - name: Install MetaTrader 5
         shell: pwsh
