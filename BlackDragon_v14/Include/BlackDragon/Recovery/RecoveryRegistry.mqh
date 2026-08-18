@@ -54,8 +54,6 @@ struct SRecoveryCycle
    long                   anchorTicks;
    datetime               anchorTime;
 
-   // T4 logical bundle runtime. One generation == one logical bundle, never
-   // one physical child order.
    int                    hedgeGeneration;
    int                    bundleId;
    long                   bundleTargetUnits;
@@ -180,8 +178,6 @@ public:
       out = m_cycle[Index(dir)];
    }
 
-   // T9 persistence import. Structural/config validation is performed by
-   // RecoveryPersistence before this registry-owned snapshot is accepted.
    bool RestoreCycle(const eRecoveryCoreDirection dir, const SRecoveryCycle &src)
    {
       if(src.direction != dir || src.cycleKey != Recovery_CycleKey(dir) || src.cycleSerial < 1)
@@ -212,10 +208,13 @@ public:
       int idx = Index(dir);
       SRecoveryCycle before = m_cycle[idx];
 
-      // A completed slot is reusable only when a new Core series is observed.
+      // A normal completed slot rolls its serial when a new Core series is
+      // first observed. T11 global flatten pre-rolls the serial at completion
+      // (armed=false) so T5/T6 reset and persistence are consistent BEFORE the
+      // account-wide coordinator releases normal trading.
       if(m_cycle[idx].state == recovery_COMPLETED && count > 0)
       {
-         int nextSerial = m_cycle[idx].cycleSerial + 1;
+         int nextSerial = m_cycle[idx].cycleSerial + (m_cycle[idx].armed ? 1 : 0);
          eRecoveryState oldState = m_cycle[idx].state;
          ClearCycleRuntime(m_cycle[idx], true);
          m_cycle[idx].cycleSerial = nextSerial;
@@ -231,17 +230,15 @@ public:
                                                             m_cycle[idx].coreNetBE,
                                                             m_cycle[idx].hedgeNetBE);
 
-      // T11 global-flatten hand-off. The T8 coordinator raises this latch only
-      // after PositionsTotal()==0 AND ExecutionLayer has no unresolved request,
-      // so every non-COMPLETED Recovery state can terminate deterministically.
-      // The latch is intentionally cleared by the coordinator only after BOTH
-      // directions are COMPLETED and Recovery persistence has flushed.
       if(Recovery_GlobalFlattenFinalizationRequested() && count == 0 &&
          m_cycle[idx].state != recovery_COMPLETED)
       {
          if(Transition(dir, recovery_COMPLETED, now,
                        "confirmed account-wide MoneyGuard flatten"))
          {
+            // Pre-roll once so CRecoveryEngine::EnsureT5Cycle() resets T5/T6
+            // in this same OnTick before the coordinator persists/release gate.
+            m_cycle[idx].cycleSerial++;
             m_cycle[idx].armed            = false;
             m_cycle[idx].activeHedgeLots  = 0.0;
             m_cycle[idx].hedgeNetBE       = 0.0;
@@ -371,7 +368,6 @@ public:
       return true;
    }
 
-   //--- T4 ACTIVE-capable bundle lifecycle. Not wired from BlackDragon yet. --
    bool BeginBundle(const eRecoveryCoreDirection dir,
                     const long targetNewUnits,
                     const long baselineActiveHedgeUnits,
