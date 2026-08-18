@@ -439,6 +439,24 @@ void OnStart()
    Check("T11 GLOBAL_STOP -> COMPLETED", Recovery_StateTransitionAllowed(recovery_GLOBAL_STOP, recovery_COMPLETED));
    Check("T11 COMPLETED -> CORE_ONLY reusable", Recovery_StateTransitionAllowed(recovery_COMPLETED, recovery_CORE_ONLY));
 
+   //--- T12: atomic global-flatten finalizer ---------------------------
+         Check("T12 atomic finalizer: safe known-empty boundary",
+               Recovery_GlobalFlattenCanFinalizePure(0, false, false, false, false));
+         Check("T12 atomic finalizer: live position blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(1, false, false, false, false));
+         Check("T12 atomic finalizer: pending journal blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, true, false, false, false));
+         Check("T12 atomic finalizer: persistence fault blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, false, true, false, false));
+         Check("T12 atomic finalizer: BUY reconcile blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, false, false, true, false));
+         Check("T12 atomic finalizer: SELL reconcile blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, false, false, false, true));
+         CheckEq("T12 non-terminal completion rolls serial once",
+                 Recovery_GlobalFlattenNextSerialPure(7, false), 8);
+         CheckEq("T12 persistence retry on COMPLETED keeps serial",
+                 Recovery_GlobalFlattenNextSerialPure(8, true), 8);
+
    PrintFormat("BlackDragon v14 unit tests: %d passed, %d failed", g_pass, g_fail);
    if(g_fail == 0) Print("ALL GREEN — safe to proceed to backtest comparison (golden baseline).");
 }
