@@ -1,0 +1,166 @@
+name: Verify T14 Execution Identity
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/**'
+      - '.github/workflows/verify-t14-execution-identity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  model-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compile and run Recovery model suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='BlackDragon_v14/Scripts/BlackDragon/Tests'
+          suites=(
+            offline_suite.cpp
+            recovery_foundation_suite.cpp
+            execution_t2_suite.cpp
+            recovery_t3_shadow_suite.cpp
+            recovery_t4_bundle_suite.cpp
+            recovery_t5_exit_suite.cpp
+            recovery_t6_lock_suite.cpp
+            recovery_t7_dca_suite.cpp
+            recovery_t8_coord_suite.cpp
+            recovery_t9_persistence_suite.cpp
+            recovery_t10_runtime_guard_suite.cpp
+            execution_t14_identity_suite.cpp
+          )
+          for src in "${suites[@]}"; do
+            echo "::group::$src"
+            exe="/tmp/${src%.cpp}"
+            g++ -std=c++17 -O2 -Wall -Wextra "$ROOT/$src" -o "$exe"
+            "$exe"
+            echo '::endgroup::'
+          done
+
+      - name: Verify T14 source invariants
+        shell: python
+        run: |
+          from pathlib import Path
+          exec_src = Path('BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh').read_text(encoding='utf-8')
+          engine = Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh').read_text(encoding='utf-8')
+          coord = Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh').read_text(encoding='utf-8')
+          policy = Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExecutionIdentity.mqh').read_text(encoding='utf-8')
+          assert 'Journal_OpenIdentityResolved' in exec_src
+          assert 'Journal_CorrelatedOpenVolume' in exec_src
+          assert 'targetVolume immutable' in exec_src
+          assert 'flat-account journal blocker:' in exec_src
+          assert 'requestId=' in exec_src and 'serverOrder=' in exec_src and 'serverDeal=' in exec_src
+          assert 'Recovery_T14PendingVolumeEffectConfirmed' in engine
+          assert 'RecoveryEngineT13Base.mqh' in engine
+          assert 'IsExpectedRecoveryLockSlT14' in coord
+          assert 'RecoveryExitCoordinatorT13Base.mqh' in coord
+          assert 'Recovery_ProtectiveSlIdentityPure' in policy
+          print('T14 static integration gates PASS')
+
+      - name: Record exact source identity
+        shell: bash
+        run: |
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git show -s --format=%T HEAD)"
+
+  metaeditor:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not (Test-Path "$env:MT5_DIR\metaeditor64.exe")) { throw 'metaeditor64.exe not found' }
+
+      - name: Warm terminal and mirror exact tree
+        shell: pwsh
+        run: |
+          $t = Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
+          Start-Sleep -Seconds 40
+          $t | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          $mql5 = "$env:MT5_DIR\MQL5"
+          foreach ($d in @('Experts','Include','Scripts')) {
+            New-Item -ItemType Directory -Force -Path "$mql5\$d" | Out-Null
+            Copy-Item -Path "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" -Destination "$mql5\$d" -Recurse -Force
+          }
+          $enc = New-Object System.Text.UnicodeEncoding($false, $true)
+          foreach ($r in @("$mql5\Experts\BlackDragon", "$mql5\Include\BlackDragon", "$mql5\Scripts\BlackDragon")) {
+            if (-not (Test-Path $r)) { continue }
+            Get-ChildItem -LiteralPath $r -Recurse -File | Where-Object { $_.Extension -in '.mq5','.mqh' } | ForEach-Object {
+              $txt = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
+              [System.IO.File]::WriteAllText($_.FullName, $txt, $enc)
+            }
+          }
+
+      - name: Compile T14 exact-tree targets
+        shell: pwsh
+        run: |
+          $editor = "$env:MT5_DIR\metaeditor64.exe"
+          $mql5 = "$env:MT5_DIR\MQL5"
+          $build = "$env:GITHUB_WORKSPACE\build-t14"
+          New-Item -ItemType Directory -Force -Path $build | Out-Null
+          $targets = @(
+            @{Name='RunTests'; Src="$mql5\Scripts\BlackDragon\Tests\RunTests.mq5"; Out="$mql5\Scripts\BlackDragon\Tests\RunTests.ex5"},
+            @{Name='RunRecoveryMutationTests'; Src="$mql5\Scripts\BlackDragon\Tests\RunRecoveryMutationTests.mq5"; Out="$mql5\Scripts\BlackDragon\Tests\RunRecoveryMutationTests.ex5"},
+            @{Name='RunRecoveryIdentityTests'; Src="$mql5\Scripts\BlackDragon\Tests\RunRecoveryIdentityTests.mq5"; Out="$mql5\Scripts\BlackDragon\Tests\RunRecoveryIdentityTests.ex5"},
+            @{Name='BlackDragon'; Src="$mql5\Experts\BlackDragon\BlackDragon.mq5"; Out="$mql5\Experts\BlackDragon\BlackDragon.ex5"}
+          )
+          foreach ($t in $targets) {
+            $log = "$build\$($t.Name).log"
+            $p = Start-Process -FilePath $editor -ArgumentList "/compile:`"$($t.Src)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -PassThru -NoNewWindow
+            if (-not (Test-Path $log)) { throw "$($t.Name): no compiler log" }
+            $text = Get-Content -LiteralPath $log -Encoding Unicode -Raw
+            Write-Host $text
+            $errors = @(($text -split "`r?`n") | Where-Object { $_ -match ' : error ' })
+            $warnings = @(($text -split "`r?`n") | Where-Object { $_ -match ' : warning ' })
+            if (-not (Test-Path $t.Out)) { throw "$($t.Name): EX5 not produced" }
+            if ($errors.Count -gt 0 -or $warnings.Count -gt 0) { throw "$($t.Name): $($errors.Count) errors / $($warnings.Count) warnings" }
+            Copy-Item -LiteralPath $t.Out -Destination $build -Force
+          }
+
+          $head = git rev-parse HEAD
+          $tree = git show -s --format=%T HEAD
+          $ea = Join-Path $build 'BlackDragon.ex5'
+          $eaHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ea).Hash.ToLowerInvariant()
+          "HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$eaHash`n" | Out-File "$build\PROVENANCE.txt" -Encoding utf8
+          Write-Host "T14 MetaEditor exact-tree compile PASS: 0 errors / 0 warnings"
+          Write-Host "BlackDragon.ex5 SHA256=$eaHash"
+
+      - name: Package T14 compile evidence
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "$env:GITHUB_WORKSPACE\build-t14\*" -DestinationPath "$env:GITHUB_WORKSPACE\BlackDragon-T14-compile-evidence.zip" -Force
+          $pkgHash = (Get-FileHash -Algorithm SHA256 -LiteralPath "$env:GITHUB_WORKSPACE\BlackDragon-T14-compile-evidence.zip").Hash.ToLowerInvariant()
+          "PACKAGE_SHA256=$pkgHash" | Add-Content "$env:GITHUB_WORKSPACE\build-t14\PROVENANCE.txt"
+          Write-Host "package SHA256=$pkgHash"
+
+      - name: Upload exact T14 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackdragon-t14-exact-tree
+          path: |
+            build-t14/
+            BlackDragon-T14-compile-evidence.zip
+          if-no-files-found: error
