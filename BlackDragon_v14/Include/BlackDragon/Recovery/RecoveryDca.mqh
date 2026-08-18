@@ -21,7 +21,7 @@ bool Recovery_ValidateDcaConfig(const eRecoveryMode mode,
                                 string &why)
 {
    why = "";
-   if(mode == recovery_OFF) return true; // exact legacy-init parity when Recovery is disabled
+   if(mode == recovery_OFF) return true;
    if(minCoveragePercent < 0.0 || minCoveragePercent > 100.0)
    {
       why = "MinHedgeCoveragePercent_ must be in [0,100]";
@@ -42,23 +42,13 @@ bool Recovery_DcaPostHedgeStableState(const eRecoveryState state)
           state == recovery_REHEDGE_PENDING;
 }
 
-// OFF and SHADOW never alter legacy DCA. In ACTIVE, CORE_ONLY/ARMED remain
-// eligible because Recovery has not yet established an active hedge. Once a
-// hedge exists, only the explicitly stable states may continue DCA and only
-// when the owner enabled ContinueDcaAfterHedge_. Mutation/pause/reconcile
-// states are fail-closed.
 bool Recovery_DcaStateAllows(const eRecoveryMode mode,
                              const bool continueAfterHedge,
                              const eRecoveryState state)
 {
    if(mode != recovery_ACTIVE) return true;
-
-   if(state == recovery_CORE_ONLY || state == recovery_ARMED)
-      return true;
-
-   if(Recovery_DcaPostHedgeStableState(state))
-      return continueAfterHedge;
-
+   if(state == recovery_CORE_ONLY || state == recovery_ARMED) return true;
+   if(Recovery_DcaPostHedgeStableState(state)) return continueAfterHedge;
    return false;
 }
 
@@ -81,8 +71,6 @@ double Recovery_CorridorPipsPure(const eRecoveryCoreDirection dir,
    return Recovery_CorridorPrice(dir, coreNetBE, hedgeNetBE) / pipSize;
 }
 
-// Target means "stop adding Core DCA once the desired positive corridor has
-// already been reached". Negative/zero corridor therefore does not block DCA.
 bool Recovery_DcaCorridorAllows(const double targetCorridorPips,
                                 const eRecoveryCoreDirection dir,
                                 const double coreNetBE,
@@ -109,21 +97,12 @@ bool Recovery_DcaGateAllows(const eRecoveryMode mode,
 {
    if(!Recovery_DcaStateAllows(mode, continueAfterHedge, state)) return false;
    if(mode != recovery_ACTIVE) return true;
-
-   // Pre-hedge states retain legacy DCA even when ContinueDcaAfterHedge_=false.
    if(!Recovery_DcaPostHedgeStableState(state)) return true;
-
-   if(!Recovery_DcaCoverageAllows(minCoveragePercent, currentCoreLots, activeHedgeLots))
-      return false;
-   if(!Recovery_DcaCorridorAllows(targetCorridorPips, dir, coreNetBE, hedgeNetBE, pipSize))
-      return false;
+   if(!Recovery_DcaCoverageAllows(minCoveragePercent, currentCoreLots, activeHedgeLots)) return false;
+   if(!Recovery_DcaCorridorAllows(targetCorridorPips, dir, coreNetBE, hedgeNetBE, pipSize)) return false;
    return true;
 }
 
-// Read current broker-observable Recovery hedge exposure for T7 gates.
-// Registry metrics remain useful for telemetry, but DCA permission must not
-// depend on a cached value that may lag the HEDGE_BUILDING -> HEDGE_ACTIVE
-// transition. Entry costs are read only when the corridor gate is enabled.
 double Recovery_DcaPositionEntryCosts(const ulong positionIdentifier,
                                       const string symbol,
                                       const long recoveryMagic)
@@ -195,6 +174,8 @@ bool Recovery_ReadDcaHedgeMetrics(const string symbol,
 }
 
 // ACTIVE startup gate for automated NEW SERIES. OFF/SHADOW are exact no-ops.
+// T11 makes the fail-closed reason visible instead of silently dropping a
+// valid signal when Recovery readiness is lost.
 class CRecoveryStartupFilter : public IEntryFilter
 {
 private:
@@ -204,13 +185,22 @@ public:
    bool Allow(const EAContext &ctx, const int dir)
    {
       if(RecoveryMode_ != recovery_ACTIVE) return true;
-      return m_recovery != NULL && m_recovery.ActiveReady();
+      if(m_recovery == NULL)
+      {
+         Log_Warn("Recovery", "newseriesgate" + (string)dir,
+                  "new Core series blocked: Recovery engine is unavailable");
+         return false;
+      }
+      if(!m_recovery.ActiveReady())
+      {
+         Log_Warn("Recovery", "newseriesgate" + (string)dir,
+                  "new Core series blocked: Recovery ACTIVE is not reconciled/ready");
+         return false;
+      }
+      return true;
    }
 };
 
-// Adapter into the existing Strategy grid-filter chain. It never opens a
-// hedge or a Core order and never mutates Recovery state. Recovery children
-// remain outside CBasketManager because they use RecoveryMagic_.
 class CRecoveryDcaFilter : public IEntryFilter
 {
 private:
@@ -226,7 +216,6 @@ public:
 
    bool Allow(const EAContext &ctx, const int dir)
    {
-      // Mandatory parity: SHADOW observes only and OFF is a no-op.
       if(RecoveryMode_ != recovery_ACTIVE) return true;
       if(m_recovery == NULL || m_basket == NULL) return false;
       if(!m_recovery.ActiveReady()) return false;
@@ -236,11 +225,9 @@ public:
       SRecoveryCycle cycle;
       m_recovery.GetCycle(recoveryDir, cycle);
 
-      // State/owner switch can decide most calls without broker scans.
       if(!Recovery_DcaStateAllows(RecoveryMode_, ContinueDcaAfterHedge_, cycle.state))
          return false;
-      if(!Recovery_DcaPostHedgeStableState(cycle.state))
-         return true;
+      if(!Recovery_DcaPostHedgeStableState(cycle.state)) return true;
 
       double coreLots = dir == BD_DIR_BUY ? m_basket.buy.totalLots : m_basket.sell.totalLots;
       double coreBE   = dir == BD_DIR_BUY ? m_basket.buy.breakeven : m_basket.sell.breakeven;
@@ -257,17 +244,9 @@ public:
             return false;
       }
 
-      return Recovery_DcaGateAllows(RecoveryMode_,
-                                    ContinueDcaAfterHedge_,
-                                    cycle.state,
-                                    MinHedgeCoveragePercent_,
-                                    TargetRecoveryCorridorPips_,
-                                    recoveryDir,
-                                    coreLots,
-                                    coreBE,
-                                    hedgeLots,
-                                    hedgeBE,
-                                    pipSize);
+      return Recovery_DcaGateAllows(RecoveryMode_, ContinueDcaAfterHedge_, cycle.state,
+                                    MinHedgeCoveragePercent_, TargetRecoveryCorridorPips_,
+                                    recoveryDir, coreLots, coreBE, hedgeLots, hedgeBE, pipSize);
    }
 };
 
