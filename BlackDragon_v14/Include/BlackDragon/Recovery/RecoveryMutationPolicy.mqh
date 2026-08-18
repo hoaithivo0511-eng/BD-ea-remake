@@ -31,10 +31,10 @@ eRecoveryOverlapPolicy Recovery_OverlapPolicyPure(const eRecoveryState state)
 bool Recovery_SideMutationStableStatePure(const eRecoveryState state)
 {
    return state == recovery_CORE_ONLY ||
-state == recovery_ARMED ||
-state == recovery_HEDGE_ACTIVE ||
-state == recovery_HEDGE_LOCKED ||
-state == recovery_COMPLETED;
+          state == recovery_ARMED ||
+          state == recovery_HEDGE_ACTIVE ||
+          state == recovery_HEDGE_LOCKED ||
+          state == recovery_COMPLETED;
 }
 
 #endif // BD_RECOVERY_MUTATION_POLICY_MQH
