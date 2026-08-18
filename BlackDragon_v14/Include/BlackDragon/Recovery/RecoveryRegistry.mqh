@@ -6,6 +6,7 @@
 #define BD_RECOVERY_REGISTRY_MQH
 
 #include "RecoveryBundle.mqh"
+#include "RecoveryGlobalFlatten.mqh"
 
 #define BD_RECOVERY_ENTRY_EVIDENCE_CAP 16
 #define BD_RECOVERY_TRANSITION_AUDIT_CAP 32
@@ -229,6 +230,25 @@ public:
       m_cycle[idx].corridorPrice   = Recovery_CorridorPrice(dir,
                                                             m_cycle[idx].coreNetBE,
                                                             m_cycle[idx].hedgeNetBE);
+
+      // T11 global-flatten hand-off. The T8 coordinator raises this latch only
+      // after PositionsTotal()==0 AND ExecutionLayer has no unresolved request,
+      // so every non-COMPLETED Recovery state can terminate deterministically.
+      // The latch is intentionally cleared by the coordinator only after BOTH
+      // directions are COMPLETED and Recovery persistence has flushed.
+      if(Recovery_GlobalFlattenFinalizationRequested() && count == 0 &&
+         m_cycle[idx].state != recovery_COMPLETED)
+      {
+         if(Transition(dir, recovery_COMPLETED, now,
+                       "confirmed account-wide MoneyGuard flatten"))
+         {
+            m_cycle[idx].armed            = false;
+            m_cycle[idx].activeHedgeLots  = 0.0;
+            m_cycle[idx].hedgeNetBE       = 0.0;
+            m_cycle[idx].coveragePercent  = 0.0;
+            m_cycle[idx].corridorPrice    = 0.0;
+         }
+      }
 
       // SHADOW has no hedge mutation. If its Core disappears, complete the
       // logical cycle once. A partial removal does NOT clear the armed latch.
