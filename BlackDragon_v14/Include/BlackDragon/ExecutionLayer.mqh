@@ -10,7 +10,8 @@
 //|             AU-14-02 HasPendingModify guards async SL/TP spam,   |
 //|             BD-R2 deviation scaled by PointScale (v14.7.2),      |
 //|             BD-R1 CLOSE/MODIFY unlock 10s, OPEN keeps 30s,       |
-//|             Recovery T2 owner-aware journal + strict reconcile.  |
+//|             Recovery T2 owner-aware journal + strict reconcile,  |
+//|             T14 identity-based Recovery request finalization.    |
 //| Depends on: Types.mqh, GridEngine.mqh, Logger.mqh, License.mqh   |
 //+------------------------------------------------------------------+
 #ifndef BD_EXECUTIONLAYER_MQH
@@ -19,6 +20,7 @@
 #include "GridEngine.mqh"
 #include "Logger.mqh"
 #include "License.mqh"
+#include "Recovery/RecoveryExecutionIdentity.mqh"
 
 //--- FE-203: order comment carries the DCA order index: "comment|n"
 string Exec_BuildComment(const string baseComment, const int dcaIndex)
@@ -63,7 +65,7 @@ ulong Exec_CloseRequestMagic(const long positionMagic)
    return positionMagic > 0 ? (ulong)positionMagic : 0;
 }
 
-//--- Recovery T2 pure execution helpers ------------------------------------
+//--- Recovery T2/T14 pure execution helpers --------------------------------
 void Exec_InitMeta(SExecRequestMeta &meta,
                    const long ownerMagic,
                    const int cycleKey,
@@ -148,6 +150,123 @@ double Exec_CloseVolumeFloor(const double requestedVolume,
 
    if(target <= 0.0 || target > requestedVolume + eps) return 0.0;
    return NormalizeDouble(target, 8);
+}
+
+// T14 bounded terminal-proof cache. It is NOT a replacement for durable T9
+// persistence. It carries exact current-runtime request/server identity across
+// journal compaction so the durable command can consume a proven execution.
+#define BD_EXEC_T14_PROOF_CAP 32
+struct SExecT14IdentityProof
+{
+   bool             valid;
+   int              cycleKey;
+   long             ownerMagic;
+   eExecCommandType commandType;
+   eIntent          action;
+   ulong            ticket;
+   double           targetVolume;
+   double           sl;
+   datetime         sentAt;
+   uint             requestId;
+   ulong            serverOrder;
+   ulong            serverDeal;
+   uint             retcode;
+};
+
+SExecT14IdentityProof g_execT14Proof[BD_EXEC_T14_PROOF_CAP];
+int g_execT14ProofWrite = 0;
+
+void Exec_T14ClearProofs()
+{
+   g_execT14ProofWrite = 0;
+   for(int i = 0; i < BD_EXEC_T14_PROOF_CAP; i++)
+      g_execT14Proof[i].valid = false;
+}
+
+void Exec_T14RecordProof(const PendingRequest &p)
+{
+   if(p.commandType == EXEC_CMD_LEGACY || !p.serverFinal) return;
+   if(p.requestRetcode != TRADE_RETCODE_DONE && p.requestRetcode != TRADE_RETCODE_DONE_PARTIAL)
+      return;
+   int slot = g_execT14ProofWrite % BD_EXEC_T14_PROOF_CAP;
+   g_execT14Proof[slot].valid        = true;
+   g_execT14Proof[slot].cycleKey     = p.cycleKey;
+   g_execT14Proof[slot].ownerMagic   = p.ownerMagic;
+   g_execT14Proof[slot].commandType  = p.commandType;
+   g_execT14Proof[slot].action       = p.action;
+   g_execT14Proof[slot].ticket       = p.ticket;
+   g_execT14Proof[slot].targetVolume = p.targetVolume;
+   g_execT14Proof[slot].sl           = p.sl;
+   g_execT14Proof[slot].sentAt       = p.sentAt;
+   g_execT14Proof[slot].requestId    = p.requestId;
+   g_execT14Proof[slot].serverOrder  = p.serverOrder;
+   g_execT14Proof[slot].serverDeal   = p.serverDeal != 0 ? p.serverDeal : p.lastObservedDeal;
+   g_execT14Proof[slot].retcode      = p.requestRetcode;
+   g_execT14ProofWrite++;
+}
+
+bool Exec_T14OpenProofMatches(const int cycleKey,
+                              const long ownerMagic,
+                              const long targetUnits,
+                              const datetime notBefore)
+{
+   if(cycleKey == 0 || ownerMagic <= 0 || targetUnits <= 0) return false;
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   if(step <= 0.0) return false;
+   double targetVolume = (double)targetUnits * step;
+   double eps = step * 0.5;
+   for(int n = 0; n < BD_EXEC_T14_PROOF_CAP; n++)
+   {
+      int slot = g_execT14ProofWrite - 1 - n;
+      while(slot < 0) slot += BD_EXEC_T14_PROOF_CAP;
+      slot %= BD_EXEC_T14_PROOF_CAP;
+      SExecT14IdentityProof p = g_execT14Proof[slot];
+      if(!p.valid || p.commandType != EXEC_CMD_RECOVERY_OPEN) continue;
+      if(p.cycleKey != cycleKey || p.ownerMagic != ownerMagic) continue;
+      if(notBefore > 0 && p.sentAt + 1 < notBefore) continue;
+      if(MathAbs(p.targetVolume - targetVolume) > eps) continue;
+      if(p.requestId == 0 || (p.serverOrder == 0 && p.serverDeal == 0)) continue;
+      return true;
+   }
+   return false;
+}
+
+bool Exec_T14ModifyProofMatches(const ulong ticket,
+                                const long ownerMagic,
+                                const int cycleKey,
+                                const double targetSl,
+                                const double tolerance)
+{
+   if(ticket == 0 || ownerMagic <= 0 || cycleKey == 0 || targetSl <= 0.0) return false;
+   for(int n = 0; n < BD_EXEC_T14_PROOF_CAP; n++)
+   {
+      int slot = g_execT14ProofWrite - 1 - n;
+      while(slot < 0) slot += BD_EXEC_T14_PROOF_CAP;
+      slot %= BD_EXEC_T14_PROOF_CAP;
+      SExecT14IdentityProof p = g_execT14Proof[slot];
+      if(!p.valid || p.commandType != EXEC_CMD_RECOVERY_MODIFY) continue;
+      if(p.ticket != ticket || p.ownerMagic != ownerMagic || p.cycleKey != cycleKey) continue;
+      if(MathAbs(p.sl - targetSl) > tolerance + 1e-12) continue;
+      return true;
+   }
+   return false;
+}
+
+string Exec_IntentName(const eIntent action)
+{
+   if(action == INTENT_OPEN_BUY) return "OPEN_BUY";
+   if(action == INTENT_OPEN_SELL) return "OPEN_SELL";
+   if(action == INTENT_CLOSE_TICKET) return "CLOSE_TICKET";
+   if(action == INTENT_MODIFY_SLTP) return "MODIFY_SLTP";
+   return "NONE";
+}
+
+string Exec_CommandName(const eExecCommandType cmd)
+{
+   if(cmd == EXEC_CMD_RECOVERY_OPEN) return "RECOVERY_OPEN";
+   if(cmd == EXEC_CMD_RECOVERY_CLOSE) return "RECOVERY_CLOSE";
+   if(cmd == EXEC_CMD_RECOVERY_MODIFY) return "RECOVERY_MODIFY";
+   return "LEGACY";
 }
 
 class CExecutionLayer
@@ -269,10 +388,89 @@ private:
       return p.serverOrder != 0 && OrderSelect(p.serverOrder);
    }
 
+   bool Journal_OpenDealFieldsMatch(const PendingRequest &p, const ulong deal) const
+   {
+      if(deal == 0 || !HistoryDealSelect(deal)) return false;
+      if(HistoryDealGetString(deal, DEAL_SYMBOL) != p.symbol ||
+         !Exec_OwnerMatches(HistoryDealGetInteger(deal, DEAL_MAGIC), p.ownerMagic))
+         return false;
+      long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) return false;
+      long type = HistoryDealGetInteger(deal, DEAL_TYPE);
+      if(p.action == INTENT_OPEN_BUY && type != DEAL_TYPE_BUY) return false;
+      if(p.action == INTENT_OPEN_SELL && type != DEAL_TYPE_SELL) return false;
+      if(p.serverDeal != 0 && deal != p.serverDeal && p.serverOrder == 0) return false;
+      if(p.serverOrder != 0 && (ulong)HistoryDealGetInteger(deal, DEAL_ORDER) != p.serverOrder)
+         return false;
+      return true;
+   }
+
+   double Journal_CorrelatedOpenVolume(const PendingRequest &p, ulong &proofDeal) const
+   {
+      proofDeal = 0;
+      if(p.action != INTENT_OPEN_BUY && p.action != INTENT_OPEN_SELL) return 0.0;
+      double total = 0.0;
+
+      // Exact server deal is strongest and also works after the opened position
+      // was closed before reconciliation.
+      if(p.serverDeal != 0 && p.serverOrder == 0)
+      {
+         if(!Journal_OpenDealFieldsMatch(p, p.serverDeal)) return 0.0;
+         proofDeal = p.serverDeal;
+         return HistoryDealGetDouble(p.serverDeal, DEAL_VOLUME);
+      }
+
+      // One server order may produce multiple partial deals. Sum only deals
+      // whose order+owner+symbol+direction identity all match this request.
+      if(p.serverOrder != 0)
+      {
+         datetime from = p.sentAt > 2 ? p.sentAt - 2 : 0;
+         if(!HistorySelect(from, TimeCurrent())) return 0.0;
+         int totalDeals = HistoryDealsTotal();
+         for(int i = 0; i < totalDeals; i++)
+         {
+            ulong deal = HistoryDealGetTicket(i);
+            if(deal == 0 || !Journal_OpenDealFieldsMatch(p, deal)) continue;
+            double v = HistoryDealGetDouble(deal, DEAL_VOLUME);
+            if(v > 0.0) total += v;
+            if(proofDeal == 0 || deal == p.serverDeal) proofDeal = deal;
+         }
+         return total;
+      }
+
+      // No broker order/deal identity: strict Recovery must NOT bind a same-side
+      // aggregate deal by owner alone. Legacy behavior remains state-based.
+      return 0.0;
+   }
+
+   bool Journal_OpenIdentityResolved(const PendingRequest &p) const
+   {
+      if(p.action != INTENT_OPEN_BUY && p.action != INTENT_OPEN_SELL) return false;
+      if(p.commandType == EXEC_CMD_LEGACY || p.requestId == 0 || !p.serverFinal) return false;
+      ulong proofDeal = 0;
+      double historicalVolume = Journal_CorrelatedOpenVolume(p, proofDeal);
+      double observed = p.observedVolume > historicalVolume ? p.observedVolume : historicalVolume;
+      bool dealMatch = proofDeal != 0;
+      bool orderIdentity = p.serverOrder != 0 || p.serverDeal != 0;
+      double step = SymbolInfoDouble(p.symbol, SYMBOL_VOLUME_STEP);
+      return Recovery_ExecOpenIdentityCompletePure(p.requestRetcode,
+                                                    true,
+                                                    dealMatch,
+                                                    dealMatch,
+                                                    orderIdentity,
+                                                    Journal_ServerOrderLive(p),
+                                                    observed,
+                                                    p.targetVolume,
+                                                    step);
+   }
+
    bool Journal_StateResolved(const PendingRequest &p) const
    {
       if(p.action == INTENT_OPEN_BUY || p.action == INTENT_OPEN_SELL)
       {
+         // T14: identity proof is independent of aggregate count. Keep the
+         // legacy count path as a fallback, never as the sole Recovery proof.
+         if(Journal_OpenIdentityResolved(p)) return true;
          if(CountOpenPositions(p.action, p.symbol, p.ownerMagic) <= p.positionCountBefore) return false;
          if(Journal_ServerOrderLive(p)) return false;
          if(p.serverOrder == 0 && AnyLiveOrder(p.ownerMagic, p.symbol)) return false;
@@ -303,24 +501,35 @@ private:
    bool Journal_DealMatches(const PendingRequest &p, const MqlTradeTransaction &trans) const
    {
       if(trans.type != TRADE_TRANSACTION_DEAL_ADD || trans.deal == 0) return false;
-      if(p.serverDeal != 0 && p.serverDeal == trans.deal) return true;
       if(p.action == INTENT_CLOSE_TICKET)
          return trans.position == p.ticket;
       if(p.action != INTENT_OPEN_BUY && p.action != INTENT_OPEN_SELL) return false;
-      if(!HistoryDealSelect(trans.deal)) return false;
-      if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) != p.symbol ||
-         !Exec_OwnerMatches(HistoryDealGetInteger(trans.deal, DEAL_MAGIC), p.ownerMagic))
-         return false;
-      long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
-      if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) return false;
-      long type = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
-      return (p.action == INTENT_OPEN_BUY  && type == DEAL_TYPE_BUY) ||
-             (p.action == INTENT_OPEN_SELL && type == DEAL_TYPE_SELL);
+      if(!Journal_OpenDealFieldsMatch(p, trans.deal)) return false;
+
+      if(p.serverDeal != 0) return trans.deal == p.serverDeal || p.serverOrder != 0;
+      if(p.serverOrder != 0)
+         return (ulong)HistoryDealGetInteger(trans.deal, DEAL_ORDER) == p.serverOrder;
+
+      // Strict Recovery never correlates an OPEN by aggregate owner/direction
+      // alone. Before broker IDs arrive, historical reconciliation will pick up
+      // the exact server deal/order from the REQUEST result.
+      return p.commandType == EXEC_CMD_LEGACY;
    }
 
    void Journal_TryCompleteAt(const int i)
    {
       if(i < 0 || i >= ArraySize(m_journal) || !m_journal[i].active) return;
+
+      // T14 fast terminal path: broker-confirmed OPEN identity is sufficient
+      // even when beforeCount == afterCount because another Recovery position
+      // closed in the same event window.
+      if(Journal_OpenIdentityResolved(m_journal[i]))
+      {
+         Exec_T14RecordProof(m_journal[i]);
+         Journal_CompleteAt(i);
+         return;
+      }
+
       bool stateResolved = Journal_StateResolved(m_journal[i]);
       ePendingEvidence evidence = PENDING_EVIDENCE_NONE;
       if(m_journal[i].phase == PENDING_REQUEST_ACCEPTED) evidence = PENDING_EVIDENCE_REQUEST;
@@ -328,7 +537,12 @@ private:
       if(m_journal[i].orderDeleted)                      evidence = PENDING_EVIDENCE_ORDER_DELETE;
       if(stateResolved)                                  evidence = PENDING_EVIDENCE_RESULT_STATE;
       if(Exec_PendingReady(evidence))
+      {
+         if(m_journal[i].commandType == EXEC_CMD_RECOVERY_MODIFY &&
+            m_journal[i].serverFinal && m_journal[i].requestRetcode == TRADE_RETCODE_DONE)
+            Exec_T14RecordProof(m_journal[i]);
          Journal_CompleteAt(i);
+      }
    }
 
    void Journal_ReconcileAll()
@@ -346,7 +560,36 @@ private:
       if(res.deal  != 0) m_journal[i].serverDeal  = res.deal;
       m_journal[i].serverFinal =
          (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_DONE_PARTIAL);
-      if(res.volume > 0) m_journal[i].targetVolume = res.volume;
+
+      // Keep requested targetVolume immutable. In tester sync fallback the
+      // DEAL_ADD can occur before the Recovery journal exists, so the sync
+      // result's exact deal/volume becomes observed execution evidence here.
+      if(res.volume > 0.0 && res.deal != 0)
+      {
+         if(res.volume > m_journal[i].observedVolume)
+            m_journal[i].observedVolume = res.volume;
+         m_journal[i].lastObservedDeal = res.deal;
+      }
+   }
+
+   string Journal_DiagnosticAt(const int i) const
+   {
+      if(i < 0 || i >= ArraySize(m_journal) || !m_journal[i].active) return "";
+      int age = (int)(TimeCurrent() - m_journal[i].sentAt);
+      if(age < 0) age = 0;
+      return "requestId=" + (string)m_journal[i].requestId +
+             " intent=" + Exec_IntentName(m_journal[i].action) +
+             " commandType=" + Exec_CommandName(m_journal[i].commandType) +
+             " ownerMagic=" + (string)m_journal[i].ownerMagic +
+             " cycleKey=" + (string)m_journal[i].cycleKey +
+             " retcode=" + (string)m_journal[i].requestRetcode +
+             " serverOrder=" + (string)m_journal[i].serverOrder +
+             " serverDeal=" + (string)m_journal[i].serverDeal +
+             " observedVolume=" + DoubleToString(m_journal[i].observedVolume, 8) +
+             " targetVolume=" + DoubleToString(m_journal[i].targetVolume, 8) +
+             " positionCountBefore=" + (string)m_journal[i].positionCountBefore +
+             " reconcileRequired=" + (m_journal[i].reconcileRequired ? "true" : "false") +
+             " ageSec=" + (string)age;
    }
 
    bool Send(MqlTradeRequest &req, MqlTradeResult &res, const eIntent action,
@@ -420,6 +663,7 @@ public:
    {
       DetectFilling();
       ArrayResize(m_journal, 0);
+      Exec_T14ClearProofs();
       m_asyncAllowed = !MQLInfoInteger(MQL_TESTER);
       m_busyOpenBuy  = false;
       m_busyOpenSell = false;
@@ -478,6 +722,18 @@ public:
       for(int i = ArraySize(m_journal) - 1; i >= 0; i--)
          if(m_journal[i].active && m_journal[i].cycleKey == cycleKey)
             Journal_TryCompleteAt(i);
+   }
+
+   void ReconcileAll()
+   {
+      Journal_ReconcileAll();
+   }
+
+   string PendingDiagnostic() const
+   {
+      for(int i = 0; i < ArraySize(m_journal); i++)
+         if(m_journal[i].active) return Journal_DiagnosticAt(i);
+      return "";
    }
 
    //--- Legacy market-open API: semantics retained -------------------------
@@ -720,7 +976,14 @@ public:
       for(int i = ArraySize(m_journal) - 1; i >= 0; i--)
          if(m_journal[i].active && TimeCurrent() - m_journal[i].sentAt > BD_ASYNC_TIMEOUT_SEC)
          {
-            if(m_journal[i].reconcileRequired) continue; // already surfaced once
+            if(m_journal[i].reconcileRequired)
+            {
+               // A later broker-history identity proof is allowed to clear an
+               // earlier strict timeout latch; unknown outcomes stay blocked.
+               Journal_TryCompleteAt(i);
+               if(m_journal[i].active) continue;
+               else continue;
+            }
 
             int elapsed = (int)(TimeCurrent() - m_journal[i].sentAt);
             int hardTimeout = Exec_HardTimeoutSec(m_journal[i].action);
@@ -758,7 +1021,7 @@ public:
                m_journal[i].retries++;
                Log_Warn("Exec", "wdogstrict", "strict request " + (string)m_journal[i].requestId +
                         " unresolved after " + (string)hardTimeout +
-                        "s — FAIL-CLOSED, reconciliation required");
+                        "s — FAIL-CLOSED, reconciliation required; " + Journal_DiagnosticAt(i));
                continue;
             }
 
@@ -779,10 +1042,18 @@ public:
       }
    }
 
-   bool HasPending() const
+   bool HasPending()
    {
-      for(int i = ArraySize(m_journal) - 1; i >= 0; i--)
-         if(m_journal[i].active) return true;
+      // T14 global-flat reconciliation pass. This never clears blindly: each
+      // entry is re-evaluated through the same identity/state terminal policy.
+      Journal_ReconcileAll();
+      for(int i = 0; i < ArraySize(m_journal); i++)
+         if(m_journal[i].active)
+         {
+            if(PositionsTotal() == 0)
+               Log_Warn("Exec", "flatpending", "flat-account journal blocker: " + Journal_DiagnosticAt(i));
+            return true;
+         }
       return false;
    }
 };
