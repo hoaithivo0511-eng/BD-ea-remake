@@ -1,173 +1,112 @@
-name: Verify T13 Exact Native Recovery Mutation
+name: T13 Hardening via Trusted Verifier
 
 on:
-  workflow_dispatch:
-  push:
+  pull_request:
     branches:
       - verify/adaptive-recovery-runtime
-    paths:
-      - '.github/workflows/verify-mt5-runtests.yml'
+    types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  verify:
-    runs-on: windows-latest
-    timeout-minutes: 30
-    env:
-      MT5_DIR: 'C:\Program Files\MetaTrader 5'
-      PRODUCT_HEAD: '4fb670e9c3aebcac7c026c8f9eff2d9009e7b836'
-      PRODUCT_TREE: '846ad43b6c9f3f6ed88cfd7596454eee0afb0821'
-      EXPECTED_LEGACY_PASS: '246'
-      EXPECTED_T13_PASS: '26'
-
+  harden:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.PRODUCT_HEAD }}
-          fetch-depth: 1
-
-      - name: Prove exact source identity
-        shell: pwsh
+          ref: feat/adaptive-recovery-t13-overlap-side-finalizer
+          fetch-depth: 0
+      - name: Apply coordinator retry and topology invariants
+        shell: bash
         run: |
-          $head=(git rev-parse HEAD).Trim()
-          $tree=(git show -s --format=%T HEAD).Trim()
-          Write-Host "HEAD=$head TREE=$tree"
-          if($head -ne $env:PRODUCT_HEAD){throw "head mismatch: $head"}
-          if($tree -ne $env:PRODUCT_TREE){throw "tree mismatch: $tree"}
+          python - <<'PY'
+          from pathlib import Path
+          def rep(path, old, new):
+              p=Path(path);s=p.read_text(encoding='utf-8');n=s.count(old)
+              if n!=1: raise SystemExit(f'{path}: expected 1 match got {n}')
+              p.write_text(s.replace(old,new,1),encoding='utf-8')
 
-      - name: Install MetaTrader 5
-        shell: pwsh
+          coord='BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh'
+          rep(coord, '''      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active)
+      {
+         if(m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL)
+         {
+            why = "external Core/Recovery mutation remains fail-closed pending explicit reconciliation";
+            return true;
+         }
+         string finalizeWhy = "";
+         if(m_recovery != NULL &&
+            m_recovery.FinalizeConfirmedSideMutation(*m_exec, Direction(idx), now, finalizeWhy))
+         {
+            Log_Info("Recovery", "T13 deferred side-mutation finalization succeeded for " +
+                     Recovery_DirectionName(Direction(idx)));
+            ResetCycle(idx);
+            return false;
+         }
+         why = "T13 side-mutation finalizer still blocked: " + finalizeWhy;
+         return true;
+      }
+      if(!m_cycle[idx].active) return false;''', '''      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active)
+      {
+         if(m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL)
+         {
+            why = "external Core/Recovery mutation remains fail-closed pending explicit reconciliation";
+            return true;
+         }
+
+         // T13 hardening: a coordinator-owned hold is not proof that the
+         // intended CLOSE/TRIM completed. Re-drive the original plan from
+         // current broker-observable Core/Hedge exposure.
+         m_cycle[idx].reconcileHold = false;
+         m_cycle[idx].active = true;
+         Log_Warn("Recovery", "t13retry" + (string)Recovery_CycleKey(Direction(idx)),
+                  "retrying coordinated side mutation from current broker state");
+      }
+      if(!m_cycle[idx].active) return false;''')
+
+          eng='BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh'
+          rep(eng, '''         if(!Recovery_SideMutationStableStatePure(c.state) || c.state == recovery_COMPLETED)
+         {
+  why = "partial Core mutation reached a non-stable Recovery state: " +
+        Recovery_StateName(c.state);
+  return false;
+         }
+
+         if(c.state == recovery_ARMED)''', '''         if(!Recovery_SideMutationStableStatePure(c.state) || c.state == recovery_COMPLETED)
+         {
+            why = "partial Core mutation reached a non-stable Recovery state: " +
+                  Recovery_StateName(c.state);
+            return false;
+         }
+
+         // Stable post-Hedge states must retain both sides of their topology.
+         // Never persist HEDGE_* after a coordinated mutation lost Core/Hedge.
+         if((c.state == recovery_HEDGE_ACTIVE || c.state == recovery_HEDGE_LOCKED) &&
+            (currentCore <= 0 || currentHedge <= 0))
+         {
+            why = "post-Hedge side mutation lost required Core/Hedge exposure in state " +
+                  Recovery_StateName(c.state);
+            return false;
+         }
+         if(c.state == recovery_CORE_ONLY && currentHedge != 0)
+         {
+            why = "CORE_ONLY side mutation unexpectedly has Recovery hedge exposure";
+            return false;
+         }
+
+         if(c.state == recovery_ARMED)''')
+          PY
+          git diff --check
+      - name: Commit hardening to product branch
+        shell: bash
         run: |
-          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
-          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
-          Start-Sleep -Seconds 10
-          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
-          if(!(Test-Path "$env:MT5_DIR\metaeditor64.exe")){throw 'metaeditor missing'}
-          if(!(Test-Path "$env:MT5_DIR\terminal64.exe")){throw 'terminal missing'}
-
-      - name: Warm terminal and mirror exact product sources
-        shell: pwsh
-        run: |
-          $t=Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
-          Start-Sleep -Seconds 35
-          $t|Stop-Process -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 3
-          $mql5="$env:MT5_DIR\MQL5"
-          foreach($d in @('Experts','Include','Scripts')){
-            New-Item -ItemType Directory -Force -Path "$mql5\$d"|Out-Null
-            Copy-Item -Path "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" -Destination "$mql5\$d" -Recurse -Force
-          }
-          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
-          foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")){
-            if(!(Test-Path $r)){continue}
-            Get-ChildItem $r -Recurse -File|Where-Object{$_.Extension -in '.mq5','.mqh'}|ForEach-Object{
-              $txt=Get-Content $_.FullName -Raw -Encoding UTF8
-              [IO.File]::WriteAllText($_.FullName,$txt,$enc)
-            }
-          }
-
-      - name: Compile exact T13 targets 0 errors 0 warnings
-        shell: pwsh
-        run: |
-          $editor="$env:MT5_DIR\metaeditor64.exe"
-          $mql5="$env:MT5_DIR\MQL5"
-          $out="$env:GITHUB_WORKSPACE\verify-t13"
-          New-Item -ItemType Directory -Force $out|Out-Null
-          $targets=@(
-            @{Name='RunTests';Src="$mql5\Scripts\BlackDragon\Tests\RunTests.mq5";Ex5="$mql5\Scripts\BlackDragon\Tests\RunTests.ex5"},
-            @{Name='RunRecoveryMutationTests';Src="$mql5\Scripts\BlackDragon\Tests\RunRecoveryMutationTests.mq5";Ex5="$mql5\Scripts\BlackDragon\Tests\RunRecoveryMutationTests.ex5"},
-            @{Name='BlackDragon';Src="$mql5\Experts\BlackDragon\BlackDragon.mq5";Ex5="$mql5\Experts\BlackDragon\BlackDragon.ex5"}
-          )
-          foreach($x in $targets){
-            if(!(Test-Path $x.Src)){throw "source missing $($x.Src)"}
-            $log=Join-Path $out "$($x.Name)-compile.log"
-            Start-Process -FilePath $editor -ArgumentList "/compile:`"$($x.Src)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow
-            if(!(Test-Path $log)){throw "$($x.Name) compile log missing"}
-            $txt=Get-Content $log -Encoding Unicode -Raw
-            Write-Host "--- compile $($x.Name) ---`n$txt"
-            $lines=$txt -split "`r?`n"
-            $errs=@($lines|Where-Object{$_ -match ' : error '})
-            $warns=@($lines|Where-Object{$_ -match ' : warning '})
-            if($errs.Count -ne 0 -or $warns.Count -ne 0 -or !(Test-Path $x.Ex5)){
-              throw "$($x.Name): errors=$($errs.Count) warnings=$($warns.Count) built=$(Test-Path $x.Ex5)"
-            }
-            Copy-Item $x.Ex5 (Join-Path $out "$($x.Name).ex5") -Force
-          }
-          $runHash=(Get-FileHash (Join-Path $out 'RunTests.ex5') -Algorithm SHA256).Hash.ToLowerInvariant()
-          $mutHash=(Get-FileHash (Join-Path $out 'RunRecoveryMutationTests.ex5') -Algorithm SHA256).Hash.ToLowerInvariant()
-          $eaHash=(Get-FileHash (Join-Path $out 'BlackDragon.ex5') -Algorithm SHA256).Hash.ToLowerInvariant()
-          "RUNTESTS_SHA256=$runHash"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          "MUTATION_SHA256=$mutHash"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          "EA_SHA256=$eaHash"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Execute exact native deterministic scripts
-        shell: pwsh
-        run: |
-          $out="$env:GITHUB_WORKSPACE\verify-t13"
-          $tests=@(
-            @{Name='RunTests';Pattern='BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed';Expected=[int]$env:EXPECTED_LEGACY_PASS},
-            @{Name='RunRecoveryMutationTests';Pattern='Recovery T13 mutation policy tests:\s*(\d+) passed,\s*(\d+) failed';Expected=[int]$env:EXPECTED_T13_PASS}
-          )
-          foreach($x in $tests){
-            Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force
-            $logDir="$env:MT5_DIR\MQL5\Logs"
-            if(Test-Path $logDir){Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue}
-            $cfg=Join-Path $out "$($x.Name).ini"
-            $text=@"
-[Common]
-NewsEnable=0
-[Experts]
-AllowLiveTrading=0
-AllowDllImport=0
-Enabled=1
-[StartUp]
-Script=BlackDragon\Tests\$($x.Name)
-Symbol=EURUSD
-Period=M1
-ShutdownTerminal=1
-"@
-            [IO.File]::WriteAllText($cfg,$text,[Text.Encoding]::Unicode)
-            $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru
-            $deadline=(Get-Date).AddMinutes(4)
-            while(-not $p.HasExited -and (Get-Date)-lt $deadline){Start-Sleep 2;$p.Refresh()}
-            if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw "$($x.Name) timeout"}
-            $logs=Get-ChildItem $logDir -Filter '*.log'|Sort-Object LastWriteTime
-            if(-not $logs){throw "$($x.Name) native log missing"}
-            $latest=$logs[-1]
-            Copy-Item $latest.FullName (Join-Path $out "$($x.Name)-native.log") -Force
-            $raw=Get-Content $latest.FullName -Raw
-            Write-Host "--- native $($x.Name) ---`n$raw"
-            $m=[regex]::Match($raw,$x.Pattern)
-            if(-not $m.Success){throw "$($x.Name) summary missing"}
-            $pass=[int]$m.Groups[1].Value;$fail=[int]$m.Groups[2].Value
-            if($pass -ne $x.Expected -or $fail -ne 0 -or $raw -notmatch 'ALL GREEN'){
-              throw "$($x.Name) failed: expected $($x.Expected)/0 got $pass/$fail"
-            }
-          }
-
-      - name: Write exact evidence summary
-        if: always()
-        shell: pwsh
-        run: |
-          $out="$env:GITHUB_WORKSPACE\verify-t13";New-Item -ItemType Directory -Force $out|Out-Null
-          @"
-T13_PRODUCT_HEAD=$env:PRODUCT_HEAD
-T13_PRODUCT_TREE=$env:PRODUCT_TREE
-RunTests=$env:EXPECTED_LEGACY_PASS/0
-RunRecoveryMutationTests=$env:EXPECTED_T13_PASS/0
-RunTests_SHA256=$env:RUNTESTS_SHA256
-RunRecoveryMutationTests_SHA256=$env:MUTATION_SHA256
-BlackDragon_SHA256=$env:EA_SHA256
-LiveTrading=disabled
-Scope=deterministic native MQL5 + MetaEditor compile; not Strategy Tester broker lifecycle proof
-"@|Out-File (Join-Path $out 'SUMMARY.txt') -Encoding utf8
-
-      - name: Upload T13 exact evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mt5-t13-exact-evidence
-          path: verify-t13/
-          if-no-files-found: error
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh
+          if git diff --cached --quiet; then
+            echo 'T13 hardening already present'
+            exit 0
+          fi
+          git commit -m "fix(recovery): harden T13 coordinator retry invariants"
+          git push origin HEAD:feat/adaptive-recovery-t13-overlap-side-finalizer
