@@ -14,8 +14,8 @@ jobs:
     timeout-minutes: 30
     env:
       MT5_DIR: 'C:\Program Files\MetaTrader 5'
-      PRODUCT_HEAD: '4fb670e9c3aebcac7c026c8f9eff2d9009e7b836'
-      PRODUCT_TREE: '846ad43b6c9f3f6ed88cfd7596454eee0afb0821'
+      PRODUCT_HEAD: 'd37609f77eaf6f7a254429b82f9e4dd20d83657f'
+      PRODUCT_TREE: '1b7d154c531aa13ca920b04c0a0f9b4a22943d4f'
       EXPECTED_LEGACY_PASS: '246'
       EXPECTED_T13_PASS: '26'
     steps:
