@@ -785,49 +785,10 @@ public:
             return true;
          }
 
-         // A durable command from the pre-empted Recovery mutation chain is
-         // stale only after flat + no-pending has been proven. Clear it here;
-         // never earlier, otherwise a late broker fill could become unowned.
-         for(int i = 0; i < 2; i++)
+         string finalizeWhy = "";
+         if(!m_recovery.FinalizeConfirmedGlobalFlatten(*m_exec, now, finalizeWhy))
          {
-            eRecoveryCoreDirection dir = Direction(i);
-            if(m_recovery.HasDurableCommand(dir) &&
-               !m_recovery.CancelDurableCommand(dir))
-            {
-               why = "confirmed global flatten could not clear stale durable Recovery command";
-               return true;
-            }
-         }
-
-         // Phase 1: request a terminal registry observation. Recovery OnTick
-         // runs before Strategy/Drive, so keep this coordinator latched for one
-         // more tick while BUY and SELL move to COMPLETED and reset mechanics.
-         if(!Recovery_GlobalFlattenFinalizationRequested())
-         {
-            Recovery_RequestGlobalFlattenFinalization(now);
-            Log_Info("Recovery",
-                     "GLOBAL FLATTEN broker state confirmed — waiting for BUY/SELL Recovery cycles to reach COMPLETED");
-            return true;
-         }
-
-         SRecoveryCycle buyCycle, sellCycle;
-         m_recovery.GetCycle(recovery_CORE_BUY, buyCycle);
-         m_recovery.GetCycle(recovery_CORE_SELL, sellCycle);
-         if(buyCycle.state != recovery_COMPLETED || sellCycle.state != recovery_COMPLETED)
-         {
-            why = "global flatten confirmed; waiting for Recovery cycle finalization observation";
-            return true;
-         }
-
-         // Phase 2: release normal trading only after COMPLETED is durable.
-         if(!m_recovery.FlushPersistence())
-         {
-            why = "global flatten Recovery completion could not be persisted";
-            return true;
-         }
-         if(!m_recovery.ActiveReady())
-         {
-            why = "global flatten persisted but Recovery ACTIVE is not ready";
+            why = "T12 global flatten finalizer blocked: " + finalizeWhy;
             return true;
          }
 
@@ -837,7 +798,7 @@ public:
          ResetCycle(0);
          ResetCycle(1);
          Log_Info("Recovery",
-                  "GLOBAL FLATTEN complete — Recovery cycles COMPLETED and persisted; new Core series enabled");
+                  "GLOBAL FLATTEN complete — atomic Recovery state persisted; ACTIVE re-armed; new Core series enabled");
          return false;
       }
 

@@ -2145,6 +2145,151 @@ public:
    }
 
 
+   //--- T12 atomic global MoneyGuard flatten boundary ----------------
+   // Called ONLY after the exit coordinator proves the whole account is
+   // flat and the execution journal is quiet. This path deliberately does
+   // not require m_activeReady: a confirmed global flatten is precisely
+   // the recovery boundary that must be able to clear a prior runtime
+   // reconcile latch without deadlocking normal OnTick.
+   bool FinalizeConfirmedGlobalFlatten(CExecutionLayer &exec,
+                                       const datetime now,
+                                       string &why)
+   {
+      why = "";
+      if(m_cfg.mode != recovery_ACTIVE) return true;
+      if(!m_initialized)
+      {
+         why = "RecoveryEngine is not initialized";
+         return false;
+      }
+
+      const int buyKey = Recovery_CycleKey(recovery_CORE_BUY);
+      const int sellKey = Recovery_CycleKey(recovery_CORE_SELL);
+      exec.ReconcileCycle(buyKey);
+      exec.ReconcileCycle(sellKey);
+
+      bool buyReconcile = exec.HasReconcileRequired(buyKey);
+      bool sellReconcile = exec.HasReconcileRequired(sellKey);
+      if(!Recovery_GlobalFlattenCanFinalizePure(PositionsTotal(),
+                                                exec.HasPending(),
+                                                m_persistenceBlocked,
+                                                buyReconcile,
+                                                sellReconcile))
+      {
+         if(PositionsTotal() != 0)
+            why = "global flatten finalizer requires zero live account positions";
+         else if(exec.HasPending())
+            why = "global flatten finalizer requires a quiet execution journal";
+         else if(m_persistenceBlocked)
+            why = "Recovery persistence is blocked by startup integrity/identity failure";
+         else if(buyReconcile || sellReconcile)
+            why = "Recovery execution journal still requires strict reconciliation";
+         else
+            why = "global flatten finalizer preconditions are not proven";
+         return false;
+      }
+
+      for(int i = 0; i < 2; i++)
+      {
+         eRecoveryCoreDirection dir = i == 0 ? recovery_CORE_BUY : recovery_CORE_SELL;
+         SRecoveryCycle c;
+         m_registry.GetCycle(dir, c);
+         bool alreadyCompleted = c.state == recovery_COMPLETED;
+
+         if(!alreadyCompleted)
+         {
+            if(!Recovery_StateTransitionAllowed(c.state, recovery_COMPLETED) ||
+               !m_registry.Transition(dir, recovery_COMPLETED, now,
+                                     "confirmed account-wide MoneyGuard flatten"))
+            {
+               why = "Recovery registry rejected global flatten completion for " +
+                     Recovery_DirectionName(dir);
+               m_activeReady = false;
+               return false;
+            }
+            m_registry.GetCycle(dir, c);
+         }
+
+         c.cycleSerial = Recovery_GlobalFlattenNextSerialPure(c.cycleSerial,
+                                                              alreadyCompleted);
+         c.state                    = recovery_COMPLETED;
+         c.armed                    = false;
+         c.coreCount                = 0;
+         c.coreLots                 = 0.0;
+         c.coreNetBE                = 0.0;
+         c.activeHedgeLots          = 0.0;
+         c.hedgeNetBE               = 0.0;
+         c.coveragePercent          = 0.0;
+         c.corridorPrice            = 0.0;
+         c.armedDcaCount            = 0;
+         c.anchorDeal               = 0;
+         c.anchorPosition           = 0;
+         c.anchorPrice              = 0.0;
+         c.anchorTicks              = 0;
+         c.anchorTime               = 0;
+         c.hedgeGeneration          = 0;
+         c.bundleId                 = 0;
+         c.bundleTargetUnits        = 0;
+         c.bundleBaselineActiveUnits= 0;
+         c.bundleConfirmedUnits     = 0;
+         c.bundleSubmittedChildren  = 0;
+         c.bundleChildInFlight      = false;
+         c.bundlePartialCoverage    = false;
+         c.bundleBlockedAfterReject = false;
+         c.bundleReconcileRequired  = false;
+         c.bundleComplete           = false;
+         c.bundleCoveragePercent    = 0.0;
+         c.shadowDecision           = recovery_SHADOW_NONE;
+         c.shadowDecisionLatched    = false;
+         c.shadowTargetUnits        = 0;
+         c.shadowTriggerPrice       = 0.0;
+         c.shadowDecisionAt         = 0;
+         c.shadowPlannedChildren    = 0;
+         c.shadowPlanValid          = false;
+         c.anchorEvidenceWaitLogged = false;
+
+         if(!m_registry.RestoreCycle(dir, c))
+         {
+            why = "Recovery registry rejected sanitized COMPLETED cycle for " +
+                  Recovery_DirectionName(dir);
+            m_activeReady = false;
+            return false;
+         }
+
+         // Reset all per-cycle mutation/accounting state in memory before
+         // writing the terminal snapshot. No per-command intermediate save:
+         // this is one atomic logical boundary.
+         Recovery_PendingInit(m_pending[i]);
+         Recovery_T5RuntimeInit(m_t5[i]);
+         ResetT6Cycle(i);
+         m_t5CycleSerial[i] = c.cycleSerial;
+      }
+
+      // Closing deals owned by Core/Recovery are normally cursor-tracked by
+      // OnTradeTransaction; reseed once at this boundary so persistence can
+      // never replay a pre-flatten close after a later restart.
+      SeedLatestRelevantCursor();
+      Recovery_ClearGlobalFlattenFinalization(); // clear obsolete T11 latch
+
+      m_activeReady = true;
+      m_dirty = true;
+      string saveWhy = "";
+      if(!SaveState(saveWhy))
+      {
+         m_activeReady = false;
+         why = "atomic global flatten state could not be persisted: " + saveWhy;
+         return false;
+      }
+
+      m_persistLoaded = true;
+      m_persistMissing = false;
+      m_startupFaultReason = "";
+      Log_Info("Recovery",
+               "T12 GLOBAL FLATTEN finalized atomically — BUY/SELL COMPLETED, runtime reset, persistence durable, ACTIVE re-armed");
+      return true;
+   }
+
+
 
    bool StartupReconcile(CExecutionLayer &exec, string &why)
    {
