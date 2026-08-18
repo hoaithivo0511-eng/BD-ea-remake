@@ -1,0 +1,91 @@
+name: Verify T13 PR Exact Gate
+
+on:
+  pull_request:
+    branches:
+      - verify/adaptive-recovery-runtime
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+      PRODUCT_HEAD: '4fb670e9c3aebcac7c026c8f9eff2d9009e7b836'
+      PRODUCT_TREE: '846ad43b6c9f3f6ed88cfd7596454eee0afb0821'
+      EXPECTED_LEGACY_PASS: '246'
+      EXPECTED_T13_PASS: '26'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PRODUCT_HEAD }}
+          fetch-depth: 1
+
+      - name: Exact source gate
+        shell: pwsh
+        run: |
+          $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim()
+          Write-Host "PRODUCT_HEAD=$head PRODUCT_TREE=$tree"
+          if($head -ne $env:PRODUCT_HEAD -or $tree -ne $env:PRODUCT_TREE){throw 'exact source identity mismatch'}
+
+      - name: Install and stage MT5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile mt5setup.exe -UseBasicParsing
+          Start-Process .\mt5setup.exe -ArgumentList '/auto' -Wait
+          Start-Sleep 10
+          Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force
+          if(!(Test-Path "$env:MT5_DIR\metaeditor64.exe")){throw 'metaeditor missing'}
+          $t=Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru;Start-Sleep 35;$t|Stop-Process -Force -ErrorAction SilentlyContinue;Start-Sleep 3
+          $mql5="$env:MT5_DIR\MQL5"
+          foreach($d in @('Experts','Include','Scripts')){New-Item -ItemType Directory -Force "$mql5\$d"|Out-Null;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force}
+          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")){
+            Get-ChildItem $r -Recurse -File|Where-Object{$_.Extension -in '.mq5','.mqh'}|ForEach-Object{$txt=Get-Content $_.FullName -Raw -Encoding UTF8;[IO.File]::WriteAllText($_.FullName,$txt,$enc)}
+          }
+
+      - name: Compile 3 exact targets
+        shell: pwsh
+        run: |
+          $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$out="$env:GITHUB_WORKSPACE\t13";New-Item -ItemType Directory -Force $out|Out-Null
+          $targets=@(
+            @{N='RunTests';S="$mql5\Scripts\BlackDragon\Tests\RunTests.mq5";E="$mql5\Scripts\BlackDragon\Tests\RunTests.ex5"},
+            @{N='RunRecoveryMutationTests';S="$mql5\Scripts\BlackDragon\Tests\RunRecoveryMutationTests.mq5";E="$mql5\Scripts\BlackDragon\Tests\RunRecoveryMutationTests.ex5"},
+            @{N='BlackDragon';S="$mql5\Experts\BlackDragon\BlackDragon.mq5";E="$mql5\Experts\BlackDragon\BlackDragon.ex5"})
+          foreach($x in $targets){
+            $log=Join-Path $out "$($x.N)-compile.log";Start-Process $editor -ArgumentList "/compile:`"$($x.S)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow
+            if(!(Test-Path $log)){throw "$($x.N) log missing"};$txt=Get-Content $log -Encoding Unicode -Raw;Write-Host $txt
+            $err=@(($txt -split "`r?`n")|Where-Object{$_ -match ' : error '});$warn=@(($txt -split "`r?`n")|Where-Object{$_ -match ' : warning '})
+            if($err.Count -ne 0 -or $warn.Count -ne 0 -or !(Test-Path $x.E)){throw "$($x.N) compile failed errors=$($err.Count) warnings=$($warn.Count)"}
+            Copy-Item $x.E (Join-Path $out "$($x.N).ex5") -Force
+          }
+          "EA_SHA256=$((Get-FileHash (Join-Path $out 'BlackDragon.ex5') -Algorithm SHA256).Hash.ToLowerInvariant())"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RUNTESTS_SHA256=$((Get-FileHash (Join-Path $out 'RunTests.ex5') -Algorithm SHA256).Hash.ToLowerInvariant())"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "MUTATION_SHA256=$((Get-FileHash (Join-Path $out 'RunRecoveryMutationTests.ex5') -Algorithm SHA256).Hash.ToLowerInvariant())"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Native RunTests 246 and T13 policy 26
+        shell: pwsh
+        run: |
+          $out="$env:GITHUB_WORKSPACE\t13"
+          $cases=@(
+            @{N='RunTests';P='BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed';X=246},
+            @{N='RunRecoveryMutationTests';P='Recovery T13 mutation policy tests:\s*(\d+) passed,\s*(\d+) failed';X=26})
+          foreach($c in $cases){
+            Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force;$ld="$env:MT5_DIR\MQL5\Logs";if(Test-Path $ld){Get-ChildItem $ld -Filter '*.log'|Remove-Item -Force -ErrorAction SilentlyContinue}
+            $cfg=Join-Path $out "$($c.N).ini";$txt="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\$($c.N)`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n";[IO.File]::WriteAllText($cfg,$txt,[Text.Encoding]::Unicode)
+            $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru;$dl=(Get-Date).AddMinutes(4);while(-not $p.HasExited -and (Get-Date)-lt $dl){Start-Sleep 2;$p.Refresh()};if(-not $p.HasExited){Stop-Process -Id $p.Id -Force;throw "$($c.N) timeout"}
+            $logs=Get-ChildItem $ld -Filter '*.log'|Sort-Object LastWriteTime;if(-not $logs){throw "$($c.N) no log"};$raw=Get-Content $logs[-1].FullName -Raw;Copy-Item $logs[-1].FullName (Join-Path $out "$($c.N)-native.log") -Force;Write-Host $raw
+            $m=[regex]::Match($raw,$c.P);if(-not $m.Success){throw "$($c.N) summary missing"};$pass=[int]$m.Groups[1].Value;$fail=[int]$m.Groups[2].Value;if($pass -ne $c.X -or $fail -ne 0 -or $raw -notmatch 'ALL GREEN'){throw "$($c.N) expected $($c.X)/0 got $pass/$fail"}
+          }
+          "PRODUCT_HEAD=$env:PRODUCT_HEAD`nPRODUCT_TREE=$env:PRODUCT_TREE`nRunTests=246/0`nT13Policy=26/0`nBlackDragon_SHA256=$env:EA_SHA256`nRunTests_SHA256=$env:RUNTESTS_SHA256`nMutation_SHA256=$env:MUTATION_SHA256`nLiveTrading=disabled"|Out-File (Join-Path $out SUMMARY.txt)
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-t13-pr-exact
+          path: t13/
+          if-no-files-found: warn
