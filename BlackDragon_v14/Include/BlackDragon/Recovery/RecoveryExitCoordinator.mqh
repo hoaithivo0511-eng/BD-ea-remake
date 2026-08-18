@@ -9,6 +9,7 @@
 #define BD_RECOVERY_EXIT_COORDINATOR_MQH
 
 #include "RecoveryEngine.mqh"
+#include "RecoveryGlobalFlatten.mqh"
 #include <BlackDragon/BasketManager.mqh>
 
 enum eRecoveryExitCoordKind
@@ -668,6 +669,7 @@ public:
       m_exec = exec;
       m_accountWidePending = false;
       m_accountWideStartedAt = 0;
+      Recovery_ClearGlobalFlattenFinalization();
       ResetCycle(0);
       ResetCycle(1);
    }
@@ -752,6 +754,7 @@ public:
       if(RecoveryMode_ != recovery_ACTIVE || m_exec == NULL) return;
       m_accountWidePending = true;
       m_accountWideStartedAt = now;
+      Recovery_ClearGlobalFlattenFinalization();
       // Account/global emergency preempts both narrower cycle coordinators.
       ResetCycle(0);
       ResetCycle(1);
@@ -765,6 +768,9 @@ public:
 
       if(m_accountWidePending)
       {
+         // Do not duplicate an in-flight close. A pre-existing OPEN/MODIFY can
+         // also resolve after the account is momentarily flat, so the global
+         // latch is not released until the ENTIRE execution journal is quiet.
          if(m_exec.HasAnyPendingClose()) return true;
          if(PositionsTotal() > 0)
          {
@@ -773,10 +779,65 @@ public:
                why = "account-wide close still has positions but no close request was accepted";
             return true;
          }
+         if(!Recovery_GlobalFlattenReadyPure(PositionsTotal(), m_exec.HasPending()))
+         {
+            why = "account-wide close is flat but execution journal still has unresolved request(s)";
+            return true;
+         }
+
+         // A durable command from the pre-empted Recovery mutation chain is
+         // stale only after flat + no-pending has been proven. Clear it here;
+         // never earlier, otherwise a late broker fill could become unowned.
+         for(int i = 0; i < 2; i++)
+         {
+            eRecoveryCoreDirection dir = Direction(i);
+            if(m_recovery.HasDurableCommand(dir) &&
+               !m_recovery.CancelDurableCommand(dir))
+            {
+               why = "confirmed global flatten could not clear stale durable Recovery command";
+               return true;
+            }
+         }
+
+         // Phase 1: request a terminal registry observation. Recovery OnTick
+         // runs before Strategy/Drive, so keep this coordinator latched for one
+         // more tick while BUY and SELL move to COMPLETED and reset mechanics.
+         if(!Recovery_GlobalFlattenFinalizationRequested())
+         {
+            Recovery_RequestGlobalFlattenFinalization(now);
+            Log_Info("Recovery",
+                     "GLOBAL FLATTEN broker state confirmed — waiting for BUY/SELL Recovery cycles to reach COMPLETED");
+            return true;
+         }
+
+         SRecoveryCycle buyCycle, sellCycle;
+         m_recovery.GetCycle(recovery_CORE_BUY, buyCycle);
+         m_recovery.GetCycle(recovery_CORE_SELL, sellCycle);
+         if(buyCycle.state != recovery_COMPLETED || sellCycle.state != recovery_COMPLETED)
+         {
+            why = "global flatten confirmed; waiting for Recovery cycle finalization observation";
+            return true;
+         }
+
+         // Phase 2: release normal trading only after COMPLETED is durable.
+         if(!m_recovery.FlushPersistence())
+         {
+            why = "global flatten Recovery completion could not be persisted";
+            return true;
+         }
+         if(!m_recovery.ActiveReady())
+         {
+            why = "global flatten persisted but Recovery ACTIVE is not ready";
+            return true;
+         }
+
+         Recovery_ClearGlobalFlattenFinalization();
          m_accountWidePending = false;
          m_accountWideStartedAt = 0;
          ResetCycle(0);
          ResetCycle(1);
+         Log_Info("Recovery",
+                  "GLOBAL FLATTEN complete — Recovery cycles COMPLETED and persisted; new Core series enabled");
          return false;
       }
 
