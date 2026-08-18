@@ -1,4 +1,4 @@
-name: Verify T10 Native RunTests
+name: Verify T11 Native RunTests
 
 on:
   workflow_dispatch:
@@ -16,22 +16,23 @@ jobs:
     timeout-minutes: 15
     env:
       MT5_DIR: 'C:\Program Files\MetaTrader 5'
-      PRODUCT_HEAD: '93c708191e5ac486feb40ed91be92d591aec38df'
-      PRODUCT_TREE: '67ec90da8ab413e3a393d43c3a61d9ff656f0f76'
-      RUNTESTS_SHA256: 'd5ca90a557673329c514db07293fddd418cad391e3857b2604a24ee01d70a10d'
+      PRODUCT_HEAD: '771c7b5ed0a572370c5d1380fcabb8584b7239fd'
+      PRODUCT_TREE: '533ec70f669c34ebad3ce47c3b5b4ee9f30560c1'
+      RUNTESTS_SHA256: '3f5a6d064fdcdb99560453cab9780a61601b21a5a9678cdf6b17e4774030bc00'
+      EXPECTED_PASS: '238'
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Download exact T10 build artifact
+      - name: Download exact T11 build artifact
         uses: actions/download-artifact@v4
         with:
-          name: blackdragon-t10-runtime-fix
+          name: mql5-build
           path: product
           github-token: ${{ github.token }}
-          run-id: 32053855810
+          run-id: 32087208793
 
       - name: Verify exact RunTests EX5
         shell: pwsh
@@ -59,7 +60,7 @@ jobs:
       - name: Execute native RunTests
         shell: pwsh
         run: |
-          $out='${{ github.workspace }}\native-t10';New-Item -ItemType Directory -Force $out|Out-Null
+          $out='${{ github.workspace }}\native-t11';New-Item -ItemType Directory -Force $out|Out-Null
           $cfg=Join-Path $out runtests.ini
           $txt=@"
           [Common]
@@ -85,14 +86,17 @@ jobs:
           $raw=Get-Content $latest.FullName -Raw;Write-Host $raw
           $m=[regex]::Match($raw,'BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed')
           if(-not $m.Success){throw 'summary missing'}
-          $pcount=[int]$m.Groups[1].Value;$fcount=[int]$m.Groups[2].Value
+          $pcount=[int]$m.Groups[1].Value;$fcount=[int]$m.Groups[2].Value;$expected=[int]$env:EXPECTED_PASS
           "passed=$pcount failed=$fcount`nPRODUCT_HEAD=$env:PRODUCT_HEAD`nPRODUCT_TREE=$env:PRODUCT_TREE`nRUNTESTS_SHA256=$env:RUNTESTS_SHA256"|Out-File (Join-Path $out SUMMARY.txt)
-          if($fcount -ne 0 -or $pcount -le 0 -or $raw -notmatch 'ALL GREEN'){throw 'native assertions failed'}
+          if($fcount -ne 0 -or $pcount -ne $expected -or $raw -notmatch 'ALL GREEN'){
+            throw "native assertions failed: expected $expected/0, got $pcount/$fcount"
+          }
+          Write-Host "T11 native PASS: $pcount passed / $fcount failed"
 
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mt5-native-runtests-t10-exact
-          path: native-t10/
+          name: mt5-native-runtests-t11-exact
+          path: native-t11/
           if-no-files-found: warn
