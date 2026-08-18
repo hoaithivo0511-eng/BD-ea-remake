@@ -32,6 +32,9 @@ jobs:
           raw = src.split(marker, 1)[1].split('\n          PY', 1)[0]
           lines = raw.splitlines()
           body = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines)
+          old_assert = "assert 'ARMED -> CORE_ONLY' in Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryStateMachine.mqh').read_text(encoding='utf-8')"
+          new_assert = "assert 'toState == recovery_CORE_ONLY' in Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryStateMachine.mqh').read_text(encoding='utf-8')"
+          body = body.replace(old_assert, new_assert)
           exec(compile(body, 't13_embedded_patch.py', 'exec'))
           PY
 
