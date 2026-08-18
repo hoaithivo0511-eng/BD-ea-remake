@@ -71,6 +71,32 @@ struct TradeIntent
    double  tp;
 };
 
+//--- T2 execution ownership/reconciliation metadata ------------------------
+// Legacy commands keep the historical bounded-release watchdog policy.
+// Recovery commands can opt into fail-closed reconciliation without changing
+// the timeout semantics of existing Core trading paths.
+enum eExecCommandType
+{
+   EXEC_CMD_LEGACY = 0,
+   EXEC_CMD_RECOVERY_OPEN,
+   EXEC_CMD_RECOVERY_CLOSE,
+   EXEC_CMD_RECOVERY_MODIFY
+};
+
+enum eExecReconcilePolicy
+{
+   EXEC_RECONCILE_LEGACY_RELEASE = 0,
+   EXEC_RECONCILE_FAIL_CLOSED
+};
+
+struct SExecRequestMeta
+{
+   long                 ownerMagic;
+   int                  cycleKey;       // 0 for legacy/non-cycle commands
+   eExecCommandType     commandType;
+   eExecReconcilePolicy reconcilePolicy;
+};
+
 //--- Async journal lifecycle (BD-002)
 enum ePendingPhase
 {
@@ -86,7 +112,7 @@ enum ePendingEvidence
    PENDING_EVIDENCE_RESULT_STATE
 };
 
-//--- Async journal entry (Nhom B)
+//--- Async journal entry (Nhom B + Recovery T2 metadata)
 struct PendingRequest
 {
    uint     requestId;
@@ -107,6 +133,11 @@ struct PendingRequest
    int      positionCountBefore;
    datetime sentAt;
    int      retries;
+   long     ownerMagic;
+   int      cycleKey;
+   eExecCommandType commandType;
+   eExecReconcilePolicy reconcilePolicy;
+   bool     reconcileRequired;
    bool     serverFinal;
    bool     orderDeleted;
    bool     active;
