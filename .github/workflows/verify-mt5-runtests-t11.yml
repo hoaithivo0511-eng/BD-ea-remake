@@ -1,0 +1,102 @@
+name: Verify T11 Native RunTests
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths: [ '.github/workflows/verify-mt5-runtests-t11.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  runtests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+      PRODUCT_HEAD: '771c7b5ed0a572370c5d1380fcabb8584b7239fd'
+      PRODUCT_TREE: '533ec70f669c34ebad3ce47c3b5b4ee9f30560c1'
+      RUNTESTS_SHA256: '3f5a6d064fdcdb99560453cab9780a61601b21a5a9678cdf6b17e4774030bc00'
+      EXPECTED_PASS: '238'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Download exact T11 build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mql5-build
+          path: product
+          github-token: ${{ github.token }}
+          run-id: 32087208793
+
+      - name: Verify exact RunTests EX5
+        shell: pwsh
+        run: |
+          $script=Get-ChildItem product -Filter RunTests.ex5 -Recurse|Select-Object -First 1
+          if($null -eq $script){throw 'RunTests.ex5 missing'}
+          $h=(Get-FileHash $script.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "RunTests SHA256=$h"
+          if($h -ne $env:RUNTESTS_SHA256){throw "RunTests SHA mismatch: $h"}
+          New-Item -ItemType Directory -Force stage|Out-Null
+          Copy-Item $script.FullName stage\RunTests.ex5 -Force
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile mt5setup.exe -UseBasicParsing
+          Start-Process .\mt5setup.exe -ArgumentList '/auto' -Wait
+          Start-Sleep 10
+          Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force
+          if(!(Test-Path "$env:MT5_DIR\terminal64.exe")){throw 'terminal missing'}
+          $dst="$env:MT5_DIR\MQL5\Scripts\BlackDragon\Tests"
+          New-Item -ItemType Directory -Force $dst|Out-Null
+          Copy-Item stage\RunTests.ex5 "$dst\RunTests.ex5" -Force
+
+      - name: Execute native RunTests
+        shell: pwsh
+        run: |
+          $out='${{ github.workspace }}\native-t11';New-Item -ItemType Directory -Force $out|Out-Null
+          $cfg=Join-Path $out runtests.ini
+          $txt=@"
+          [Common]
+          NewsEnable=0
+          [Experts]
+          AllowLiveTrading=0
+          AllowDllImport=0
+          Enabled=1
+          [StartUp]
+          Script=BlackDragon\Tests\RunTests
+          Symbol=EURUSD
+          Period=M1
+          ShutdownTerminal=1
+          "@
+          [IO.File]::WriteAllText($cfg,$txt,[Text.Encoding]::Unicode)
+          $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru
+          $deadline=(Get-Date).AddMinutes(4)
+          while(-not $p.HasExited -and (Get-Date)-lt $deadline){Start-Sleep 3;$p.Refresh()}
+          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'native timeout'}
+          $logs=Get-ChildItem "$env:MT5_DIR\MQL5\Logs" -Filter '*.log'|Sort-Object LastWriteTime
+          if(-not $logs){throw 'MQL5 log missing'}
+          $latest=$logs[-1];Copy-Item $latest.FullName (Join-Path $out runtests-mql5.log) -Force
+          $raw=Get-Content $latest.FullName -Raw;Write-Host $raw
+          $m=[regex]::Match($raw,'BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed')
+          if(-not $m.Success){throw 'summary missing'}
+          $pcount=[int]$m.Groups[1].Value;$fcount=[int]$m.Groups[2].Value;$expected=[int]$env:EXPECTED_PASS
+          "passed=$pcount failed=$fcount`nPRODUCT_HEAD=$env:PRODUCT_HEAD`nPRODUCT_TREE=$env:PRODUCT_TREE`nRUNTESTS_SHA256=$env:RUNTESTS_SHA256"|Out-File (Join-Path $out SUMMARY.txt)
+          if($fcount -ne 0 -or $pcount -ne $expected -or $raw -notmatch 'ALL GREEN'){
+            throw "native assertions failed: expected $expected/0, got $pcount/$fcount"
+          }
+          Write-Host "T11 native PASS: $pcount passed / $fcount failed"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-native-runtests-t11-exact
+          path: native-t11/
+          if-no-files-found: warn
