@@ -25,13 +25,14 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import textwrap
           src = Path('.github/workflows/t13-apply-fix.yml').read_text(encoding='utf-8')
           marker = "python - <<'PY'\n"
           if marker not in src:
               raise SystemExit('embedded patch marker not found')
-          body = src.split(marker, 1)[1].split('\n          PY', 1)[0]
-          exec(compile(textwrap.dedent(body), 't13_embedded_patch.py', 'exec'))
+          raw = src.split(marker, 1)[1].split('\n          PY', 1)[0]
+          lines = raw.splitlines()
+          body = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines)
+          exec(compile(body, 't13_embedded_patch.py', 'exec'))
           PY
 
       - name: Validate and push
