@@ -1,1 +1,1 @@
-Trigger T13 PR patch workflow after retargeting PR #22 to verify/t13-patch-base.
+Trigger T13 temporary patch workflow from default-branch PR event.
