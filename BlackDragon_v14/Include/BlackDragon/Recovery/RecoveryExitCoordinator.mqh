@@ -10,6 +10,7 @@
 
 #include "RecoveryEngine.mqh"
 #include "RecoveryGlobalFlatten.mqh"
+#include "RecoveryMutationPolicy.mqh"
 #include <BlackDragon/BasketManager.mqh>
 
 enum eRecoveryExitCoordKind
@@ -67,8 +68,8 @@ struct SRecoveryExitCoordCycle
 
 bool Recovery_ExitStateNeedsCoordination(const eRecoveryState state)
 {
+   // T13: once ARMED, any Core topology mutation belongs to Recovery lifecycle.
    return state != recovery_CORE_ONLY &&
-          state != recovery_ARMED &&
           state != recovery_COMPLETED;
 }
 
@@ -554,7 +555,25 @@ private:
 
    bool DriveCycle(const int idx, const datetime now, string &why)
    {
-      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active) return true;
+      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active)
+      {
+         if(m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL)
+         {
+            why = "external Core/Recovery mutation remains fail-closed pending explicit reconciliation";
+            return true;
+         }
+         string finalizeWhy = "";
+         if(m_recovery != NULL &&
+            m_recovery.FinalizeConfirmedSideMutation(*m_exec, Direction(idx), now, finalizeWhy))
+         {
+            Log_Info("Recovery", "T13 deferred side-mutation finalization succeeded for " +
+                     Recovery_DirectionName(Direction(idx)));
+            ResetCycle(idx);
+            return false;
+         }
+         why = "T13 side-mutation finalizer still blocked: " + finalizeWhy;
+         return true;
+      }
       if(!m_cycle[idx].active) return false;
       if(LegacyTicketStillPending(idx)) return true;
 
@@ -627,27 +646,41 @@ private:
       if(step == recovery_EXIT_STEP_RECONCILE_HOLD)
       {
          m_cycle[idx].active = false;
-         SRecoveryCycle cycle;
-         m_recovery.GetCycle(dir, cycle);
-         if(currentCoreUnits <= 0 && activeHedgeUnits <= 0)
-            m_cycle[idx].reconcileHold = false;
-         else if(cycle.state == recovery_CORE_ONLY && activeHedgeUnits <= 0 &&
-                 !m_exec.HasPendingForCycle(cycleKey))
-            m_cycle[idx].reconcileHold = false;
-         else
-            m_cycle[idx].reconcileHold = true;
-         return m_cycle[idx].reconcileHold;
+         if(currentCoreUnits <= 0 && activeHedgeUnits <= 0 &&
+            m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL)
+         {
+            string finalizeWhy = "";
+            if(m_recovery.FinalizeConfirmedSideMutation(*m_exec, dir, now, finalizeWhy))
+            {
+               Log_Info("Recovery", "T13 externally-flattened " + Recovery_DirectionName(dir) +
+                        " terminalized safely");
+               ResetCycle(idx);
+               return false;
+            }
+            why = "T13 external flat finalizer blocked: " + finalizeWhy;
+         }
+         // Partial/unknown external changes remain fail-closed.
+         m_cycle[idx].reconcileHold = true;
+         return true;
       }
 
       if(step == recovery_EXIT_STEP_COMPLETE)
       {
-         bool partial = m_cycle[idx].kind == recovery_EXIT_COORD_TICKETS;
-         m_cycle[idx].active = false;
-         // Deterministic Overlap changes cycle exposure but does not flatten it;
-         // T9 must rebuild registry metrics/anchors before normal ACTIVE work.
-         m_cycle[idx].reconcileHold = partial &&
-                                      (currentCoreUnits > 0 || activeHedgeUnits > 0);
-         return m_cycle[idx].reconcileHold;
+         // T13 replaces the old permanent partial reconcileHold with an
+         // explicit side-scoped broker reconciliation + durable save. This
+         // handles both full-side/magic closes and stable-state Overlap.
+         string finalizeWhy = "";
+         if(!m_recovery.FinalizeConfirmedSideMutation(*m_exec, dir, now, finalizeWhy))
+         {
+            m_cycle[idx].active = false;
+            m_cycle[idx].reconcileHold = true;
+            why = "T13 side-mutation finalizer blocked: " + finalizeWhy;
+            return true;
+         }
+         Log_Info("Recovery", "T13 coordinated Core mutation complete for " +
+                  Recovery_DirectionName(dir) + " — Recovery state persisted");
+         ResetCycle(idx);
+         return false;
       }
       return false;
    }
@@ -728,7 +761,22 @@ public:
          return recovery_EXIT_BYPASS;
       int idx = Index(dir);
       if(m_cycle[idx].reconcileHold) return recovery_EXIT_BLOCKED;
-      if(!CycleRequiresCoordination(dir)) return recovery_EXIT_BYPASS;
+
+      // T13: Overlap is a non-emergency topology mutation. Let it bypass only
+      // before Recovery owns the cycle, coordinate it in stable Recovery
+      // states, and DEFER while T4/T5/T6 is mutating/pausing/reconciling.
+      if(reason == recovery_EXIT_REASON_LEGACY_OVERLAP)
+      {
+         SRecoveryCycle cycle;
+         m_recovery.GetCycle(dir, cycle);
+         eRecoveryOverlapPolicy p = Recovery_OverlapPolicyPure(cycle.state);
+         if(p == recovery_OVERLAP_BYPASS) return recovery_EXIT_BYPASS;
+         if(p == recovery_OVERLAP_DEFER || !m_recovery.ActiveReady())
+            return recovery_EXIT_BLOCKED;
+      }
+      else if(!CycleRequiresCoordination(dir))
+         return recovery_EXIT_BYPASS;
+
       if(firstTicket == 0 && secondTicket == 0) return recovery_EXIT_BLOCKED;
       if(m_cycle[idx].active) return recovery_EXIT_LATCHED;
 
