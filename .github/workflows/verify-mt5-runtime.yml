@@ -1,0 +1,173 @@
+name: Verify BlackDragon MT5 Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - verify/adaptive-recovery-runtime
+    paths:
+      - '.github/workflows/verify-mt5-runtime.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  tester-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+      T9_ARTIFACT_ID: '9268636368'
+      T9_ARTIFACT_SHA256: '30de810bab53a8078c61b9653c20f99e8b285be50b153dbaf1d5fae82b8e12bf'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: verify/adaptive-recovery-runtime
+          fetch-depth: 1
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'terminal64.exe missing' }
+
+      - name: Reuse exact T9 native artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $uri = "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$env:T9_ARTIFACT_ID/zip"
+          Invoke-WebRequest -Uri $uri -Headers $headers -OutFile 't9-native.zip' -UseBasicParsing
+          $digest = (Get-FileHash 't9-native.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "artifact sha256=$digest"
+          if ($digest -ne $env:T9_ARTIFACT_SHA256) { throw "T9 artifact digest mismatch: $digest" }
+          Expand-Archive -LiteralPath 't9-native.zip' -DestinationPath 't9-native' -Force
+          $ea = Get-ChildItem 't9-native' -Filter 'BlackDragon.ex5' -Recurse | Select-Object -First 1
+          if ($null -eq $ea) { throw 'BlackDragon.ex5 missing from exact T9 artifact' }
+          New-Item -ItemType Directory -Force -Path "$env:MT5_DIR\MQL5\Experts\BlackDragon" | Out-Null
+          Copy-Item -LiteralPath $ea.FullName -Destination "$env:MT5_DIR\MQL5\Experts\BlackDragon\BlackDragon.ex5" -Force
+          Write-Host "EX5 bytes=$((Get-Item "$env:MT5_DIR\MQL5\Experts\BlackDragon\BlackDragon.ex5").Length)"
+
+      - name: Prepare tester parameter sets
+        shell: pwsh
+        run: |
+          $profiles = "$env:MT5_DIR\MQL5\Profiles\Tester"
+          New-Item -ItemType Directory -Force -Path $profiles | Out-Null
+          $baseline = Get-Content '${{ github.workspace }}\BlackDragon_v14\Sets\BlackDragon_baseline.set' -Raw -Encoding UTF8
+          [IO.File]::WriteAllText("$profiles\verify-off.set", $baseline, [Text.Encoding]::UTF8)
+          $active = $baseline + @"
+          
+          ; VERIFY-only Recovery ACTIVE overrides
+          RecoveryMode_=2
+          RecoveryMagic_=20260807
+          RecoveryStartAfterDca_=0
+          HedgeGapPips_=0
+          HedgeTPPips_=0
+          HedgePartialClosePercent_=50
+          CoreCloseMode_=0
+          HedgeLockNetProfitPips_=3
+          HedgeLockSafetyBufferPips_=1
+          ReHedgeGapPips_=0
+          MaxHedgeGenerations_=2
+          ContinueDcaAfterHedge_=false
+          MinHedgeCoveragePercent_=0
+          TargetRecoveryCorridorPips_=0
+          "@
+          [IO.File]::WriteAllText("$profiles\verify-active.set", $active, [Text.Encoding]::UTF8)
+
+      - name: Run Strategy Tester smoke matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $terminal = "$env:MT5_DIR\terminal64.exe"
+          $out = '${{ github.workspace }}\verify-output'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          New-Item -ItemType Directory -Force -Path "$env:MT5_DIR\verify" | Out-Null
+
+          function Run-Test([string]$name, [string]$setName) {
+            Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+            $cfg = Join-Path $out "$name.ini"
+            $report = "verify\$name.htm"
+            $text = @"
+          [Common]
+          NewsEnable=0
+          
+          [Tester]
+          Expert=BlackDragon\BlackDragon.ex5
+          ExpertParameters=$setName
+          Symbol=EURUSD
+          Period=M1
+          Login=123456
+          Model=1
+          ExecutionMode=0
+          Optimization=0
+          FromDate=2026.08.10
+          ToDate=2026.08.14
+          Deposit=10000
+          Currency=USD
+          Leverage=1:100
+          UseLocal=1
+          UseRemote=0
+          UseCloud=0
+          Visual=0
+          Report=$report
+          ReplaceReport=1
+          ShutdownTerminal=1
+          "@
+            [IO.File]::WriteAllText($cfg, $text, [Text.Encoding]::Unicode)
+            Write-Host "=== START $name ==="
+            $p = Start-Process -FilePath $terminal -ArgumentList "/portable /config:`"$cfg`"" -PassThru
+            $deadline = (Get-Date).AddMinutes(6)
+            while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+              Start-Sleep -Seconds 5
+              $p.Refresh()
+            }
+            if (-not $p.HasExited) {
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw "$name tester timed out"
+            }
+            Write-Host "$name terminal exit=$($p.ExitCode)"
+            $reportPath = Join-Path $env:MT5_DIR $report
+            if (Test-Path $reportPath) {
+              Copy-Item -LiteralPath $reportPath -Destination (Join-Path $out "$name.htm") -Force
+              Write-Host "$name report bytes=$((Get-Item $reportPath).Length)"
+            } else {
+              Write-Host "$name report missing"
+            }
+            $testerLogs = Get-ChildItem "$env:MT5_DIR\Tester\logs" -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
+            if ($testerLogs) {
+              $latest = $testerLogs[-1]
+              Copy-Item -LiteralPath $latest.FullName -Destination (Join-Path $out "$name-tester.log") -Force
+              Write-Host "--- $name tester log tail ---"
+              Get-Content -LiteralPath $latest.FullName -Tail 120 -ErrorAction SilentlyContinue
+            }
+            $terminalLogs = Get-ChildItem "$env:MT5_DIR\logs" -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
+            if ($terminalLogs) {
+              $latestT = $terminalLogs[-1]
+              Copy-Item -LiteralPath $latestT.FullName -Destination (Join-Path $out "$name-terminal.log") -Force
+              Write-Host "--- $name terminal log tail ---"
+              Get-Content -LiteralPath $latestT.FullName -Tail 80 -ErrorAction SilentlyContinue
+            }
+            if (-not (Test-Path $reportPath)) { throw "$name did not produce a Strategy Tester report" }
+            Write-Host "=== PASS ${name}: Strategy Tester report produced ==="
+          }
+
+          Run-Test 'off-smoke' 'verify-off.set'
+          Run-Test 'active-smoke' 'verify-active.set'
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-runtime-smoke
+          path: verify-output/
+          if-no-files-found: warn

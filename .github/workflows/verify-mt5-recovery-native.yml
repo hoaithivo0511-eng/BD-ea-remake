@@ -1,0 +1,183 @@
+name: Verify Adaptive Recovery Native MQL5
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - verify/adaptive-recovery-runtime
+    paths:
+      - '.github/workflows/verify-mt5-recovery-native.yml'
+      - 'BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5'
+      - 'BlackDragon_v14/Include/BlackDragon/Recovery/**'
+      - 'BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh'
+      - 'BlackDragon_v14/Include/BlackDragon/Strategy.mqh'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/RunRecoveryFoundationTests.mq5'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/RunRecoveryNativeTests.mq5'
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-native:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Record exact source
+        shell: pwsh
+        run: |
+          Write-Host "VERIFY_HEAD=$(git rev-parse HEAD)"
+          Write-Host "VERIFY_TREE=$(git show -s --format=%T HEAD)"
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not (Test-Path "$env:MT5_DIR\metaeditor64.exe")) { throw 'metaeditor64.exe missing' }
+          if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'terminal64.exe missing' }
+
+      - name: Mirror exact repo sources into terminal tree
+        shell: pwsh
+        run: |
+          $mql5 = "$env:MT5_DIR\MQL5"
+          foreach ($d in @('Experts','Include','Scripts')) {
+            New-Item -ItemType Directory -Force -Path "$mql5\$d" | Out-Null
+            Copy-Item -Path "${{ github.workspace }}\BlackDragon_v14\$d\*" -Destination "$mql5\$d" -Recurse -Force
+          }
+          $enc = New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach ($root in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")) {
+            if (-not (Test-Path $root)) { continue }
+            Get-ChildItem -LiteralPath $root -Recurse -File |
+              Where-Object { $_.Extension -in '.mq5','.mqh' } |
+              ForEach-Object {
+                $txt = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
+                [IO.File]::WriteAllText($_.FullName,$txt,$enc)
+              }
+          }
+
+      - name: Compile exact Recovery native targets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $editor = "$env:MT5_DIR\metaeditor64.exe"
+          $mql5 = "$env:MT5_DIR\MQL5"
+          $out = "${{ github.workspace }}\verify-recovery-native"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          $targets = @(
+            @{Name='RunRecoveryFoundationTests'; Src="$mql5\Scripts\BlackDragon\Tests\RunRecoveryFoundationTests.mq5"; Ex5="$mql5\Scripts\BlackDragon\Tests\RunRecoveryFoundationTests.ex5"},
+            @{Name='RunRecoveryNativeTests'; Src="$mql5\Scripts\BlackDragon\Tests\RunRecoveryNativeTests.mq5"; Ex5="$mql5\Scripts\BlackDragon\Tests\RunRecoveryNativeTests.ex5"},
+            @{Name='BlackDragon'; Src="$mql5\Experts\BlackDragon\BlackDragon.mq5"; Ex5="$mql5\Experts\BlackDragon\BlackDragon.ex5"}
+          )
+
+          foreach ($t in $targets) {
+            $log = Join-Path $out ($t.Name + '-compile.log')
+            $p = Start-Process -FilePath $editor -ArgumentList "/compile:`"$($t.Src)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -PassThru -NoNewWindow
+            if (-not (Test-Path $log)) { throw "$($t.Name): MetaEditor log missing" }
+            $raw = Get-Content -LiteralPath $log -Encoding Unicode -Raw
+            Write-Host "--- $($t.Name) compile ---"
+            Write-Host $raw
+            $summary = [regex]::Match($raw,'Result:\s*(\d+) errors?,\s*(\d+) warnings?')
+            if (-not $summary.Success) { throw "$($t.Name): Result summary missing" }
+            $errors = [int]$summary.Groups[1].Value
+            $warnings = [int]$summary.Groups[2].Value
+            if ($errors -ne 0 -or $warnings -ne 0) { throw "$($t.Name): compile gate $errors errors / $warnings warnings" }
+            if (-not (Test-Path $t.Ex5)) { throw "$($t.Name): EX5 missing" }
+            Copy-Item -LiteralPath $t.Ex5 -Destination $out -Force
+            Write-Host "$($t.Name): EX5 bytes=$((Get-Item $t.Ex5).Length)"
+          }
+
+      - name: Execute Recovery scripts in native MT5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $terminal = "$env:MT5_DIR\terminal64.exe"
+          $logsDir = "$env:MT5_DIR\MQL5\Logs"
+          $out = "${{ github.workspace }}\verify-recovery-native"
+
+          function Invoke-RecoveryScript([string]$script,[string]$regex,[string]$marker,[string]$evidenceName) {
+            Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+            New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
+            Remove-Item "$logsDir\*.log" -Force -ErrorAction SilentlyContinue
+
+            $cfg = Join-Path $out ($evidenceName + '.ini')
+            $text = @"
+          [Common]
+          NewsEnable=0
+
+          [Experts]
+          AllowLiveTrading=0
+          AllowDllImport=0
+          Enabled=1
+
+          [StartUp]
+          Script=BlackDragon\Tests\$script
+          Symbol=EURUSD
+          Period=M1
+          ShutdownTerminal=1
+          "@
+            [IO.File]::WriteAllText($cfg,$text,[Text.Encoding]::Unicode)
+            $p = Start-Process -FilePath $terminal -ArgumentList "/portable /config:`"$cfg`"" -PassThru
+            $deadline = (Get-Date).AddMinutes(4)
+            while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+              Start-Sleep -Seconds 3
+              $p.Refresh()
+            }
+            if (-not $p.HasExited) {
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw "$script timed out"
+            }
+            $logs = Get-ChildItem $logsDir -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
+            if (-not $logs) { throw "$script produced no MQL5 log" }
+            $latest = $logs[-1]
+            $dst = Join-Path $out ($evidenceName + '-mql5.log')
+            Copy-Item -LiteralPath $latest.FullName -Destination $dst -Force
+            $raw = Get-Content -LiteralPath $latest.FullName -Raw
+            Write-Host "--- $script native log ---"
+            Write-Host $raw
+            $summary = [regex]::Match($raw,$regex)
+            if (-not $summary.Success) { throw "$script summary missing" }
+            $passed = [int]$summary.Groups[1].Value
+            $failed = [int]$summary.Groups[2].Value
+            Write-Host "$script passed=$passed failed=$failed"
+            if ($failed -ne 0 -or $passed -le 0) { throw "$script assertion gate failed" }
+            if ($raw -notmatch $marker) { throw "$script ALL GREEN marker missing" }
+          }
+
+          Invoke-RecoveryScript 'RunRecoveryFoundationTests' 'Recovery T1 foundation tests:\s*(\d+) passed,\s*(\d+) failed' 'ALL GREEN' 'recovery-t1'
+          Invoke-RecoveryScript 'RunRecoveryNativeTests' 'Adaptive Recovery native tests:\s*(\d+) passed,\s*(\d+) failed' 'ALL GREEN' 'recovery-t3-t9'
+
+      - name: Write verification summary
+        if: always()
+        shell: pwsh
+        run: |
+          $out = "${{ github.workspace }}\verify-recovery-native"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          @"
+          # Adaptive Recovery Native MQL5 Verification
+
+          - branch: `${{ github.ref_name }}`
+          - commit: `${{ github.sha }}`
+          - run: `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+          - live trading: disabled
+          - scope: deterministic Recovery assertions + exact source MetaEditor compile
+          - Strategy Tester/backtest/restart/broker timing: not claimed by this gate
+          "@ | Out-File -FilePath (Join-Path $out 'SUMMARY.md') -Encoding utf8
+
+      - name: Upload native Recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-recovery-native
+          path: verify-recovery-native/
+          if-no-files-found: error
