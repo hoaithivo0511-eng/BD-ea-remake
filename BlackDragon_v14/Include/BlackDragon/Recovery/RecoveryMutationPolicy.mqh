@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| RecoveryMutationPolicy.mqh — T13 side-mutation/Overlap policy    |
 //| Pure policy only: no broker API, persistence, or global writes.  |
-//| Verification candidate: T13 hardened lifecycle final gate.       |
+//| Verification candidate: T13 hardening synchronize trigger.       |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_MUTATION_POLICY_MQH
 #define BD_RECOVERY_MUTATION_POLICY_MQH
