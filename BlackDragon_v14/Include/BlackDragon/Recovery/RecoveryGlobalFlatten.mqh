@@ -1,9 +1,10 @@
 //+------------------------------------------------------------------+
-//| RecoveryGlobalFlatten.mqh — T12 atomic global-close gates     |
+//| RecoveryGlobalFlatten.mqh — T12 atomic global-close gates        |
 //| Purpose   : transient hand-off between T8 coordinator and T3/T9  |
 //|             registry observation after an account-wide flatten.  |
 //| Invariants: no trade API calls; latch is released only after     |
 //|             COMPLETED state is durably flushed.                  |
+//| Verification: exact-tree compile/native gates are release inputs.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_GLOBAL_FLATTEN_MQH
 #define BD_RECOVERY_GLOBAL_FLATTEN_MQH
