@@ -1,1 +1,0 @@
-Trigger T13 temporary patch workflow from default-branch PR event.
