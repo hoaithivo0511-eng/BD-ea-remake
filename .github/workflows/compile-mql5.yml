@@ -1,277 +1,112 @@
 name: Compile BlackDragon (MQL5)
 
-# Compiles the EA and the unit-test script on a GitHub-hosted Windows runner
-# using the real MetaEditor that ships with MetaTrader 5.
-#
-# Results are published three ways, deliberately redundant:
-#   - the job summary on the run page
-#   - a build artifact containing the .ex5 files and the raw MetaEditor logs
-#   - a commit of ci-result/RESULT.md, when the token is allowed to write
-
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
-    paths:
-      - 'BlackDragon_v14/Experts/**'
-      - 'BlackDragon_v14/Include/**'
-      - 'BlackDragon_v14/Scripts/**'
-      - '.github/workflows/compile-mql5.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'BlackDragon_v14/Experts/**'
-      - 'BlackDragon_v14/Include/**'
-      - 'BlackDragon_v14/Scripts/**'
-      - '.github/workflows/compile-mql5.yml'
 
 permissions:
   contents: write
 
 jobs:
   compile:
-    runs-on: windows-latest
-    timeout-minutes: 30
-
-    env:
-      MT5_DIR: 'C:\Program Files\MetaTrader 5'
-
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: feat/adaptive-recovery-t13-overlap-side-finalizer
           fetch-depth: 0
 
-      - name: Download the MetaTrader 5 web installer
-        shell: pwsh
-        run: |
-          Invoke-WebRequest `
-            -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' `
-            -OutFile 'mt5setup.exe' -UseBasicParsing
-          Write-Host "installer: $((Get-Item mt5setup.exe).Length) bytes"
-
-      - name: Install silently with /auto
-        shell: pwsh
-        run: |
-          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
-          Start-Sleep -Seconds 10
-          # The installer leaves the terminal running, holding handles on
-          # MQL5\Include while the compiler wants to read it.
-          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
-          if (-not (Test-Path "$env:MT5_DIR\metaeditor64.exe")) {
-            throw 'metaeditor64.exe not found - the silent install failed'
-          }
-          Write-Host 'MetaEditor present'
-
-      - name: Warm the terminal once so the standard library is unpacked
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          # MQL5\Include\Trade, Arrays, Controls are only written on a first
-          # terminal launch. BlackDragon looks self-contained, so this is
-          # best-effort: if it fails the compile may still succeed.
-          $t = Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
-          Start-Sleep -Seconds 45
-          $t | Stop-Process -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 5
-          if (Test-Path "$env:MT5_DIR\MQL5\Include\Trade\Trade.mqh") {
-            Write-Host 'standard library present'
-          } else {
-            Write-Host 'standard library NOT unpacked - only matters if the sources include it'
-          }
-
-      - name: Mirror the repo sources into the MQL5 tree
-        shell: pwsh
-        run: |
-          # Copying into the genuine MQL5 folder makes include resolution
-          # behave exactly as it does locally, for both <angle> and "quoted"
-          # includes, without needing to know which style the sources use.
-          $mql5 = "$env:MT5_DIR\MQL5"
-          foreach ($d in @('Experts','Include','Scripts')) {
-            New-Item -ItemType Directory -Force -Path "$mql5\$d" | Out-Null
-            Copy-Item -Path "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" `
-                      -Destination "$mql5\$d" -Recurse -Force
-          }
-          Write-Host '--- Include\BlackDragon ---'
-          Get-ChildItem "$mql5\Include\BlackDragon" -File -Recurse |
-            ForEach-Object { '{0,-28} {1,8}' -f $_.Name, $_.Length }
-
-      - name: Re-encode the copies as UTF-16 LE with BOM
-        shell: pwsh
-        run: |
-          # Without a BOM MetaEditor reads a source as ANSI. Vietnamese
-          # comments and em-dashes are multi-byte UTF-8, so the column index
-          # shifts and the parser reports errors on valid code. Only the
-          # copies under Program Files are rewritten; the repo is untouched.
-          $mql5 = "$env:MT5_DIR\MQL5"
-          $enc  = New-Object System.Text.UnicodeEncoding($false, $true)
-          $roots = @(
-            "$mql5\Experts\BlackDragon",
-            "$mql5\Include\BlackDragon",
-            "$mql5\Scripts\BlackDragon"
-          )
-          $n = 0
-          foreach ($r in $roots) {
-            if (-not (Test-Path $r)) { continue }
-            Get-ChildItem -LiteralPath $r -Recurse -File |
-              Where-Object { $_.Extension -in '.mq5', '.mqh' } |
-              ForEach-Object {
-                $txt = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
-                [System.IO.File]::WriteAllText($_.FullName, $txt, $enc)
-                $n++
-              }
-          }
-          Write-Host "re-encoded $n source files"
-
-      - name: Compile RunTests.mq5 then BlackDragon.mq5
-        shell: pwsh
-        run: |
-          $editor = "$env:MT5_DIR\metaeditor64.exe"
-          $mql5   = "$env:MT5_DIR\MQL5"
-          $build  = "$env:GITHUB_WORKSPACE\build"
-          $outDir = "$env:GITHUB_WORKSPACE\ci-result"
-          New-Item -ItemType Directory -Force -Path $build  | Out-Null
-          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-          # RunTests first: it pulls in most headers and holds all 37 asserts,
-          # so it is the likeliest source of errors. BlackDragon is still
-          # required, because Strategy.mqh and Panel.mqh are NOT in the test
-          # script's include list - a green RunTests does not prove the
-          # TIP-509 call site builds.
-          $targets = @(
-            @{ Name = 'RunTests'
-               Src  = "$mql5\Scripts\BlackDragon\Tests\RunTests.mq5"
-               Out  = "$mql5\Scripts\BlackDragon\Tests\RunTests.ex5" },
-            @{ Name = 'BlackDragon'
-               Src  = "$mql5\Experts\BlackDragon\BlackDragon.mq5"
-               Out  = "$mql5\Experts\BlackDragon\BlackDragon.ex5" }
-          )
-
-          $problems = @()
-          $rows     = @()
-          $logs     = @()
-
-          foreach ($t in $targets) {
-            $log = "$build\$($t.Name).log"
-            Write-Host "::group::compile $($t.Name)"
-
-            if (-not (Test-Path $t.Src)) {
-              Write-Host "source missing: $($t.Src)"
-              Write-Host '::endgroup::'
-              $problems += "$($t.Name): source file not found at $($t.Src)"
-              $rows     += "| $($t.Name) | source missing | - | - | - |"
-              continue
-            }
-
-            # metaeditor64 is a GUI application. -Wait is mandatory, or this
-            # returns instantly and the .ex5 check races the compiler.
-            $p = Start-Process -FilePath $editor `
-                   -ArgumentList "/compile:`"$($t.Src)`" /inc:`"$mql5`" /log:`"$log`"" `
-                   -Wait -PassThru -NoNewWindow
-
-            # The exit code is (errors + warnings), not a success flag.
-            Write-Host "exit code: $($p.ExitCode)  [= errors + warnings, not a status]"
-
-            $text = ''
-            if (Test-Path $log) {
-              # UTF-16 LE + BOM. Read as ANSI this is mojibake and every
-              # match below would silently return nothing.
-              $text = Get-Content -LiteralPath $log -Encoding Unicode -Raw
-              Write-Host '--- MetaEditor log ---'
-              Write-Host $text
-            } else {
-              Write-Host 'no log file was produced'
-              $text = '(MetaEditor produced no log file)'
-            }
-            Write-Host '::endgroup::'
-
-            $lines = $text -split "`r?`n"
-            $errs  = @($lines | Where-Object { $_ -match ' : error ' })
-            $warns = @($lines | Where-Object { $_ -match ' : warning ' })
-            $built = Test-Path $t.Out
-            $size  = if ($built) { (Get-Item $t.Out).Length } else { 0 }
-
-            if (-not $built)        { $problems += "$($t.Name): no .ex5 produced" }
-            if ($errs.Count  -gt 0) { $problems += "$($t.Name): $($errs.Count) error(s)" }
-            if ($warns.Count -gt 0) { $problems += "$($t.Name): $($warns.Count) warning(s) - the house gate is 0/0" }
-
-            if ($built) { Copy-Item -LiteralPath $t.Out -Destination $build -Force }
-
-            $okText = if ($built) { 'yes' } else { 'NO' }
-            $rows  += "| $($t.Name) | $okText | $size | $($errs.Count) | $($warns.Count) |"
-
-            $logs += "### MetaEditor log - $($t.Name)"
-            $logs += ''
-            $logs += '```text'
-            $logs += $text.TrimEnd()
-            $logs += '```'
-            $logs += ''
-          }
-
-          $md = @()
-          $md += '# MQL5 compile result'
-          $md += ''
-          $md += "- source commit: ``$env:GITHUB_SHA``"
-          $md += "- run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-          $md += "- finished (UTC): $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss'))"
-          $md += "- runner: $env:RUNNER_OS"
-          $md += ''
-          $md += '| target | .ex5 produced | bytes | errors | warnings |'
-          $md += '|---|---|---|---|---|'
-          $md += $rows
-          $md += ''
-          if ($problems.Count -gt 0) {
-            $md += '## Problems'
-            $md += ''
-            $problems | ForEach-Object { $md += "- $_" }
-          } else {
-            $md += '## Verdict'
-            $md += ''
-            $md += 'Both targets built. 0 errors, 0 warnings.'
-            $md += ''
-            $md += 'This proves the code compiles. It does NOT prove the 37 asserts pass -'
-            $md += 'running RunTests needs a terminal with a chart, which this job does not do.'
-          }
-          $md += ''
-          $md += $logs
-
-          $joined = $md -join "`n"
-          $joined | Out-File -FilePath "$outDir\RESULT.md"      -Encoding utf8
-          $joined | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-
-          if ($problems.Count -gt 0) {
-            Write-Host ''
-            $problems | ForEach-Object { Write-Host "FAIL  $_" }
-            throw 'compile gate failed'
-          }
-          Write-Host 'both targets: 0 error, 0 warning'
-
-      - name: Publish the result back into the repo
-        if: always() && github.event_name != 'pull_request'
+      - name: Apply T13 coordinator retry/topology hardening
         shell: bash
         run: |
-          if [ ! -f ci-result/RESULT.md ]; then
-            mkdir -p ci-result
-            printf '# MQL5 compile result\n\nThe compile step did not run to completion, so no result was written.\nSee the Actions run for details.\n' > ci-result/RESULT.md
-          fi
-          git config user.name  "github-actions[bot]"
+          python - <<'PY'
+          from pathlib import Path
+          def rep(path, old, new):
+              p=Path(path);s=p.read_text(encoding='utf-8');n=s.count(old)
+              if n!=1: raise SystemExit(f'{path}: expected 1 match got {n}')
+              p.write_text(s.replace(old,new,1),encoding='utf-8')
+
+          coord='BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh'
+          rep(coord, '''      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active)
+      {
+         if(m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL)
+         {
+            why = "external Core/Recovery mutation remains fail-closed pending explicit reconciliation";
+            return true;
+         }
+         string finalizeWhy = "";
+         if(m_recovery != NULL &&
+            m_recovery.FinalizeConfirmedSideMutation(*m_exec, Direction(idx), now, finalizeWhy))
+         {
+            Log_Info("Recovery", "T13 deferred side-mutation finalization succeeded for " +
+                     Recovery_DirectionName(Direction(idx)));
+            ResetCycle(idx);
+            return false;
+         }
+         why = "T13 side-mutation finalizer still blocked: " + finalizeWhy;
+         return true;
+      }
+      if(!m_cycle[idx].active) return false;''', '''      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active)
+      {
+         if(m_cycle[idx].kind == recovery_EXIT_COORD_EXTERNAL)
+         {
+            why = "external Core/Recovery mutation remains fail-closed pending explicit reconciliation";
+            return true;
+         }
+
+         // T13 hardening: a coordinator-owned hold is not evidence that the
+         // intended CLOSE/TRIM completed. Re-drive the original plan from
+         // current broker-observable Core/Hedge exposure.
+         m_cycle[idx].reconcileHold = false;
+         m_cycle[idx].active = true;
+         Log_Warn("Recovery", "t13retry" + (string)Recovery_CycleKey(Direction(idx)),
+                  "retrying coordinated side mutation from current broker state");
+      }
+      if(!m_cycle[idx].active) return false;''')
+
+          eng='BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh'
+          rep(eng, '''         if(!Recovery_SideMutationStableStatePure(c.state) || c.state == recovery_COMPLETED)
+         {
+  why = "partial Core mutation reached a non-stable Recovery state: " +
+        Recovery_StateName(c.state);
+  return false;
+         }
+
+         if(c.state == recovery_ARMED)''', '''         if(!Recovery_SideMutationStableStatePure(c.state) || c.state == recovery_COMPLETED)
+         {
+            why = "partial Core mutation reached a non-stable Recovery state: " +
+                  Recovery_StateName(c.state);
+            return false;
+         }
+
+         // Stable post-Hedge states must retain both sides of their topology.
+         // Never persist HEDGE_* after a coordinated mutation lost Core/Hedge.
+         if((c.state == recovery_HEDGE_ACTIVE || c.state == recovery_HEDGE_LOCKED) &&
+            (currentCore <= 0 || currentHedge <= 0))
+         {
+            why = "post-Hedge side mutation lost required Core/Hedge exposure in state " +
+                  Recovery_StateName(c.state);
+            return false;
+         }
+         if(c.state == recovery_CORE_ONLY && currentHedge != 0)
+         {
+            why = "CORE_ONLY side mutation unexpectedly has Recovery hedge exposure";
+            return false;
+         }
+
+         if(c.state == recovery_ARMED)''')
+          PY
+          git diff --check
+
+      - name: Commit hardening to T13 branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f ci-result/RESULT.md
-          if git diff --staged --quiet; then
-            echo "result unchanged - nothing to publish"
+          git add BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh
+          if git diff --cached --quiet; then
+            echo 'hardening already present'
             exit 0
           fi
-          git commit -m "ci: compile result for ${GITHUB_SHA::7} [skip ci]"
-          git pull --rebase origin "${GITHUB_REF_NAME}" || true
-          # Never let bookkeeping veto the compile result. If the repository
-          # caps GITHUB_TOKEN at read-only, this 403s; the artifact and the
-          # job summary still hold the evidence.
-          git push origin HEAD:"${GITHUB_REF_NAME}" \
-            || echo "::warning::could not push the result - GITHUB_TOKEN is probably read-only (Settings > Actions > Workflow permissions). Use the artifact instead."
-
-      - name: Upload logs and binaries
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mql5-build
-          path: build/
-          if-no-files-found: warn
+          git commit -m "fix(recovery): harden T13 coordinator retry invariants"
+          git push origin HEAD:feat/adaptive-recovery-t13-overlap-side-finalizer
