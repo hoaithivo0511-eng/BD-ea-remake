@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| RecoveryMutationPolicy.mqh — T13 side-mutation/Overlap policy    |
 //| Pure policy only: no broker API, persistence, or global writes.  |
-//| Verification candidate: T13 policy + side finalizer hardening.   |
+//| Verification candidate: T13 hardened side-mutation lifecycle.    |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_MUTATION_POLICY_MQH
 #define BD_RECOVERY_MUTATION_POLICY_MQH
