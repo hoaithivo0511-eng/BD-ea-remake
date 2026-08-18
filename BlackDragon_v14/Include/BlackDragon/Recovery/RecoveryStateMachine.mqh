@@ -31,7 +31,8 @@ bool Recovery_StateTransitionAllowed(const eRecoveryState fromState,
          return toState == recovery_ARMED;
 
       case recovery_ARMED:
-         return toState == recovery_HEDGE_BUILDING;
+         return toState == recovery_HEDGE_BUILDING ||
+                toState == recovery_CORE_ONLY; // T13: confirmed pre-hedge Core trim may disarm
 
       case recovery_HEDGE_BUILDING:
          return toState == recovery_HEDGE_ACTIVE;

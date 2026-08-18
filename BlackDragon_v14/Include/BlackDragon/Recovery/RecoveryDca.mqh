@@ -242,8 +242,18 @@ public:
    {
       // Mandatory parity: SHADOW observes only and OFF is a no-op.
       if(RecoveryMode_ != recovery_ACTIVE) return true;
-      if(m_recovery == NULL || m_basket == NULL) return false;
-      if(!m_recovery.ActiveReady()) return false;
+      if(m_recovery == NULL || m_basket == NULL)
+      {
+         Log_Warn("Recovery", "dcagate" + (string)dir,
+                  "Core DCA blocked: Recovery engine/basket adapter unavailable");
+         return false;
+      }
+      if(!m_recovery.ActiveReady())
+      {
+         Log_Warn("Recovery", "dcagate" + (string)dir,
+                  "Core DCA blocked: Recovery ACTIVE is not reconciled/ready");
+         return false;
+      }
 
       eRecoveryCoreDirection recoveryDir =
          dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;
@@ -252,7 +262,12 @@ public:
 
       // State/owner switch can decide most calls without broker scans.
       if(!Recovery_DcaStateAllows(RecoveryMode_, ContinueDcaAfterHedge_, cycle.state))
+      {
+         Log_Warn("Recovery", "dcastate" + (string)dir,
+                  "Core DCA blocked by Recovery state=" + Recovery_StateName(cycle.state) +
+                  "; ContinueDcaAfterHedge=" + (ContinueDcaAfterHedge_ ? "true" : "false"));
          return false;
+      }
       if(!Recovery_DcaPostHedgeStableState(cycle.state))
          return true;
 
@@ -268,7 +283,11 @@ public:
       {
          if(!Recovery_ReadDcaHedgeMetrics(_Symbol, RecoveryMagic_, recoveryDir,
                                           needCorridor, hedgeLots, hedgeBE))
+         {
+            Log_Warn("Recovery", "dcametric" + (string)dir,
+                     "Core DCA blocked: required live Recovery hedge metrics are unavailable");
             return false;
+         }
       }
 
       return Recovery_DcaGateAllows(RecoveryMode_,

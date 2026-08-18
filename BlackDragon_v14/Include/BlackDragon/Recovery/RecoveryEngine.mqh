@@ -10,6 +10,7 @@
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/ExecutionLayer.mqh>
 #include "RecoveryRegistry.mqh"
+#include "RecoveryMutationPolicy.mqh"
 #include "RecoveryExit.mqh"
 #include "RecoveryLock.mqh"
 #include "RecoveryPersistence.mqh"
@@ -286,7 +287,8 @@ private:
                                const SRecoveryCycle &after)
    {
       if(before.state == after.state) return;
-      Log_Info("Recovery", "SHADOW " + Recovery_DirectionName(dir) + " " +
+      string prefix = m_cfg.mode == recovery_ACTIVE ? "ACTIVE " : "SHADOW ";
+      Log_Info("Recovery", prefix + Recovery_DirectionName(dir) + " " +
                Recovery_StateName(before.state) + " -> " + Recovery_StateName(after.state));
    }
 
@@ -2289,6 +2291,205 @@ public:
       return true;
    }
 
+
+   //--- T13 confirmed side/magic Core mutation boundary -----------------
+   // Called by T8 only after its Core/Hedge close plan is broker-observable,
+   // the cycle journal is quiet, and no strict reconcile evidence remains.
+   // Unlike T12 global flatten, this is side-scoped and preserves the other
+   // Recovery direction. Partial Overlap is accepted only from stable states.
+   bool FinalizeConfirmedSideMutation(CExecutionLayer &exec,
+                            const eRecoveryCoreDirection dir,
+                            const datetime now,
+                            string &why)
+   {
+      why = "";
+      if(m_cfg.mode != recovery_ACTIVE) return true;
+      if(!m_initialized)
+      {
+         why = "RecoveryEngine is not initialized";
+         return false;
+      }
+      if(m_persistenceBlocked)
+      {
+         why = "Recovery persistence is blocked by startup integrity/identity failure";
+         return false;
+      }
+
+      const int idx = DirIndex(dir);
+      const int cycleKey = Recovery_CycleKey(dir);
+      exec.ReconcileCycle(cycleKey);
+      if(exec.HasReconcileRequired(cycleKey))
+      {
+         why = "side mutation execution journal still requires strict reconciliation";
+         return false;
+      }
+      if(exec.HasPendingForCycle(cycleKey) || m_pending[idx].active)
+      {
+         why = "side mutation finalizer requires a quiet cycle journal/durable command";
+         return false;
+      }
+
+      long currentCore = CoreUnits(dir);
+      long currentHedge = RawRecoveryUnits(dir);
+      SRecoveryCycle c;
+      m_registry.GetCycle(dir, c);
+
+      if(currentCore <= 0 && currentHedge <= 0)
+      {
+         bool alreadyCompleted = c.state == recovery_COMPLETED;
+         if(!alreadyCompleted)
+         {
+  if(!Recovery_StateTransitionAllowed(c.state, recovery_COMPLETED) ||
+     !m_registry.Transition(dir, recovery_COMPLETED, now,
+                            "confirmed side/magic Core flatten"))
+  {
+     why = "Recovery registry rejected side completion for " + Recovery_DirectionName(dir);
+     return false;
+  }
+  m_registry.GetCycle(dir, c);
+         }
+
+         c.cycleSerial = Recovery_GlobalFlattenNextSerialPure(c.cycleSerial, alreadyCompleted);
+         c.state                     = recovery_COMPLETED;
+         c.armed                     = false;
+         c.coreCount                 = 0;
+         c.coreLots                  = 0.0;
+         c.coreNetBE                 = 0.0;
+         c.activeHedgeLots           = 0.0;
+         c.hedgeNetBE                = 0.0;
+         c.coveragePercent           = 0.0;
+         c.corridorPrice             = 0.0;
+         c.armedDcaCount             = 0;
+         c.anchorDeal                = 0;
+         c.anchorPosition            = 0;
+         c.anchorPrice               = 0.0;
+         c.anchorTicks               = 0;
+         c.anchorTime                = 0;
+         c.hedgeGeneration           = 0;
+         c.bundleId                  = 0;
+         c.bundleTargetUnits         = 0;
+         c.bundleBaselineActiveUnits = 0;
+         c.bundleConfirmedUnits      = 0;
+         c.bundleSubmittedChildren   = 0;
+         c.bundleChildInFlight       = false;
+         c.bundlePartialCoverage     = false;
+         c.bundleBlockedAfterReject  = false;
+         c.bundleReconcileRequired   = false;
+         c.bundleComplete            = false;
+         c.bundleCoveragePercent     = 0.0;
+         c.shadowDecision            = recovery_SHADOW_NONE;
+         c.shadowDecisionLatched     = false;
+         c.shadowTargetUnits         = 0;
+         c.shadowTriggerPrice        = 0.0;
+         c.shadowDecisionAt          = 0;
+         c.shadowPlannedChildren     = 0;
+         c.shadowPlanValid           = false;
+         c.anchorEvidenceWaitLogged  = false;
+
+         if(!m_registry.RestoreCycle(dir, c))
+         {
+  why = "Recovery registry rejected sanitized side COMPLETED cycle";
+  return false;
+         }
+         Recovery_PendingInit(m_pending[idx]);
+         Recovery_T5RuntimeInit(m_t5[idx]);
+         ResetT6Cycle(idx);
+         m_t5CycleSerial[idx] = c.cycleSerial;
+      }
+      else
+      {
+         // Partial mutations are permitted only from states with no active
+         // T4/T5/T6 mutation chain. This is the key serialization boundary
+         // that keeps Overlap from colliding with realized-credit/lock logic.
+         if(!Recovery_SideMutationStableStatePure(c.state) || c.state == recovery_COMPLETED)
+         {
+  why = "partial Core mutation reached a non-stable Recovery state: " +
+        Recovery_StateName(c.state);
+  return false;
+         }
+
+         if(c.state == recovery_ARMED)
+         {
+  if(currentHedge != 0)
+  {
+     why = "ARMED side mutation unexpectedly has Recovery hedge exposure";
+     return false;
+  }
+
+  int count = CoreCount(dir);
+  if(!Recovery_DcaThresholdReached(count, m_cfg.startAfterDca))
+  {
+     if(!m_registry.Transition(dir, recovery_CORE_ONLY, now,
+                               "confirmed Core trim moved below Recovery activation threshold"))
+     {
+        why = "registry rejected ARMED -> CORE_ONLY after confirmed Core trim";
+        return false;
+     }
+     m_registry.GetCycle(dir, c);
+     c.armed                    = false;
+     c.armedDcaCount            = 0;
+     c.anchorDeal               = 0;
+     c.anchorPosition           = 0;
+     c.anchorPrice              = 0.0;
+     c.anchorTicks              = 0;
+     c.anchorTime               = 0;
+     c.anchorEvidenceWaitLogged = false;
+     if(!m_registry.RestoreCycle(dir, c))
+     {
+        why = "registry rejected disarmed CORE_ONLY snapshot";
+        return false;
+     }
+     Log_Info("Recovery", "T13 " + Recovery_DirectionName(dir) +
+              " disarmed after Core trim moved below RecoveryStartAfterDca_");
+  }
+  else
+  {
+     SRecoveryCorePositionSnapshot buyPos[];
+     SRecoveryCorePositionSnapshot sellPos[];
+     double buyLots = 0.0, sellLots = 0.0;
+     BuildCoreSnapshots(buyPos, sellPos, buyLots, sellLots);
+     int thresholdIndex = m_cfg.startAfterDca;
+     int n = dir == recovery_CORE_BUY ? ArraySize(buyPos) : ArraySize(sellPos);
+     if(thresholdIndex < 0 || thresholdIndex >= n)
+     {
+        why = "current Core threshold position is unavailable after partial mutation";
+        return false;
+     }
+     ulong thresholdTicket = dir == recovery_CORE_BUY ?
+                             buyPos[thresholdIndex].ticket : sellPos[thresholdIndex].ticket;
+     if(c.anchorPosition != thresholdTicket)
+     {
+        c.anchorDeal = 0;
+        c.anchorPosition = 0;
+        c.anchorPrice = 0.0;
+        c.anchorTicks = 0;
+        c.anchorTime = 0;
+        if(!m_registry.RestoreCycle(dir, c) || !EnsureCurrentAnchor(dir, now, why))
+        {
+           if(why == "") why = "failed to rebuild ARMED threshold anchor after Core trim";
+           return false;
+        }
+        Log_Info("Recovery", "T13 " + Recovery_DirectionName(dir) +
+                 " threshold anchor rebuilt after confirmed Core trim");
+     }
+  }
+         }
+
+         UpdateBrokerMetrics(dir);
+      }
+
+      SeedLatestRelevantCursor();
+      m_dirty = true;
+      string saveWhy = "";
+      if(!SaveState(saveWhy))
+      {
+         why = "confirmed side mutation could not be persisted: " + saveWhy;
+         return false;
+      }
+      Log_Info("Recovery", "T13 " + Recovery_DirectionName(dir) +
+     " side mutation reconciled and persisted; coordinator may release");
+      return true;
+   }
 
 
    bool StartupReconcile(CExecutionLayer &exec, string &why)
