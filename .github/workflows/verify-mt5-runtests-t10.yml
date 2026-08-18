@@ -5,6 +5,8 @@ on:
   push:
     branches: [ verify/adaptive-recovery-runtime ]
     paths: [ '.github/workflows/verify-mt5-runtests-t10.yml' ]
+  pull_request:
+    branches: [ verify/adaptive-recovery-runtime ]
 
 permissions:
   contents: read
