@@ -134,25 +134,28 @@ bool Recovery_T16ValidateConfig(string &why)
       why = "Chế độ SL Hedge không hợp lệ";
       return false;
    }
-   if(GlobalSLAfterGenerations_ < 1)
+   if(EnableGlobalHedgeSL_)
    {
-      why = "Số vòng kích hoạt Global SL phải >= 1";
-      return false;
-   }
-   if(GlobalSLAfterGenerations_ > MaxHedgeGenerations_)
-   {
-      why = "Số vòng kích hoạt Global SL không được lớn hơn Số vòng Hedge tối đa";
-      return false;
-   }
-   if(GlobalHedgeSLNetProfitPips_ < 0.0)
-   {
-      why = "Lợi nhuận tối thiểu Global SL phải >= 0 pip";
-      return false;
-   }
-   if(RecoveryReentryBufferPips_ < 0.0)
-   {
-      why = "Buffer tái kích hoạt Recovery phải >= 0 pip";
-      return false;
+      if(GlobalSLAfterGenerations_ < 1)
+      {
+         why = "Số vòng kích hoạt Global SL phải >= 1 khi bật Global SL";
+         return false;
+      }
+      if(GlobalSLAfterGenerations_ > MaxHedgeGenerations_)
+      {
+         why = "Số vòng kích hoạt Global SL không được lớn hơn Số vòng Hedge tối đa";
+         return false;
+      }
+      if(GlobalHedgeSLNetProfitPips_ < 0.0)
+      {
+         why = "Lợi nhuận tối thiểu Global SL phải >= 0 pip";
+         return false;
+      }
+      if(RecoveryReentryBufferPips_ < 0.0)
+      {
+         why = "Buffer tái kích hoạt Recovery phải >= 0 pip";
+         return false;
+      }
    }
    return true;
 }
