@@ -84,7 +84,7 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
 #undef Recovery_PendingVolumeEffectConfirmed
 #undef CRecoveryEngine
 
-#include "RecoveryArcsStack.mqh"
+#include "RecoveryArcsStackHardened.mqh"
 
 class CRecoveryEngine : public CRecoveryEngineT15Base
 {
