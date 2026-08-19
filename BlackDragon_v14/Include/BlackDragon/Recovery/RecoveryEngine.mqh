@@ -75,8 +75,6 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
    return Recovery_T14HistoryOpenProof(dir, p);
 }
 
-// Preserve the exact T13/T14 engine as a named compatibility base. No T16
-// semantics are injected into the pinned source file itself.
 #define CRecoveryEngine CRecoveryEngineT15Base
 #define Recovery_PendingVolumeEffectConfirmed(isOpen,beforeUnits,targetUnits,currentUnits) \
    Recovery_T14PendingVolumeEffectConfirmed((isOpen),(beforeUnits),(targetUnits),(currentUnits),dir,p)
@@ -84,12 +82,12 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
 #undef Recovery_PendingVolumeEffectConfirmed
 #undef CRecoveryEngine
 
-#include "RecoveryArcsStackHardened.mqh"
+#include "RecoveryArcsStackPostDeal.mqh"
 
 class CRecoveryEngine : public CRecoveryEngineT15Base
 {
 private:
-   CRecoveryArcsStack m_arcs;
+   CRecoveryArcsStackFinal m_arcs;
 
    bool UseT16() const
    {
