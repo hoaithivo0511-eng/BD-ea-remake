@@ -68,6 +68,15 @@ input double                 HedgeLockSafetyBufferPips_  = 1.0;             // B
 input double                 ReHedgeGapPips_             = 50.0;            // Khoảng bất lợi từ điểm chốt Hedge để mở thế hệ Hedge kế tiếp (pip)
 input int                    MaxHedgeGenerations_        = 5;               // Số thế hệ Hedge tối đa; hợp lệ từ 1 đến Max
 
+// T15: keep all Recovery-owned semantic inputs visible before the persistence
+// layer is parsed. This lets the durable state bind itself to the complete
+// Recovery policy instead of only RecoveryStartAfterDca_.
+input group "17 — DCA khi Recovery đang hoạt động"
+input bool   ContinueDcaAfterHedge_       = false; // Tiếp tục DCA Core sau khi Hedge đã hoạt động; false = khóa DCA
+input double MinHedgeCoveragePercent_     = 0.0;   // Coverage Hedge tối thiểu để cho phép DCA (%); 0 = tắt điều kiện
+input double TargetRecoveryCorridorPips_  = 0.0;   // Hành lang lợi nhuận mục tiêu (pip); đạt mục tiêu thì dừng thêm DCA; 0 = tắt
+input bool   RecoveryTesterResumeState_   = false; // Strategy Tester: true chỉ khi cố ý test restart/resume; false = mỗi pass bắt đầu sạch
+
 struct SRecoveryFoundationConfig
 {
    eRecoveryMode          mode;
@@ -96,6 +105,78 @@ void Recovery_LoadFoundationConfig(SRecoveryFoundationConfig &cfg)
    cfg.hedgeLockSafetyBufferPips = HedgeLockSafetyBufferPips_;
    cfg.reHedgeGapPips            = ReHedgeGapPips_;
    cfg.maxHedgeGenerations       = MaxHedgeGenerations_;
+}
+
+// RETRO-A7: tester persistence is isolated by default. Live/forward runtime
+// always reuses durable state; tester reuse requires explicit operator intent.
+bool Recovery_ShouldReusePersistedStatePure(const bool isTester,
+                                             const bool testerResumeState)
+{
+   return !isTester || testerResumeState;
+}
+
+// Deterministic FNV-1a over the UTF-16 code units used by MQL strings.
+uint Recovery_Fnv1aTextPure(const string text)
+{
+   uint h = 2166136261;
+   for(int i = 0; i < StringLen(text); i++)
+   {
+      ushort ch = (ushort)StringGetCharacter(text, i);
+      h ^= (uint)(ch & 0x00ff); h *= 16777619;
+      h ^= (uint)((ch >> 8) & 0x00ff); h *= 16777619;
+   }
+   return h;
+}
+
+uint Recovery_SemanticConfigFingerprintPure(const eRecoveryMode mode,
+                                             const long recoveryMagic,
+                                             const int startAfterDca,
+                                             const double hedgeGapPips,
+                                             const double hedgeTpPips,
+                                             const double hedgePartialClosePercent,
+                                             const eRecoveryCoreCloseMode coreCloseMode,
+                                             const double hedgeLockNetProfitPips,
+                                             const double hedgeLockSafetyBufferPips,
+                                             const double reHedgeGapPips,
+                                             const int maxHedgeGenerations,
+                                             const bool continueDcaAfterHedge,
+                                             const double minHedgeCoveragePercent,
+                                             const double targetRecoveryCorridorPips)
+{
+   string canonical =
+      "mode=" + (string)(int)mode +
+      "|recoveryMagic=" + (string)recoveryMagic +
+      "|startAfterDca=" + (string)startAfterDca +
+      "|hedgeGap=" + DoubleToString(hedgeGapPips, 12) +
+      "|hedgeTp=" + DoubleToString(hedgeTpPips, 12) +
+      "|partial=" + DoubleToString(hedgePartialClosePercent, 12) +
+      "|coreClose=" + (string)(int)coreCloseMode +
+      "|lockProfit=" + DoubleToString(hedgeLockNetProfitPips, 12) +
+      "|lockBuffer=" + DoubleToString(hedgeLockSafetyBufferPips, 12) +
+      "|rehedgeGap=" + DoubleToString(reHedgeGapPips, 12) +
+      "|maxGen=" + (string)maxHedgeGenerations +
+      "|continueDca=" + (continueDcaAfterHedge ? "1" : "0") +
+      "|minCoverage=" + DoubleToString(minHedgeCoveragePercent, 12) +
+      "|targetCorridor=" + DoubleToString(targetRecoveryCorridorPips, 12);
+   return Recovery_Fnv1aTextPure(canonical);
+}
+
+uint Recovery_CurrentSemanticConfigFingerprint()
+{
+   return Recovery_SemanticConfigFingerprintPure(RecoveryMode_,
+                                                  RecoveryMagic_,
+                                                  RecoveryStartAfterDca_,
+                                                  HedgeGapPips_,
+                                                  HedgeTPPips_,
+                                                  HedgePartialClosePercent_,
+                                                  CoreCloseMode_,
+                                                  HedgeLockNetProfitPips_,
+                                                  HedgeLockSafetyBufferPips_,
+                                                  ReHedgeGapPips_,
+                                                  MaxHedgeGenerations_,
+                                                  ContinueDcaAfterHedge_,
+                                                  MinHedgeCoveragePercent_,
+                                                  TargetRecoveryCorridorPips_);
 }
 
 bool Recovery_ModeValid(const eRecoveryMode mode)
