@@ -1,7 +1,6 @@
 //+------------------------------------------------------------------+
-//| RecoveryExitCoordinator.mqh — T14 identity + T16 ARCS wrapper    |
-//| T13 remains pinned. T16 intercepts only semantics that conflict  |
-//| with intentional stacked over-hedge / generation ownership.      |
+//| RecoveryExitCoordinator.mqh — T16.2 ARCS exit/mutation wrapper   |
+//| T13 remains pinned. T16 owns stacked overlap topology explicitly.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_EXIT_COORDINATOR_T16_WRAPPER_MQH
 #define BD_RECOVERY_EXIT_COORDINATOR_T16_WRAPPER_MQH
@@ -24,6 +23,13 @@ private:
    bool IsT16Arcs() const
    {
       return RecoveryMode_ == recovery_ACTIVE && Recovery_T16UseStackEngine();
+   }
+
+   bool IsT16OverlapCycle(const int idx) const
+   {
+      return IsT16Arcs() && OverlapAfterHedge_ &&
+             m_cycle[idx].reason == recovery_EXIT_REASON_LEGACY_OVERLAP &&
+             (m_cycle[idx].active || m_cycle[idx].reconcileHold);
    }
 
    bool IsExpectedRecoveryLockSlT14(const eRecoveryCoreDirection dir,
@@ -83,12 +89,148 @@ private:
       return false;
    }
 
+   bool SubmitT16OverlapCoreClose(const int idx,
+                                  const ulong ticket,
+                                  const long ownerMagic,
+                                  string &why)
+   {
+      why = "";
+      if(ticket == 0 || !PositionSelectByTicket(ticket)) return false;
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      if(volume <= 0.0) return false;
+
+      // Normal EA Core is durable and Recovery-owned for the duration of this
+      // expected topology mutation. A deterministic no-effect broker reject is
+      // retryable; an ambiguous outcome remains fail-closed.
+      if(ownerMagic == (long)Magic)
+      {
+         eRecoveryCoreDirection dir = Direction(idx);
+         int key = Recovery_CycleKey(dir);
+         long units = VolumeStepUnits(volume);
+         if(!m_recovery.ArmDurableCommand(dir, EXEC_CMD_RECOVERY_CLOSE,
+                                          (long)Magic, ticket, units,
+                                          CoreMagicUnits(dir), 0.0,
+                                          0, 0, why))
+            return false;
+
+         bool sent = m_exec.ClosePositionVolumeOwned(ticket, volume,
+                                                     (long)Magic, key,
+                                                     EXEC_CMD_RECOVERY_CLOSE,
+                                                     EXEC_RECONCILE_FAIL_CLOSED);
+         if(sent) return true;
+
+         if(m_exec.HasReconcileRequired(key))
+         {
+            m_cycle[idx].active = false;
+            m_cycle[idx].reconcileHold = true;
+            why = "T16.2 Overlap Core close outcome ambiguous; reconciliation required";
+            return false;
+         }
+
+         m_recovery.CancelDurableCommand(dir);
+         Log_Warn("Recovery", "t162overlapreject" + (string)key,
+                  "T16.2 Overlap Core close bị broker từ chối với outcome xác định không có mutation; giữ cycle và retry");
+         why = "Overlap Core close rejected with no broker effect; retry later";
+         return true;
+      }
+
+      // When flag_Hand_Ord is enabled, BasketManager can include Magic 0.
+      // Preserve legacy owner-aware close, but keep the Overlap coordinator
+      // latched until that ticket is broker-observably gone.
+      bool sent = m_exec.ClosePosition(ticket);
+      if(sent)
+      {
+         m_cycle[idx].legacyPendingTicket = ticket;
+         return true;
+      }
+      why = "T16.2 Overlap manual-managed Core close request rejected";
+      return true;
+   }
+
+   bool DriveT16OverlapCycle(const int idx,
+                             const datetime now,
+                             string &why)
+   {
+      why = "";
+      if(!IsT16OverlapCycle(idx)) return false;
+      if(m_cycle[idx].reconcileHold && !m_cycle[idx].active)
+      {
+         why = "T16.2 Overlap mutation remains fail-closed pending explicit reconciliation";
+         return true;
+      }
+      if(!m_cycle[idx].active) return false;
+      if(LegacyTicketStillPending(idx)) return true;
+
+      eRecoveryCoreDirection dir = Direction(idx);
+      int key = Recovery_CycleKey(dir);
+      if(!m_recovery.ActiveReady())
+      {
+         m_cycle[idx].active = false;
+         m_cycle[idx].reconcileHold = true;
+         why = "T16.2 Overlap lost Recovery readiness during mutation";
+         return true;
+      }
+
+      if(m_recovery.HasDurableCommand(dir))
+      {
+         string durableWhy = "";
+         if(!m_recovery.ResolveDurableCommand(*m_exec, dir, now, durableWhy))
+         {
+            m_cycle[idx].active = false;
+            m_cycle[idx].reconcileHold = true;
+            why = durableWhy;
+            return true;
+         }
+      }
+
+      m_exec.ReconcileCycle(key);
+      if(m_exec.HasReconcileRequired(key))
+      {
+         m_cycle[idx].active = false;
+         m_cycle[idx].reconcileHold = true;
+         why = "T16.2 Overlap execution journal requires reconciliation";
+         return true;
+      }
+      if(m_exec.HasPendingForCycle(key)) return true;
+
+      ulong selectedTicket = 0;
+      long selectedOwner = 0;
+      if(SpecificTicketLive(idx, selectedTicket, selectedOwner))
+      {
+         SubmitT16OverlapCoreClose(idx, selectedTicket, selectedOwner, why);
+         return true;
+      }
+
+      // Both intended Overlap tickets are now broker-observably gone. No Hedge
+      // trim is performed: stacked Hedge>Core is intentional. Verify that Core
+      // reached the exact target computed at latch time before refreshing ARCS.
+      long currentCore = CoreMagicUnits(dir);
+      if(currentCore != m_cycle[idx].targetCoreUnits)
+      {
+         m_cycle[idx].active = false;
+         m_cycle[idx].reconcileHold = true;
+         why = "T16.2 Overlap Core units differ from expected post-pair target";
+         m_recovery.T16LatchExternalMutation(dir, why);
+         return true;
+      }
+
+      string refreshWhy = "";
+      if(!m_recovery.T16FinalizeExpectedOverlapMutation(*m_exec, dir, now, refreshWhy))
+      {
+         m_cycle[idx].active = false;
+         m_cycle[idx].reconcileHold = true;
+         why = "T16.2 post-Overlap ARCS refresh failed: " + refreshWhy;
+         return true;
+      }
+
+      Log_Info("Recovery", "T16.2 coordinated Overlap complete for " +
+               Recovery_DirectionName(dir) +
+               " — retained Hedge layers preserved; Core/Hedge metrics refreshed");
+      ResetCycle(idx);
+      return false;
+   }
+
 public:
-   // T16: a partial legacy/Overlap Core trim cannot be delegated to the T13
-   // cap rule because T13 defines Hedge>Core as excess. In ARCS stacked mode
-   // that over-hedge is intentional and layer-owned. Defer partial topology
-   // edits once ARCS owns exposure; full-side/account-wide risk exits still
-   // delegate to T13 and are allowed to flatten the whole Hedge stack first.
    eRecoveryExitCoordRequest BeginTicketClose(const eRecoveryCoreDirection dir,
                                               const ulong firstTicket,
                                               const ulong secondTicket,
@@ -99,10 +241,63 @@ public:
       {
          SRecoveryCycle cycle;
          m_recovery.GetCycle(dir, cycle);
-         if(m_recovery.T16HasExposure(dir) || cycle.state != recovery_CORE_ONLY)
+         bool ownsRecovery = m_recovery.T16HasExposure(dir) ||
+                             cycle.state != recovery_CORE_ONLY;
+
+         if(reason == recovery_EXIT_REASON_LEGACY_OVERLAP && ownsRecovery)
+         {
+            int idx = Index(dir);
+            if(!OverlapAfterHedge_)
+            {
+               Log_Warn("Recovery", "t16overlapoff" + (string)Recovery_CycleKey(dir),
+                        "Overlap sau Hedge đang TẮT; giữ nguyên Core trong Recovery cycle");
+               return recovery_EXIT_BLOCKED;
+            }
+            if(m_cycle[idx].reconcileHold) return recovery_EXIT_BLOCKED;
+            eRecoveryOverlapPolicy p = Recovery_OverlapPolicyPure(cycle.state);
+            if(p == recovery_OVERLAP_DEFER || !m_recovery.ActiveReady())
+            {
+               Log_Warn("Recovery", "t16overlapdefer" + (string)Recovery_CycleKey(dir),
+                        "T16.2 defer Overlap: Recovery đang ở mutation/lock/global/reconcile state");
+               return recovery_EXIT_BLOCKED;
+            }
+            if(p == recovery_OVERLAP_BYPASS && !m_recovery.T16HasExposure(dir))
+               return CRecoveryExitCoordinatorT13Base::BeginTicketClose(dir,
+                                                                        firstTicket,
+                                                                        secondTicket,
+                                                                        reason, now);
+            if(firstTicket == 0 && secondTicket == 0) return recovery_EXIT_BLOCKED;
+            if(m_cycle[idx].active) return recovery_EXIT_LATCHED;
+
+            long currentCore = CoreMagicUnits(dir);
+            long intendedCoreClose = CoreMagicUnitsForTicket(dir, firstTicket);
+            if(secondTicket != 0 && secondTicket != firstTicket)
+               intendedCoreClose += CoreMagicUnitsForTicket(dir, secondTicket);
+
+            m_cycle[idx].active          = true;
+            m_cycle[idx].reconcileHold   = false;
+            m_cycle[idx].kind            = recovery_EXIT_COORD_TICKETS;
+            m_cycle[idx].reason          = reason;
+            m_cycle[idx].targetCoreUnits = Recovery_ExitPostCoreUnits(currentCore,
+                                                                       intendedCoreClose);
+            m_cycle[idx].ticketFirst     = firstTicket;  // Strategy passes last first.
+            m_cycle[idx].ticketSecond    = secondTicket;
+            m_cycle[idx].ticketCount     = secondTicket != 0 && secondTicket != firstTicket ? 2 : 1;
+            m_cycle[idx].startedAt       = now;
+            Log_Info("Recovery", "T16.2 Overlap-after-Hedge latched for " +
+                     Recovery_DirectionName(dir) +
+                     " targetCore=" + DoubleToString(
+                        Recovery_UnitsToVolume(m_cycle[idx].targetCoreUnits,
+                                               SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP)), 2));
+            return recovery_EXIT_LATCHED;
+         }
+
+         // Non-Overlap partial topology edits remain forbidden under stacked
+         // ownership. Full-side/account-wide risk exits still use T13/T14.
+         if(ownsRecovery)
          {
             Log_Warn("Recovery", "t16partial" + (string)Recovery_CycleKey(dir),
-                     "T16 ARCS chặn đóng Core từng phần từ subsystem legacy: phải bảo toàn ownership G1/G2/... và stacked exposure");
+                     "T16 ARCS chặn đóng Core từng phần không phải Overlap: phải bảo toàn ownership G1/G2/... và stacked exposure");
             return recovery_EXIT_BLOCKED;
          }
       }
@@ -111,6 +306,29 @@ public:
                                                                secondTicket,
                                                                reason,
                                                                now);
+   }
+
+   bool Drive(const datetime now, string &why)
+   {
+      why = "";
+      if(!IsT16Arcs()) return CRecoveryExitCoordinatorT13Base::Drive(now, why);
+
+      // Account-wide emergency always preempts Overlap and uses proven base.
+      if(m_accountWidePending)
+         return CRecoveryExitCoordinatorT13Base::Drive(now, why);
+
+      bool hadOverlap = IsT16OverlapCycle(0) || IsT16OverlapCycle(1);
+      if(hadOverlap)
+      {
+         string w0 = "", w1 = "";
+         bool b0 = IsT16OverlapCycle(0) ? DriveT16OverlapCycle(0, now, w0) : false;
+         bool b1 = IsT16OverlapCycle(1) ? DriveT16OverlapCycle(1, now, w1) : false;
+         if(w0 != "") why = w0;
+         if(w1 != "") why = why == "" ? w1 : why + "; " + w1;
+         if(b0 || b1 || IsT16OverlapCycle(0) || IsT16OverlapCycle(1)) return true;
+         // Overlap completed this call; allow any unrelated base cleanup next.
+      }
+      return CRecoveryExitCoordinatorT13Base::Drive(now, why);
    }
 
    bool OnTradeTransaction(const MqlTradeTransaction &trans)
@@ -134,9 +352,6 @@ public:
                int idx = Index(dir);
                bool coordinatorOwned = m_accountWidePending || m_cycle[idx].active;
 
-               // T16 Broker-SL is generation/global owned. The ARCS engine must
-               // consume this deal so it can update layer cash/state. Do not
-               // classify an expected protective SL as external intervention.
                if(IsT16Arcs() && !coordinatorOwned &&
                   m_recovery.T16ExpectedBrokerSlDeal(trans.deal))
                {
@@ -156,10 +371,6 @@ public:
                }
             }
 
-            // T16 unknown/manual/broker mutation: never run the T13 automatic
-            // 'excess Hedge = Hedge-Core' trim because stacked Hedge>Core is a
-            // valid architecture state. Unknown topology is fail-closed and
-            // must be explicitly reconciled instead.
             if(IsT16Arcs() && mapped &&
                !m_accountWidePending && !m_cycle[Index(dir)].active &&
                Recovery_ExitExternalDealReason(reason))
@@ -173,8 +384,6 @@ public:
          }
       }
 
-      // Full-side/account-wide emergency exits and exact legacy contract keep
-      // the proven T13/T14 coordinator path.
       return CRecoveryExitCoordinatorT13Base::OnTradeTransaction(trans);
    }
 };
