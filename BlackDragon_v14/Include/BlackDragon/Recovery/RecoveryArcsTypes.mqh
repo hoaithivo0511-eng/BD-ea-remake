@@ -1,13 +1,11 @@
 //+------------------------------------------------------------------+
-//| RecoveryArcsTypes.mqh — T16 ARCS layer/cycle state model         |
+//| RecoveryArcsTypes.mqh — T16.1 ARCS layer/cycle state model       |
 //| One direction may own N LOCKED layers + at most one ACTIVE layer.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ARCS_TYPES_MQH
 #define BD_RECOVERY_ARCS_TYPES_MQH
 
 #include "RecoveryT16Config.mqh"
-
-#define BD_ARCS_MAX_LAYERS 16
 
 enum eArcsLayerState
 {
@@ -16,6 +14,7 @@ enum eArcsLayerState
    ARCS_LAYER_ACTIVE,
    ARCS_LAYER_TP_PENDING,
    ARCS_LAYER_LOCK_PENDING,
+   ARCS_LAYER_PROTECTIVE_CLOSE_PENDING,
    ARCS_LAYER_LOCKED,
    ARCS_LAYER_GLOBAL_PROTECTED,
    ARCS_LAYER_CLOSED
@@ -30,6 +29,7 @@ enum eArcsPhase
    ARCS_TP_PENDING,
    ARCS_CORE_FUNDING,
    ARCS_LOCK_PENDING,
+   ARCS_PROTECTIVE_CLOSE_WAIT,
    ARCS_LOCKED,
    ARCS_GLOBAL_PROTECT,
    ARCS_GLOBAL_ACTIVE,
@@ -58,6 +58,7 @@ struct SArcsLayer
    double          lockTargetPrice;
    bool            virtualSlArmed;
    double          virtualSlPrice;
+   datetime        protectiveCloseObservedAt;
    double          realizedFundingCash;
    double          realizedOtherCash;
 };
@@ -127,20 +128,21 @@ string Recovery_ArcsPhaseName(const eArcsPhase p)
 {
    switch(p)
    {
-      case ARCS_IDLE:             return "IDLE";
-      case ARCS_ARMED:            return "ARMED";
-      case ARCS_BUILDING:         return "BUILDING";
-      case ARCS_ACTIVE:           return "ACTIVE";
-      case ARCS_TP_PENDING:       return "TP_PENDING";
-      case ARCS_CORE_FUNDING:     return "CORE_FUNDING";
-      case ARCS_LOCK_PENDING:     return "LOCK_PENDING";
-      case ARCS_LOCKED:           return "LOCKED";
-      case ARCS_GLOBAL_PROTECT:   return "GLOBAL_PROTECT";
-      case ARCS_GLOBAL_ACTIVE:    return "GLOBAL_ACTIVE";
-      case ARCS_GLOBAL_CLOSING:   return "GLOBAL_CLOSING";
-      case ARCS_TRANSITION:       return "TRANSITION";
-      case ARCS_REVERSAL_HOLD:    return "REVERSAL_HOLD";
-      case ARCS_RECONCILE:        return "RECONCILE";
+      case ARCS_IDLE:                  return "IDLE";
+      case ARCS_ARMED:                 return "ARMED";
+      case ARCS_BUILDING:              return "BUILDING";
+      case ARCS_ACTIVE:                return "ACTIVE";
+      case ARCS_TP_PENDING:            return "TP_PENDING";
+      case ARCS_CORE_FUNDING:          return "CORE_FUNDING";
+      case ARCS_LOCK_PENDING:          return "LOCK_PENDING";
+      case ARCS_PROTECTIVE_CLOSE_WAIT: return "PROTECTIVE_CLOSE_WAIT";
+      case ARCS_LOCKED:                return "LOCKED";
+      case ARCS_GLOBAL_PROTECT:        return "GLOBAL_PROTECT";
+      case ARCS_GLOBAL_ACTIVE:         return "GLOBAL_ACTIVE";
+      case ARCS_GLOBAL_CLOSING:        return "GLOBAL_CLOSING";
+      case ARCS_TRANSITION:            return "TRANSITION";
+      case ARCS_REVERSAL_HOLD:         return "REVERSAL_HOLD";
+      case ARCS_RECONCILE:             return "RECONCILE";
    }
    return "UNKNOWN";
 }
@@ -157,9 +159,10 @@ eRecoveryState Recovery_ArcsPublicState(const eArcsPhase p)
       case ARCS_CORE_FUNDING:   return recovery_CORE_CLOSE_PENDING;
       case ARCS_LOCK_PENDING:   return recovery_HEDGE_LOCK_PENDING;
       case ARCS_LOCKED:         return recovery_HEDGE_LOCKED;
-      // Global protection is a risk-control phase. Expose it as PAUSE_SOFT so
-      // T7 never adds new Core DCA while the stack is waiting for/under a
-      // common Global SL, even when ContinueDcaAfterHedge_=true.
+      // Waiting for an already-observed protective close is a safe pause, not
+      // RECONCILE_REQUIRED. This prevents Core DCA/new mutation until DEAL_ADD
+      // consumes the exact broker SL identity.
+      case ARCS_PROTECTIVE_CLOSE_WAIT:
       case ARCS_GLOBAL_PROTECT:
       case ARCS_GLOBAL_ACTIVE:  return recovery_PAUSE_SOFT;
       case ARCS_GLOBAL_CLOSING: return recovery_GLOBAL_STOP;
@@ -198,6 +201,7 @@ bool Recovery_ArcsLayerStateHasExposure(const eArcsLayerState s)
 {
    return s == ARCS_LAYER_BUILDING || s == ARCS_LAYER_ACTIVE ||
           s == ARCS_LAYER_TP_PENDING || s == ARCS_LAYER_LOCK_PENDING ||
+          s == ARCS_LAYER_PROTECTIVE_CLOSE_PENDING ||
           s == ARCS_LAYER_LOCKED || s == ARCS_LAYER_GLOBAL_PROTECTED;
 }
 
@@ -205,6 +209,7 @@ bool Recovery_ArcsPhaseMutating(const eArcsPhase p)
 {
    return p == ARCS_BUILDING || p == ARCS_TP_PENDING ||
           p == ARCS_CORE_FUNDING || p == ARCS_LOCK_PENDING ||
+          p == ARCS_PROTECTIVE_CLOSE_WAIT ||
           p == ARCS_GLOBAL_PROTECT || p == ARCS_GLOBAL_CLOSING;
 }
 
