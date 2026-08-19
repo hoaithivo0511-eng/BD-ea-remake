@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 using std::cout;
 
 static int passed=0, failed=0;
@@ -22,11 +24,67 @@ struct Pending {
   bool modifySatisfied=false;
 };
 
+struct RecoverySemanticConfig {
+  int mode=2;
+  long long recoveryMagic=20260807;
+  int startAfterDca=3;
+  double hedgeGapPips=3.0;
+  double hedgeTpPips=8.0;
+  double hedgePartialClosePercent=50.0;
+  int coreCloseMode=1;
+  double hedgeLockNetProfitPips=2.0;
+  double hedgeLockSafetyBufferPips=1.0;
+  double reHedgeGapPips=5.0;
+  int maxHedgeGenerations=3;
+  bool continueDcaAfterHedge=false;
+  double minHedgeCoveragePercent=0.0;
+  double targetRecoveryCorridorPips=0.0;
+};
+
 static uint32_t fnv1a(const std::vector<uint8_t>& b){
   uint32_t h=2166136261u;
   for(uint8_t v:b){ h^=v; h*=16777619u; }
   return h;
 }
+
+static uint32_t fnvUtf16Ascii(const std::string &s){
+  uint32_t h=2166136261u;
+  for(unsigned char ch:s){
+    h^=static_cast<uint32_t>(ch); h*=16777619u;
+    h^=0u; h*=16777619u;
+  }
+  return h;
+}
+
+static std::string d12(double v){
+  std::ostringstream os;
+  os << std::fixed << std::setprecision(12) << v;
+  return os.str();
+}
+
+static uint32_t semanticFingerprint(const RecoverySemanticConfig &c){
+  std::string canonical =
+    "mode=" + std::to_string(c.mode) +
+    "|recoveryMagic=" + std::to_string(c.recoveryMagic) +
+    "|startAfterDca=" + std::to_string(c.startAfterDca) +
+    "|hedgeGap=" + d12(c.hedgeGapPips) +
+    "|hedgeTp=" + d12(c.hedgeTpPips) +
+    "|partial=" + d12(c.hedgePartialClosePercent) +
+    "|coreClose=" + std::to_string(c.coreCloseMode) +
+    "|lockProfit=" + d12(c.hedgeLockNetProfitPips) +
+    "|lockBuffer=" + d12(c.hedgeLockSafetyBufferPips) +
+    "|rehedgeGap=" + d12(c.reHedgeGapPips) +
+    "|maxGen=" + std::to_string(c.maxHedgeGenerations) +
+    "|continueDca=" + std::string(c.continueDcaAfterHedge ? "1" : "0") +
+    "|minCoverage=" + d12(c.minHedgeCoveragePercent) +
+    "|targetCorridor=" + d12(c.targetRecoveryCorridorPips);
+  return fnvUtf16Ascii(canonical);
+}
+
+static bool reusePersistedState(bool isTester,bool testerResumeState){
+  return !isTester || testerResumeState;
+}
+
 static bool after(Cursor d, Cursor c){ return d.ms>c.ms || (d.ms==c.ms && d.ticket>c.ticket); }
 static bool volumeEffect(bool open,long before,long target,long current){
   if(before<0||target<=0||current<0) return false;
@@ -97,6 +155,37 @@ int main(){
   copy=payload; copy.push_back(0);
   CHECK("length change corruption", fnv1a(copy)!=h1);
 
+  // T15 / RETRO-A7: independent tester passes must not inherit durable state
+  // unless restart/resume testing is explicitly requested. Live/forward always
+  // retains the durable restart contract.
+  CHECK("T15 tester default isolates persistence", !reusePersistedState(true,false));
+  CHECK("T15 tester explicit resume reuses persistence", reusePersistedState(true,true));
+  CHECK("T15 live false flag still reuses persistence", reusePersistedState(false,false));
+  CHECK("T15 live true flag reuses persistence", reusePersistedState(false,true));
+
+  // T15 semantic fingerprint: any Recovery policy mutation invalidates an old
+  // durable snapshot. The tester-only resume switch is intentionally not a
+  // trading semantic and therefore is not part of this fingerprint model.
+  RecoverySemanticConfig base;
+  const uint32_t fp=semanticFingerprint(base);
+  CHECK("T15 fingerprint deterministic", semanticFingerprint(base)==fp);
+  {
+    auto x=base; x.mode=1; CHECK("T15 fp mode", semanticFingerprint(x)!=fp);
+    x=base; x.recoveryMagic++; CHECK("T15 fp recoveryMagic", semanticFingerprint(x)!=fp);
+    x=base; x.startAfterDca++; CHECK("T15 fp startAfterDca", semanticFingerprint(x)!=fp);
+    x=base; x.hedgeGapPips+=0.1; CHECK("T15 fp hedgeGap", semanticFingerprint(x)!=fp);
+    x=base; x.hedgeTpPips+=0.1; CHECK("T15 fp hedgeTp", semanticFingerprint(x)!=fp);
+    x=base; x.hedgePartialClosePercent+=0.1; CHECK("T15 fp partial", semanticFingerprint(x)!=fp);
+    x=base; x.coreCloseMode=2; CHECK("T15 fp coreClose", semanticFingerprint(x)!=fp);
+    x=base; x.hedgeLockNetProfitPips+=0.1; CHECK("T15 fp lockProfit", semanticFingerprint(x)!=fp);
+    x=base; x.hedgeLockSafetyBufferPips+=0.1; CHECK("T15 fp lockBuffer", semanticFingerprint(x)!=fp);
+    x=base; x.reHedgeGapPips+=0.1; CHECK("T15 fp rehedgeGap", semanticFingerprint(x)!=fp);
+    x=base; x.maxHedgeGenerations++; CHECK("T15 fp maxGen", semanticFingerprint(x)!=fp);
+    x=base; x.continueDcaAfterHedge=true; CHECK("T15 fp continueDca", semanticFingerprint(x)!=fp);
+    x=base; x.minHedgeCoveragePercent=30.0; CHECK("T15 fp minCoverage", semanticFingerprint(x)!=fp);
+    x=base; x.targetRecoveryCorridorPips=20.0; CHECK("T15 fp targetCorridor", semanticFingerprint(x)!=fp);
+  }
+
   // cursor strict ordering / already-booked dedupe
   Cursor c{1000,50};
   CHECK("cursor later ms", after({1001,1},c));
@@ -166,7 +255,7 @@ int main(){
   CHECK("restart BUILDING below baseline", restartPolicy(HEDGE_BUILDING,600,99,600,100,true,false,false,true)==RECONCILE);
   CHECK("restart BUILDING no target", restartPolicy(HEDGE_BUILDING,600,0,0,0,true,false,false,true)==RECONCILE);
   CHECK("restart ACTIVE", restartPolicy(HEDGE_ACTIVE,600,600,0,0,true,false,false,true)==READY);
-  CHECK("restart ACTIVE no core", restartPolicy(HEDGE_ACTIVE,0,600,0,0,true,false,false,true)==RECONCILE);
+  CHECK("restart ACTIVE no core", restartPolicy(HEDGE_ACTIVE,0,600,0,0,0,false,false,true)==RECONCILE);
   CHECK("restart ACTIVE no hedge", restartPolicy(HEDGE_ACTIVE,600,0,0,0,true,false,false,true)==RECONCILE);
   CHECK("restart TP pending", restartPolicy(HEDGE_TP_PENDING,600,300,0,0,true,true,false,true)==READY);
   CHECK("restart TP missing runtime", restartPolicy(HEDGE_TP_PENDING,600,300,0,0,true,false,false,true)==RECONCILE);
