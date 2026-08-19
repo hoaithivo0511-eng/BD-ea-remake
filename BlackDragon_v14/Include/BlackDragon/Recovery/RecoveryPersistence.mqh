@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| RecoveryPersistence.mqh — T9 durable Recovery state store        |
+//| RecoveryPersistence.mqh — T15 durable Recovery state store       |
 //| Invariants: Recovery OFF never mutates this file; payload is     |
-//|             versioned, checksummed and staged temp-to-final replaced.      |
-//| Depends on: Types.mqh for execution command metadata.            |
+//|             versioned, checksummed and staged temp-to-final.     |
+//|             Tester passes are isolated unless resume is explicit.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_PERSISTENCE_MQH
 #define BD_RECOVERY_PERSISTENCE_MQH
@@ -12,7 +12,7 @@
 #include "RecoveryExit.mqh"
 
 #define BD_RECOVERY_PERSIST_MAGIC   0x39524442
-#define BD_RECOVERY_PERSIST_VERSION 1
+#define BD_RECOVERY_PERSIST_VERSION 2
 
 enum eRecoveryPersistLoadStatus
 {
@@ -55,6 +55,7 @@ struct SRecoveryPersistPayload
    double                   volumeStep;
    double                   tickSize;
    int                      startAfterDca;
+   uint                     semanticConfigHash;
    datetime                 savedAt;
    long                     saveSequence;
    ulong                    lastDealTicket;
@@ -173,6 +174,8 @@ bool Recovery_PersistPayloadIdentityValid(const SRecoveryPersistPayload &p,
       p.coreMagic != coreMagic || p.recoveryMagic != recoveryMagic ||
       p.startAfterDca != startAfterDca)
       return false;
+   if(p.semanticConfigHash != Recovery_CurrentSemanticConfigFingerprint())
+      return false;
    if(MathAbs(p.volumeStep - volumeStep) > 1e-12 || MathAbs(p.tickSize - tickSize) > 1e-12)
       return false;
    if(!Recovery_PersistCycleBasicValid(p.buyCycle, recovery_CORE_BUY) ||
@@ -237,6 +240,17 @@ public:
    {
       why = "";
       if(m_file == "") { why = "Recovery persistence not initialized"; return recovery_PERSIST_IO_ERROR; }
+
+      // RETRO-A7 / T15: Strategy Tester starts clean by default. A tester
+      // restart/reconcile scenario must opt in explicitly with
+      // RecoveryTesterResumeState_=true. Live/forward runtime is unchanged.
+      if(!Recovery_ShouldReusePersistedStatePure((bool)MQLInfoInteger(MQL_TESTER),
+                                                 RecoveryTesterResumeState_))
+      {
+         why = "Strategy Tester isolation: persisted Recovery state intentionally ignored";
+         return recovery_PERSIST_NOT_FOUND;
+      }
+
       if(!FileIsExist(m_file)) return recovery_PERSIST_NOT_FOUND;
 
       int h = FileOpen(m_file, FILE_READ|FILE_BIN);
@@ -302,6 +316,13 @@ public:
       if(m_file == "") { why = "Recovery persistence not initialized"; return false; }
       FileDelete(m_temp);
 
+      // The engine owns broker/FSM state; persistence owns schema identity.
+      // Stamp the current semantic hash at the final serialization boundary so
+      // every durable snapshot is bound to the exact Recovery policy in force.
+      SRecoveryPersistPayload normalized;
+      normalized = payload;
+      normalized.semanticConfigHash = Recovery_CurrentSemanticConfigFingerprint();
+
       SRecoveryPersistHeader header;
       header.magic = BD_RECOVERY_PERSIST_MAGIC;
       header.version = BD_RECOVERY_PERSIST_VERSION;
@@ -311,7 +332,7 @@ public:
       int h = FileOpen(m_temp, FILE_WRITE|FILE_BIN);
       if(h == INVALID_HANDLE) { why = "cannot create Recovery temp state"; return false; }
       uint hw = FileWriteStruct(h, header);
-      uint pw = FileWriteStruct(h, payload);
+      uint pw = FileWriteStruct(h, normalized);
       FileFlush(h);
       FileClose(h);
       if(hw != sizeof(SRecoveryPersistHeader) || pw != sizeof(SRecoveryPersistPayload))
