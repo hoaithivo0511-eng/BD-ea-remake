@@ -157,8 +157,11 @@ eRecoveryState Recovery_ArcsPublicState(const eArcsPhase p)
       case ARCS_CORE_FUNDING:   return recovery_CORE_CLOSE_PENDING;
       case ARCS_LOCK_PENDING:   return recovery_HEDGE_LOCK_PENDING;
       case ARCS_LOCKED:         return recovery_HEDGE_LOCKED;
+      // Global protection is a risk-control phase. Expose it as PAUSE_SOFT so
+      // T7 never adds new Core DCA while the stack is waiting for/under a
+      // common Global SL, even when ContinueDcaAfterHedge_=true.
       case ARCS_GLOBAL_PROTECT:
-      case ARCS_GLOBAL_ACTIVE:  return recovery_HEDGE_LOCKED;
+      case ARCS_GLOBAL_ACTIVE:  return recovery_PAUSE_SOFT;
       case ARCS_GLOBAL_CLOSING: return recovery_GLOBAL_STOP;
       case ARCS_TRANSITION:     return recovery_PAUSE_SOFT;
       case ARCS_REVERSAL_HOLD:  return recovery_PAUSE_SOFT;
