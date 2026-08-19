@@ -10,11 +10,6 @@
 #include <BlackDragon/EntryFilters.mqh>
 #include <BlackDragon/BasketManager.mqh>
 
-input group "17 — DCA khi Recovery đang hoạt động"
-input bool   ContinueDcaAfterHedge_       = false; // Tiếp tục DCA Core sau khi Hedge đã hoạt động; false = khóa DCA
-input double MinHedgeCoveragePercent_     = 0.0;   // Coverage Hedge tối thiểu để cho phép DCA (%); 0 = tắt điều kiện
-input double TargetRecoveryCorridorPips_  = 0.0;   // Hành lang lợi nhuận mục tiêu (pip); đạt mục tiêu thì dừng thêm DCA; 0 = tắt
-
 bool Recovery_ValidateDcaConfig(const eRecoveryMode mode,
                                 const double minCoveragePercent,
                                 const double targetCorridorPips,
@@ -194,6 +189,18 @@ bool Recovery_ReadDcaHedgeMetrics(const string symbol,
    return netBE > 0.0;
 }
 
+// RETRO-A2: a Strategy Tester pass that reaches an entry/DCA gate while
+// Recovery ACTIVE is still not ready has no valid behavioral evidence to
+// collect. Stop that pass instead of emitting the same warning for months of
+// modelled time. Live/forward runtime remains fail-closed and keeps running so
+// higher-scope risk/exit handling is still available.
+void Recovery_StopTesterOnStartupBlock(const string scope)
+{
+   if(!MQLInfoInteger(MQL_TESTER)) return;
+   Log_Error("Recovery", "Strategy Tester stopped: Recovery ACTIVE startup is not reconciled/ready (" + scope + ")");
+   TesterStop();
+}
+
 // ACTIVE startup gate for automated NEW SERIES. OFF/SHADOW are exact no-ops.
 // T11: a fail-closed readiness block must be visible in Journal rather than
 // silently consuming an otherwise valid signal.
@@ -210,12 +217,14 @@ public:
       {
          Log_Warn("Recovery", "newseriesgate" + (string)dir,
                   "new Core series blocked: Recovery engine is unavailable");
+         Recovery_StopTesterOnStartupBlock("new-series engine unavailable");
          return false;
       }
       if(!m_recovery.ActiveReady())
       {
          Log_Warn("Recovery", "newseriesgate" + (string)dir,
                   "new Core series blocked: Recovery ACTIVE is not reconciled/ready");
+         Recovery_StopTesterOnStartupBlock("new-series gate");
          return false;
       }
       return true;
@@ -246,12 +255,14 @@ public:
       {
          Log_Warn("Recovery", "dcagate" + (string)dir,
                   "Core DCA blocked: Recovery engine/basket adapter unavailable");
+         Recovery_StopTesterOnStartupBlock("DCA adapter unavailable");
          return false;
       }
       if(!m_recovery.ActiveReady())
       {
          Log_Warn("Recovery", "dcagate" + (string)dir,
                   "Core DCA blocked: Recovery ACTIVE is not reconciled/ready");
+         Recovery_StopTesterOnStartupBlock("DCA gate");
          return false;
       }
 
