@@ -1,4 +1,4 @@
-name: Verify Recovery T14-T16 Exact Tree
+name: Verify Recovery T14-T16.2 Exact Tree
 
 on:
   pull_request:
@@ -36,7 +36,7 @@ jobs:
                   recovery_t7_dca_suite.cpp recovery_t8_coord_suite.cpp \
                   recovery_t9_persistence_suite.cpp recovery_t10_runtime_guard_suite.cpp \
                   execution_t14_identity_suite.cpp recovery_t16_arcs_suite.cpp \
-                  recovery_t16_event_order_suite.cpp)
+                  recovery_t16_event_order_suite.cpp recovery_t162_overlap_slreject_suite.cpp)
           for src in "${suites[@]}"; do
             echo "::group::$src"
             exe="/tmp/${src%.cpp}"
@@ -45,7 +45,7 @@ jobs:
             echo '::endgroup::'
           done
 
-      - name: Verify T14-T16.1 source invariants
+      - name: Verify T14-T16.2 source invariants
         shell: python
         run: |
           from pathlib import Path
@@ -56,22 +56,27 @@ jobs:
           t=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16Config.mqh').read_text(encoding='utf-8')
           a=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh').read_text(encoding='utf-8')
           ah=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh').read_text(encoding='utf-8')
+          af=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh').read_text(encoding='utf-8')
           at=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsTypes.mqh').read_text(encoding='utf-8')
           ap=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistence.mqh').read_text(encoding='utf-8')
           assert all(x in e for x in ['Journal_OpenIdentityResolved','Journal_CorrelatedOpenVolume','targetVolume immutable','flat-account journal blocker:','requestId=','serverOrder=','serverDeal='])
           assert 'Recovery_T14PendingVolumeEffectConfirmed' in r and 'RecoveryEngineT13Base.mqh' in r
           assert 'CRecoveryArcsStack' in r and 'Recovery_T16UseStackEngine' in r
+          assert 'T16FinalizeExpectedOverlapMutation' in r
           assert 'IsExpectedRecoveryLockSlT14' in c and 'T16ExpectedBrokerSlDeal' in c and 'RecoveryExitCoordinatorT13Base.mqh' in c
+          assert 'OverlapAfterHedge_' in c and 'DriveT16OverlapCycle' in c and 'retained Hedge layers preserved' in c
           assert 'Recovery_ProtectiveSlIdentityPure' in p
           assert 'HedgeVolumePercent_' in t and 'ARCS_XEP_LOP' in t and 'SL_BROKER' in t and 'SL_VIRTUAL' in t
+          assert 'OverlapAfterHedge_' in t and 'Recovery_T162ModifyDispositionPure' in t and 'Recovery_T162PostOverlapGenerationUnitsPure' in t
           assert 'Recovery_T16NewGenerationUnitsPure' in t and 'MathFloor' in t
           assert 'BD_ARCS_MAX_LAYERS 64' in t and 'MaxHedgeGenerations_ > BD_ARCS_MAX_LAYERS' in t
           assert 'ARCS_LAYER_LOCKED' in a and 'ARCS_GLOBAL_ACTIVE' in a and 'ARCS_TRANSITION' in a
           assert 'ARCS_LAYER_PROTECTIVE_CLOSE_PENDING' in at and 'ARCS_PROTECTIVE_CLOSE_WAIT' in at
-          assert 'Exec_T14ModifyProofMatches' in ah
-          assert 'waiting exact DEAL_ADD before next generation' in ah
+          assert 'Exec_T14ModifyProofMatches' in ah and 'waiting exact DEAL_ADD before next generation' in ah
+          assert 'FreshBrokerTick' in af and 'RECOVERY_MODIFY_DEFER_NO_EFFECT' in af
+          assert 'FinalizeExpectedOverlapMutation' in af and 'post-Overlap ARCS live-book mismatch' in af
           assert 'BD_ARCS_PERSIST_VERSION 4' in ap and 'ARCSv4_' in ap and 'Recovery_T16SemanticFingerprint' in ap
-          print('T14-T16.1 static integration gates PASS')
+          print('T14-T16.2 static integration gates PASS')
 
       - name: Record exact source identity
         shell: bash
@@ -125,10 +130,10 @@ jobs:
             }
           }
 
-      - name: Compile exact-tree targets T14-T16.1
+      - name: Compile exact-tree targets T14-T16.2
         shell: pwsh
         run: |
-          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t16"
+          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t162"
           New-Item -ItemType Directory -Force -Path $build | Out-Null
           $targets=@(
             @{N='RunTests';S="$mql5\Scripts\BlackDragon\Tests\RunTests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunTests.ex5"},
@@ -151,18 +156,18 @@ jobs:
           if($head -ne $env:SOURCE_SHA){throw 'provenance HEAD mismatch'}
           $ea=Join-Path $build 'BlackDragon.ex5'; $eaHash=(Get-FileHash $ea -Algorithm SHA256).Hash.ToLowerInvariant()
           "HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$eaHash`n" | Out-File "$build\PROVENANCE.txt" -Encoding utf8
-          Write-Host "T16.1 MetaEditor exact-tree compile PASS: 0 errors / 0 warnings"
+          Write-Host "T16.2 MetaEditor exact-tree compile PASS: 0 errors / 0 warnings"
           Write-Host "HEAD=$head TREE=$tree BlackDragon.ex5 SHA256=$eaHash"
 
       - name: Execute exact native MT5 scripts
         shell: pwsh
         run: |
-          $build="$env:GITHUB_WORKSPACE\build-t16"
+          $build="$env:GITHUB_WORKSPACE\build-t162"
           $tests=@(
             @{N='RunTests';P='BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed';E=246},
             @{N='RunRecoveryMutationTests';P='Recovery T13 mutation policy tests:\s*(\d+) passed,\s*(\d+) failed';E=26},
             @{N='RunRecoveryIdentityTests';P='Recovery T14 identity tests:\s*(\d+) passed,\s*(\d+) failed';E=17},
-            @{N='RunRecoveryArcsTests';P='Recovery T16 ARCS tests:\s*(\d+) passed,\s*(\d+) failed';E=25}
+            @{N='RunRecoveryArcsTests';P='Recovery T16 ARCS tests:\s*(\d+) passed,\s*(\d+) failed';E=33}
           )
           foreach($t in $tests) {
             Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -185,21 +190,21 @@ jobs:
             if($pass -ne $t.E -or $fail -ne 0 -or $raw -notmatch 'ALL GREEN'){throw "$($t.N): expected $($t.E)/0 got $pass/$fail"}
             Write-Host "$($t.N): native PASS $pass/0"
           }
-          Write-Host 'T16.1 exact native gates PASS: legacy 246/0; T13 mutation 26/0; T14 identity 17/0; T16 ARCS 25/0'
+          Write-Host 'T16.2 exact native gates PASS: legacy 246/0; T13 mutation 26/0; T14 identity 17/0; T16.2 ARCS 33/0'
 
-      - name: Package exact T16.1 evidence
+      - name: Package exact T16.2 evidence
         shell: pwsh
         run: |
-          Compress-Archive "$env:GITHUB_WORKSPACE\build-t16\*" "$env:GITHUB_WORKSPACE\BlackDragon-T16-evidence.zip" -Force
-          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T16-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "PACKAGE_SHA256=$h" | Add-Content "$env:GITHUB_WORKSPACE\build-t16\PROVENANCE.txt"
+          Compress-Archive "$env:GITHUB_WORKSPACE\build-t162\*" "$env:GITHUB_WORKSPACE\BlackDragon-T16.2-evidence.zip" -Force
+          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T16.2-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "PACKAGE_SHA256=$h" | Add-Content "$env:GITHUB_WORKSPACE\build-t162\PROVENANCE.txt"
           Write-Host "PACKAGE_SHA256=$h"
 
-      - name: Upload exact T16.1 evidence
+      - name: Upload exact T16.2 evidence
         uses: actions/upload-artifact@v4
         with:
-          name: blackdragon-t16-exact-tree
+          name: blackdragon-t162-exact-tree
           path: |
-            build-t16/
-            BlackDragon-T16-evidence.zip
+            build-t162/
+            BlackDragon-T16.2-evidence.zip
           if-no-files-found: error
