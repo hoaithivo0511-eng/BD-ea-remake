@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T14 identity + T16 ARCS compatibility layer|
+//| RecoveryEngine.mqh — T14 identity + T16.2 ARCS compatibility    |
 //| Exact T13/T14 engine remains available for the legacy contract.  |
-//| T16 routes new sizing/stack/SL semantics into CRecoveryArcsStack.|
+//| T16 routes new sizing/stack/SL/Overlap semantics into ARCS.      |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
 #define BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
@@ -232,6 +232,19 @@ public:
    {
       if(UseT16()) return m_arcs.FinalizeConfirmedSideMutation(exec, dir, now, why);
       return CRecoveryEngineT15Base::FinalizeConfirmedSideMutation(exec, dir, now, why);
+   }
+
+   bool T16FinalizeExpectedOverlapMutation(CExecutionLayer &exec,
+                                           const eRecoveryCoreDirection dir,
+                                           const datetime now,
+                                           string &why)
+   {
+      if(!UseT16())
+      {
+         why = "T16 ARCS engine is not active";
+         return false;
+      }
+      return m_arcs.FinalizeExpectedOverlapMutation(exec, dir, now, why);
    }
 
    bool T16HasExposure(const eRecoveryCoreDirection dir) const
