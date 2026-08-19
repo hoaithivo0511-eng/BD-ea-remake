@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RunRecoveryArcsTests.mq5 — T16 native pure ARCS policy tests     |
+//| RunRecoveryArcsTests.mq5 — T16.2 native pure ARCS policy tests   |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Recovery/RecoveryT16Config.mqh>
@@ -32,10 +32,9 @@ void OnStart()
    Check("ARCS ignores retained overhedge",
          Recovery_T16NewGenerationUnitsPure(ARCS_XEP_LOP,75,100,100.0)==75);
 
-   // Canonical source-of-truth sequence after G1=1.00 reaches TP.
    long g1Close=Recovery_PartialCloseTargetUnits(100,50.0,1);
    long g1Remain=100-g1Close;
-   long coreRemain=75; // owner example: +250c funds 0.25 of Core 1.00
+   long coreRemain=75;
    long g2=Recovery_T16NewGenerationUnitsPure(ARCS_XEP_LOP,coreRemain,g1Remain,100.0);
    Check("oracle G1 partial50",g1Close==50);
    Check("oracle G1 retained50",g1Remain==50);
@@ -43,8 +42,6 @@ void OnStart()
    Check("oracle total Hedge125",g1Remain+g2==125);
    Check("oracle net SELL50",g1Remain+g2-coreRemain==50);
 
-   // Active-generation TP scope: G2=.75 => 50% floors .37. It must not use
-   // aggregate G1 .50 + G2 .75 (=1.25 => .62).
    Check("active G2 partial50 floors37",
          Recovery_PartialCloseTargetUnits(75,50.0,1)==37);
    Check("aggregate forbidden comparison is62",
@@ -74,6 +71,24 @@ void OnStart()
    Check("BUY Global SL chooses highest all-layer-safe target",
          MathAbs(buyGlobal-4210.3)<1e-9);
 
+   Check("modify accepted -> accepted",
+         Recovery_T162ModifyDispositionPure(true,false)==RECOVERY_MODIFY_ACCEPTED);
+   Check("explicit reject -> defer no effect",
+         Recovery_T162ModifyDispositionPure(false,false)==RECOVERY_MODIFY_DEFER_NO_EFFECT);
+   Check("ambiguous reject -> reconcile",
+         Recovery_T162ModifyDispositionPure(false,true)==RECOVERY_MODIFY_RECONCILE);
+
+   Check("post-Overlap fresh Core80 x115 ->92",
+         Recovery_T162PostOverlapGenerationUnitsPure(ARCS_XEP_LOP,80,50,115.0)==92);
+   Check("stale pre-Overlap Core100 would be115",
+         Recovery_T162PostOverlapGenerationUnitsPure(ARCS_XEP_LOP,100,50,115.0)==115);
+   Check("balanced post-Overlap Core80 existing50 ->42",
+         Recovery_T162PostOverlapGenerationUnitsPure(HEDGE_CAN_BANG,80,50,115.0)==42);
+   Check("post-Overlap flat Core ->0",
+         Recovery_T162PostOverlapGenerationUnitsPure(ARCS_XEP_LOP,0,50,115.0)==0);
+   Check("canonical post-Overlap Core75 x100 ->75",
+         Recovery_T162PostOverlapGenerationUnitsPure(ARCS_XEP_LOP,75,50,100.0)==75);
+
    PrintFormat("Recovery T16 ARCS tests: %d passed, %d failed",g_pass,g_fail);
-   if(g_fail==0) Print("ALL GREEN — T16 ARCS stacked sizing/SL policy passed.");
+   if(g_fail==0) Print("ALL GREEN — T16.2 ARCS sizing/SL reject/Overlap refresh policy passed.");
 }
