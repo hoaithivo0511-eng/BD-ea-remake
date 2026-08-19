@@ -1,18 +1,18 @@
 //+------------------------------------------------------------------+
-//| RecoveryArcsStackHardened.mqh — T16 restart/SL hardening wrapper |
-//| Keeps the core stacked engine readable while independently       |
-//| enforcing monotonic layer ownership across protective closes.    |
+//| RecoveryArcsStackHardened.mqh — T16.1 event-order/SL hardening   |
+//| Prevents: broker SL effect -> premature Gnext -> late DEAL_ADD   |
+//| being misclassified as manual/external mutation.                 |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ARCS_STACK_HARDENED_MQH
 #define BD_RECOVERY_ARCS_STACK_HARDENED_MQH
 
-// Expose T16 implementation internals only to this compatibility hardening
-// layer. The source class is renamed exactly like the T14/T15 wrappers.
 #define private protected
 #define CRecoveryArcsStack CRecoveryArcsStackBase
 #include "RecoveryArcsStack.mqh"
 #undef CRecoveryArcsStack
 #undef private
+
+#define BD_ARCS_PROTECTIVE_WAIT_TIMEOUT_SEC 10
 
 struct SArcsHardeningCloseDeal
 {
@@ -21,12 +21,67 @@ struct SArcsHardeningCloseDeal
    long   type;
    long   reason;
    double programmedSl;
+   double dealPrice;
    double volume;
 };
 
 class CRecoveryArcsStack : public CRecoveryArcsStackBase
 {
 private:
+   bool RecoveryPositionIdentity(const ulong positionId,
+                                 int &generation,
+                                 ulong &positionTicket) const
+   {
+      generation = -1;
+      positionTicket = 0;
+      if(positionId == 0 || !HistorySelectByPosition(positionId)) return false;
+
+      ulong oldestDeal = 0;
+      long oldestMsc = 0;
+      long owner = 0;
+      int g = -1;
+      ulong openingOrder = 0;
+      for(int i = 0; i < HistoryDealsTotal(); i++)
+      {
+         ulong deal = HistoryDealGetTicket(i);
+         if(deal == 0 || HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol) continue;
+         long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+         if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
+         long tmsc = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
+         if(oldestDeal == 0 || tmsc < oldestMsc ||
+            (tmsc == oldestMsc && deal < oldestDeal))
+         {
+            oldestDeal = deal;
+            oldestMsc = tmsc;
+            owner = HistoryDealGetInteger(deal, DEAL_MAGIC);
+            openingOrder = (ulong)HistoryDealGetInteger(deal, DEAL_ORDER);
+            g = Recovery_ArcsGenerationFromComment(HistoryDealGetString(deal, DEAL_COMMENT));
+         }
+      }
+      if(owner != (long)RecoveryMagic_ || g < 1) return false;
+      generation = g;
+      positionTicket = openingOrder;
+      return true;
+   }
+
+   bool DealDirection(const long dealType,
+                      eRecoveryCoreDirection &dir) const
+   {
+      // Closing a SELL Recovery Hedge is a BUY deal => BUY Core cycle.
+      if(dealType == DEAL_TYPE_BUY)
+      {
+         dir = recovery_CORE_BUY;
+         return true;
+      }
+      // Closing a BUY Recovery Hedge is a SELL deal => SELL Core cycle.
+      if(dealType == DEAL_TYPE_SELL)
+      {
+         dir = recovery_CORE_SELL;
+         return true;
+      }
+      return false;
+   }
+
    bool IsExpectedPersistedProtectiveClose(const eRecoveryCoreDirection dir,
                                            const SArcsLayer &layer,
                                            const SArcsHardeningCloseDeal &d) const
@@ -44,9 +99,6 @@ private:
          return MathAbs(d.programmedSl - target) <= tol;
       }
 
-      // Virtual SL never exists at broker. Recovery-owned close requests use
-      // DEAL_REASON_EXPERT. Persisted virtualSlArmed + generation ownership is
-      // required; manual/mobile/random closes remain fail-closed.
       return HedgeSLMode_ == SL_VIRTUAL && layer.virtualSlArmed &&
              d.reason == DEAL_REASON_EXPERT;
    }
@@ -84,7 +136,8 @@ private:
          GetLayer(dir, li, layer);
          if(!layer.used || layer.remainingUnits <= 0) continue;
          if(layer.state != ARCS_LAYER_LOCKED &&
-            layer.state != ARCS_LAYER_GLOBAL_PROTECTED)
+            layer.state != ARCS_LAYER_GLOBAL_PROTECTED &&
+            layer.state != ARCS_LAYER_PROTECTIVE_CLOSE_PENDING)
             continue;
 
          long live = Recovery_ArcsLayerUnits(dir, layer.generation, m_volumeStep);
@@ -101,53 +154,29 @@ private:
          {
             ulong deal = deals[k];
             if(!HistoryDealSelect(deal)) continue;
-            long directMagic = HistoryDealGetInteger(deal, DEAL_MAGIC);
             ulong positionId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
-            long type = HistoryDealGetInteger(deal, DEAL_TYPE);
-            long reason = HistoryDealGetInteger(deal, DEAL_REASON);
-            double programmedSl = HistoryDealGetDouble(deal, DEAL_SL);
-            double volume = HistoryDealGetDouble(deal, DEAL_VOLUME);
-
-            long owner = directMagic;
-            if(owner != (long)RecoveryMagic_ && positionId != 0 &&
-               HistorySelectByPosition(positionId))
-            {
-               ulong oldest = 0;
-               long oldestMsc = 0;
-               for(int h = 0; h < HistoryDealsTotal(); h++)
-               {
-                  ulong od = HistoryDealGetTicket(h);
-                  if(od == 0 || HistoryDealGetString(od, DEAL_SYMBOL) != _Symbol) continue;
-                  long oe = HistoryDealGetInteger(od, DEAL_ENTRY);
-                  if(oe != DEAL_ENTRY_IN && oe != DEAL_ENTRY_INOUT) continue;
-                  long tm = HistoryDealGetInteger(od, DEAL_TIME_MSC);
-                  if(oldest == 0 || tm < oldestMsc || (tm == oldestMsc && od < oldest))
-                  {
-                     oldest = od;
-                     oldestMsc = tm;
-                     owner = HistoryDealGetInteger(od, DEAL_MAGIC);
-                  }
-               }
-            }
-            if(owner != (long)RecoveryMagic_ || positionId == 0) continue;
-
-            int generation = Recovery_ArcsGenerationFromPositionHistory(positionId);
-            if(generation != layer.generation) continue;
+            int generation = -1;
+            ulong positionTicket = 0;
+            if(!RecoveryPositionIdentity(positionId, generation, positionTicket) ||
+               generation != layer.generation)
+               continue;
+            if(!HistoryDealSelect(deal)) continue;
 
             SArcsHardeningCloseDeal d;
             d.deal = deal;
             d.positionId = positionId;
-            d.type = type;
-            d.reason = reason;
-            d.programmedSl = programmedSl;
-            d.volume = volume;
+            d.type = HistoryDealGetInteger(deal, DEAL_TYPE);
+            d.reason = HistoryDealGetInteger(deal, DEAL_REASON);
+            d.programmedSl = HistoryDealGetDouble(deal, DEAL_SL);
+            d.dealPrice = HistoryDealGetDouble(deal, DEAL_PRICE);
+            d.volume = HistoryDealGetDouble(deal, DEAL_VOLUME);
             if(!IsExpectedPersistedProtectiveClose(dir, layer, d)) continue;
-            provenClose += Recovery_VolumeToUnitsFloor(volume, m_volumeStep);
+            provenClose += Recovery_VolumeToUnitsFloor(d.volume, m_volumeStep);
          }
 
          if(provenClose != observedClose)
          {
-            why = "persisted locked/global layer giảm volume nhưng không có exact protective-close proof";
+            why = "persisted protective layer giảm volume nhưng không có exact protective-close proof";
             return false;
          }
 
@@ -156,6 +185,9 @@ private:
          {
             layer.state = ARCS_LAYER_CLOSED;
             layer.virtualSlArmed = false;
+            if(m_dir[di].activeLayer == li &&
+               m_dir[di].phase == ARCS_PROTECTIVE_CLOSE_WAIT)
+               m_dir[di].phase = ARCS_LOCKED;
          }
          PutLayer(dir, li, layer);
       }
@@ -167,60 +199,53 @@ private:
       if(trans.deal == 0 || !HistoryDealSelect(trans.deal)) return;
       long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;
-      long directMagic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
       ulong positionId = (ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
       long type = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
+      long reason = HistoryDealGetInteger(trans.deal, DEAL_REASON);
       if(positionId == 0) return;
 
-      long owner = directMagic;
-      if(owner != (long)RecoveryMagic_ && HistorySelectByPosition(positionId))
-      {
-         ulong oldest = 0;
-         long oldestMsc = 0;
-         for(int i = 0; i < HistoryDealsTotal(); i++)
-         {
-            ulong d = HistoryDealGetTicket(i);
-            if(d == 0 || HistoryDealGetString(d, DEAL_SYMBOL) != _Symbol) continue;
-            long e = HistoryDealGetInteger(d, DEAL_ENTRY);
-            if(e != DEAL_ENTRY_IN && e != DEAL_ENTRY_INOUT) continue;
-            long tm = HistoryDealGetInteger(d, DEAL_TIME_MSC);
-            if(oldest == 0 || tm < oldestMsc || (tm == oldestMsc && d < oldest))
-            {
-               oldest = d;
-               oldestMsc = tm;
-               owner = HistoryDealGetInteger(d, DEAL_MAGIC);
-            }
-         }
-      }
-      if(owner != (long)RecoveryMagic_) return;
+      int generation = -1;
+      ulong positionTicket = 0;
+      if(!RecoveryPositionIdentity(positionId, generation, positionTicket)) return;
+      if(!HistoryDealSelect(trans.deal)) return;
 
       eRecoveryCoreDirection dir;
-      if(type == DEAL_TYPE_BUY) dir = recovery_CORE_BUY;
-      else if(type == DEAL_TYPE_SELL) dir = recovery_CORE_SELL;
-      else return;
-      int generation = Recovery_ArcsGenerationFromPositionHistory(positionId);
+      if(!DealDirection(type, dir)) return;
       int li = FindLayerByGeneration(dir, generation);
       if(li < 0) return;
       SArcsLayer layer;
       GetLayer(dir, li, layer);
 
-      // TP_PENDING is reconciled by its exact baseline/target/funding ledger.
-      // Only retained/global layers are terminalized here.
-      if(layer.state != ARCS_LAYER_LOCKED &&
+      if(layer.state != ARCS_LAYER_LOCK_PENDING &&
+         layer.state != ARCS_LAYER_PROTECTIVE_CLOSE_PENDING &&
+         layer.state != ARCS_LAYER_LOCKED &&
          layer.state != ARCS_LAYER_GLOBAL_PROTECTED)
          return;
+
+      bool expected = false;
+      if(HedgeSLMode_ == SL_BROKER && reason == DEAL_REASON_SL)
+         expected = ExpectedBrokerSlDeal(trans.deal);
+      else if(HedgeSLMode_ == SL_VIRTUAL && reason == DEAL_REASON_EXPERT &&
+              layer.virtualSlArmed)
+         expected = true;
+      if(!expected) return;
 
       long live = Recovery_ArcsLayerUnits(dir, generation, m_volumeStep);
       if(live < 0 || live > layer.remainingUnits)
       {
-         LatchReconcile(dir, "post-deal layer volume violates persisted ownership");
+         LatchReconcile(dir, "post-deal protective layer volume violates persisted ownership");
          return;
       }
+
       layer.remainingUnits = live;
       if(live == 0)
       {
          layer.state = ARCS_LAYER_CLOSED;
          layer.virtualSlArmed = false;
+         if(m_dir[Idx(dir)].activeLayer == li &&
+            (m_dir[Idx(dir)].phase == ARCS_PROTECTIVE_CLOSE_WAIT ||
+             m_dir[Idx(dir)].phase == ARCS_LOCK_PENDING))
+            m_dir[Idx(dir)].phase = ARCS_LOCKED;
       }
       PutLayer(dir, li, layer);
    }
@@ -237,7 +262,182 @@ private:
       m_dirty = true;
    }
 
+   bool EnterProtectiveCloseWait(const eRecoveryCoreDirection dir,
+                                 const EAContext &ctx,
+                                 string &why)
+   {
+      int di = Idx(dir);
+      if(m_dir[di].phase != ARCS_LOCK_PENDING || m_dir[di].activeLayer < 0)
+         return false;
+      int li = m_dir[di].activeLayer;
+      SArcsLayer layer;
+      GetLayer(dir, li, layer);
+      if(!layer.used || layer.state != ARCS_LAYER_LOCK_PENDING ||
+         layer.remainingUnits <= 0)
+         return false;
+
+      long live = Recovery_ArcsLayerUnits(dir, layer.generation, m_volumeStep);
+      if(live > 0) return false;
+
+      // A retained layer vanished while the FSM was still confirming its
+      // broker lock. Do NOT mark it CLOSED or start Gnext from position state
+      // alone. The corresponding DEAL_ADD must classify first.
+      if(layer.lockTargetPrice <= 0.0)
+      {
+         why = "retained Hedge biến mất trước khi có durable lock target";
+         LatchReconcile(dir, why);
+         Save(why);
+         return true;
+      }
+
+      layer.state = ARCS_LAYER_PROTECTIVE_CLOSE_PENDING;
+      layer.protectiveCloseObservedAt = ctx.now;
+      PutLayer(dir, li, layer);
+      m_dir[di].phase = ARCS_PROTECTIVE_CLOSE_WAIT;
+      m_dirty = true;
+      if(!Save(why)) return true;
+      Log_Info("Recovery", "T16.1 " + Recovery_DirectionName(dir) +
+               " protective broker effect observed; waiting exact DEAL_ADD before next generation");
+      return true;
+   }
+
+   bool HoldProtectiveCloseWait(const eRecoveryCoreDirection dir,
+                                const EAContext &ctx,
+                                string &why)
+   {
+      int di = Idx(dir);
+      if(m_dir[di].phase != ARCS_PROTECTIVE_CLOSE_WAIT) return false;
+      int li = m_dir[di].activeLayer;
+      if(li < 0)
+      {
+         why = "PROTECTIVE_CLOSE_WAIT mất active layer identity";
+         LatchReconcile(dir, why);
+         Save(why);
+         return true;
+      }
+      SArcsLayer layer;
+      GetLayer(dir, li, layer);
+      if(!layer.used || layer.state != ARCS_LAYER_PROTECTIVE_CLOSE_PENDING)
+      {
+         why = "PROTECTIVE_CLOSE_WAIT layer state mismatch";
+         LatchReconcile(dir, why);
+         Save(why);
+         return true;
+      }
+
+      long live = Recovery_ArcsLayerUnits(dir, layer.generation, m_volumeStep);
+      if(live > 0)
+      {
+         why = "protective-close wait broker exposure reappeared";
+         LatchReconcile(dir, why);
+         Save(why);
+         return true;
+      }
+      if(layer.protectiveCloseObservedAt > 0 &&
+         ctx.now > layer.protectiveCloseObservedAt + BD_ARCS_PROTECTIVE_WAIT_TIMEOUT_SEC)
+      {
+         why = "timeout waiting exact DEAL_ADD for observed protective close";
+         LatchReconcile(dir, why);
+         Save(why);
+         return true;
+      }
+      // Intentional terminal hold for this tick: no Core DCA, no Gnext.
+      return true;
+   }
+
+   bool ResumeAfterConsumedProtectiveClose(const eRecoveryCoreDirection dir,
+                                           const EAContext &ctx,
+                                           string &why)
+   {
+      int di = Idx(dir);
+      if(m_dir[di].phase != ARCS_LOCKED || m_dir[di].activeLayer < 0)
+         return false;
+      int li = m_dir[di].activeLayer;
+      SArcsLayer layer;
+      GetLayer(dir, li, layer);
+      if(!layer.used || layer.state != ARCS_LAYER_CLOSED ||
+         layer.protectiveCloseObservedAt <= 0)
+         return false;
+
+      // DEAL proof has now been consumed and persisted. Only now may ARCS
+      // advance to the next generation.
+      layer.protectiveCloseObservedAt = 0;
+      PutLayer(dir, li, layer);
+      return AfterLayerLocked(dir, ctx.now, why);
+   }
+
 public:
+   // T16.1 classifier: prefer durable layer target, but if event ordering has
+   // already moved mutable state, exact ExecutionLayer MODIFY identity can
+   // independently prove that this broker SL was Recovery-owned.
+   bool ExpectedBrokerSlDeal(const ulong deal)
+   {
+      if(HedgeSLMode_ != SL_BROKER || deal == 0 || !HistoryDealSelect(deal)) return false;
+      if(HistoryDealGetInteger(deal, DEAL_REASON) != DEAL_REASON_SL) return false;
+
+      ulong positionId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+      long dealType = HistoryDealGetInteger(deal, DEAL_TYPE);
+      double programmedSl = HistoryDealGetDouble(deal, DEAL_SL);
+      double dealPrice = HistoryDealGetDouble(deal, DEAL_PRICE);
+      if(positionId == 0 || programmedSl <= 0.0 || dealPrice <= 0.0) return false;
+
+      int generation = -1;
+      ulong positionTicket = 0;
+      if(!RecoveryPositionIdentity(positionId, generation, positionTicket)) return false;
+      if(!HistoryDealSelect(deal)) return false;
+
+      eRecoveryCoreDirection dir;
+      if(!DealDirection(dealType, dir)) return false;
+      int li = FindLayerByGeneration(dir, generation);
+      double target = 0.0;
+      if(li >= 0)
+      {
+         SArcsLayer layer;
+         GetLayer(dir, li, layer);
+         target = m_dir[Idx(dir)].globalSlArmed && m_dir[Idx(dir)].globalSlPrice > 0.0
+                  ? m_dir[Idx(dir)].globalSlPrice
+                  : layer.lockTargetPrice;
+      }
+
+      double slTolerance = MathMax(2.0 * m_tickSize, _Point);
+      double spreadPrice = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point;
+      double fillTolerance = MathMax(25.0 * m_tickSize,
+                                     2.0 * spreadPrice + 2.0 * m_tickSize);
+      bool modifyProof = false;
+      if(positionTicket != 0)
+         modifyProof = Exec_T14ModifyProofMatches(positionTicket,
+                                                  (long)RecoveryMagic_,
+                                                  Recovery_CycleKey(dir),
+                                                  programmedSl,
+                                                  slTolerance);
+      // Hedging brokers commonly keep opening order ticket == position id,
+      // but use this only as a second exact-key attempt, never as sole proof.
+      if(!modifyProof)
+         modifyProof = Exec_T14ModifyProofMatches(positionId,
+                                                  (long)RecoveryMagic_,
+                                                  Recovery_CycleKey(dir),
+                                                  programmedSl,
+                                                  slTolerance);
+
+      // If mutable layer state is unavailable/moved, a confirmed exact MODIFY
+      // proof promotes the deal's own programmed SL to the durable target.
+      if(target <= 0.0 || MathAbs(target - programmedSl) > slTolerance)
+      {
+         if(!modifyProof) return false;
+         target = programmedSl;
+      }
+
+      return Recovery_ProtectiveSlIdentityPure(true,
+                                               generation >= 1,
+                                               DEAL_REASON_SL,
+                                               programmedSl,
+                                               target,
+                                               dealPrice,
+                                               slTolerance,
+                                               fillTolerance,
+                                               modifyProof);
+   }
+
    bool StartupReconcile(CExecutionLayer &exec, string &why)
    {
       why = "";
@@ -266,12 +466,9 @@ public:
       RefreshClosedGenerationFromDeal(trans);
       string why = "";
       if(m_dirty && !Save(why))
-         Log_Error("Recovery", "T16 protective-layer persistence failed: " + why);
+         Log_Error("Recovery", "T16.1 protective-layer persistence failed: " + why);
    }
 
-   // Avoid a persistence write on every flat tick. The base implementation's
-   // ResetDirection is needed when REVERSAL_HOLD becomes flat, but an already
-   // clean IDLE direction has nothing to reset.
    void OnTick(const EAContext &ctx)
    {
       if(!m_initialized || RecoveryMode_ == recovery_OFF) return;
@@ -299,10 +496,20 @@ public:
 
    bool Drive(CExecutionLayer &exec, const EAContext &ctx, string &why)
    {
+      why = "";
       NormalizeStableLockedHold(recovery_CORE_BUY);
       NormalizeStableLockedHold(recovery_CORE_SELL);
+
+      if(EnterProtectiveCloseWait(recovery_CORE_BUY, ctx, why) ||
+         HoldProtectiveCloseWait(recovery_CORE_BUY, ctx, why) ||
+         ResumeAfterConsumedProtectiveClose(recovery_CORE_BUY, ctx, why))
+         return true;
+      if(EnterProtectiveCloseWait(recovery_CORE_SELL, ctx, why) ||
+         HoldProtectiveCloseWait(recovery_CORE_SELL, ctx, why) ||
+         ResumeAfterConsumedProtectiveClose(recovery_CORE_SELL, ctx, why))
+         return true;
+
       bool terminal = CRecoveryArcsStackBase::Drive(exec, ctx, why);
-      // Waiting for a virtual TP is normal state, not an operational warning.
       if(!terminal && why == "TP Hedge ảo chưa đạt") why = "";
       return terminal;
    }
