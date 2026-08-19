@@ -8,6 +8,11 @@
 
 #include "RecoveryTypes.mqh"
 
+// T16.1: one durable slot per generation within one ARCS cycle. Closed slots
+// are allowed to remain as tombstones until the cycle resets. Capacity is
+// intentionally above the legacy input range (currently <=50).
+#define BD_ARCS_MAX_LAYERS 64
+
 enum eRecoverySizingPolicy
 {
    HEDGE_CAN_BANG = 0, // Giữ tổng Hedge quanh tỷ lệ % của Core (tương thích kiến trúc cũ)
@@ -43,7 +48,6 @@ bool Recovery_T16SlModeValid(const eRecoverySLMode mode)
    return mode == SL_BROKER || mode == SL_VIRTUAL;
 }
 
-// Floor-only sizing. Never round a requested risk/exposure upward.
 long Recovery_T16PercentUnitsPure(const long coreUnits,
                                   const double hedgePercent)
 {
@@ -51,10 +55,6 @@ long Recovery_T16PercentUnitsPure(const long coreUnits,
    return (long)MathFloor((double)coreUnits * hedgePercent / 100.0 + 1e-9);
 }
 
-// COVERAGE_NEUTRAL: target is the desired aggregate Hedge coverage, therefore
-// only the missing amount is opened. ARCS_STACKED: each new generation is a
-// fresh layer sized from the CURRENT residual Core and retained layers are not
-// subtracted.
 long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
                                         const long coreUnits,
                                         const long existingHedgeUnits,
@@ -73,9 +73,7 @@ bool Recovery_T16VirtualSlHitPure(const eRecoveryCoreDirection coreDir,
                                   const double slPrice)
 {
    if(bid <= 0.0 || ask <= 0.0 || slPrice <= 0.0) return false;
-   // BUY Core => Recovery Hedge is SELL, closes at Ask when Ask rises to SL.
    if(coreDir == recovery_CORE_BUY) return ask >= slPrice;
-   // SELL Core => Recovery Hedge is BUY, closes at Bid when Bid falls to SL.
    return bid <= slPrice;
 }
 
@@ -85,12 +83,10 @@ bool Recovery_T16VirtualSlArmingValidPure(const eRecoveryCoreDirection coreDir,
                                           const double slPrice)
 {
    if(bid <= 0.0 || ask <= 0.0 || slPrice <= 0.0) return false;
-   if(coreDir == recovery_CORE_BUY) return slPrice > ask; // SELL stop must be above Ask
-   return slPrice < bid;                                  // BUY stop must be below Bid
+   if(coreDir == recovery_CORE_BUY) return slPrice > ask;
+   return slPrice < bid;
 }
 
-// A single Global SL must protect EVERY retained layer. SELL Hedge uses the
-// lowest candidate (strongest guaranteed profit); BUY Hedge uses the highest.
 double Recovery_T16GlobalSlFoldPure(const eRecoveryCoreDirection coreDir,
                                     const double accumulated,
                                     const double candidate)
@@ -111,7 +107,8 @@ uint Recovery_T16SemanticFingerprint()
       "|globalEnable=" + (EnableGlobalHedgeSL_ ? "1" : "0") +
       "|globalAfter=" + (string)GlobalSLAfterGenerations_ +
       "|globalProfit=" + DoubleToString(GlobalHedgeSLNetProfitPips_, 12) +
-      "|reentryBuffer=" + DoubleToString(RecoveryReentryBufferPips_, 12);
+      "|reentryBuffer=" + DoubleToString(RecoveryReentryBufferPips_, 12) +
+      "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
    return Recovery_Fnv1aTextPure(canonical);
 }
 
@@ -132,6 +129,11 @@ bool Recovery_T16ValidateConfig(string &why)
    if(!Recovery_T16SlModeValid(HedgeSLMode_))
    {
       why = "Chế độ SL Hedge không hợp lệ";
+      return false;
+   }
+   if(MaxHedgeGenerations_ > BD_ARCS_MAX_LAYERS)
+   {
+      why = "Số vòng Hedge tối đa vượt capacity ARCS=" + (string)BD_ARCS_MAX_LAYERS;
       return false;
    }
    if(EnableGlobalHedgeSL_)
@@ -160,8 +162,6 @@ bool Recovery_T16ValidateConfig(string &why)
    return true;
 }
 
-// The exact T15 implementation remains available only for the exact legacy
-// contract. Any new sizing/virtual-SL/Global-SL semantics route through T16.
 bool Recovery_T16UseStackEngine()
 {
    if(RecoverySizingPolicy_ == ARCS_XEP_LOP) return true;
