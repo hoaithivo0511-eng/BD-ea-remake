@@ -1,14 +1,14 @@
 //+------------------------------------------------------------------+
-//| RecoveryArcsPersistence.mqh — T16 stacked Recovery persistence v3|
-//| Durable layer ownership + virtual/global SL + funding ledger.    |
+//| RecoveryArcsPersistence.mqh — T16.1 Recovery persistence v4      |
+//| Durable layer ownership + protective-close wait + SL/ledger.     |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ARCS_PERSISTENCE_MQH
 #define BD_RECOVERY_ARCS_PERSISTENCE_MQH
 
 #include "RecoveryArcsTypes.mqh"
 
-#define BD_ARCS_PERSIST_MAGIC   0x36435241 // "ARC6" little-endian marker
-#define BD_ARCS_PERSIST_VERSION 3
+#define BD_ARCS_PERSIST_MAGIC   0x36435241
+#define BD_ARCS_PERSIST_VERSION 4
 
 enum eArcsPersistStatus
 {
@@ -95,7 +95,7 @@ public:
              const long recoveryMagic)
    {
       string token = Recovery_SafeFileToken(symbol);
-      m_file = "BlackDragon_Recovery_ARCSv3_" + token + "_" +
+      m_file = "BlackDragon_Recovery_ARCSv4_" + token + "_" +
                (string)accountLogin + "_" + (string)coreMagic + "_" +
                (string)recoveryMagic + ".bin";
       m_temp = m_file + ".tmp";
@@ -137,7 +137,7 @@ public:
       if(FileSize(h) != expected)
       {
          FileClose(h);
-         why = "kích thước file state ARCS không khớp schema v3";
+         why = "kích thước file state ARCS không khớp schema v4";
          return ARCS_PERSIST_CORRUPT;
       }
 
@@ -149,7 +149,7 @@ public:
          header.payloadSize != PayloadSize())
       {
          FileClose(h);
-         why = "header/version ARCS không hợp lệ";
+         why = "header/version ARCS v4 không hợp lệ";
          return ARCS_PERSIST_CORRUPT;
       }
 
@@ -212,7 +212,7 @@ public:
          identity.recoveryMagic != (long)RecoveryMagic_ ||
          identity.semanticHash != Recovery_T16SemanticFingerprint())
       {
-         why = "identity/config ARCS v3 không khớp runtime hiện tại";
+         why = "identity/config ARCS v4 không khớp runtime hiện tại";
          return ARCS_PERSIST_MISMATCH;
       }
       double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
