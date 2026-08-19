@@ -1,16 +1,14 @@
 //+------------------------------------------------------------------+
-//| RecoveryT16Config.mqh — T16 ARCS stacked Recovery configuration |
-//| New user-facing inputs use Vietnamese descriptions.              |
-//| Existing T15 inputs remain source-compatible.                    |
+//| RecoveryT16Config.mqh — T16.2 ARCS Recovery configuration       |
+//| Vietnamese-facing inputs + pure policy helpers.                  |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T16_CONFIG_MQH
 #define BD_RECOVERY_T16_CONFIG_MQH
 
 #include "RecoveryTypes.mqh"
 
-// T16.1: one durable slot per generation within one ARCS cycle. Closed slots
-// are allowed to remain as tombstones until the cycle resets. Capacity is
-// intentionally above the legacy input range (currently <=50).
+// T16.1+: one durable slot per generation within one ARCS cycle. Closed slots
+// remain tombstones until the cycle resets. Capacity exceeds input max range.
 #define BD_ARCS_MAX_LAYERS 64
 
 enum eRecoverySizingPolicy
@@ -25,6 +23,16 @@ enum eRecoverySLMode
    SL_VIRTUAL = 1  // Không gửi SL; EA tự theo dõi và đóng lệnh khi chạm mức SL ảo
 };
 
+// T16.2: explicit broker rejection with no accepted mutation is NOT the same
+// as an ambiguous timeout/connection outcome. Keep this taxonomy pure so the
+// runtime policy can be regression-tested independently from MT5 plumbing.
+enum eRecoveryModifyDisposition
+{
+   RECOVERY_MODIFY_ACCEPTED = 0,
+   RECOVERY_MODIFY_DEFER_NO_EFFECT,
+   RECOVERY_MODIFY_RECONCILE
+};
+
 input group "18 — ARCS: KHỐI LƯỢNG HEDGE"
 input eRecoverySizingPolicy RecoverySizingPolicy_ = ARCS_XEP_LOP; // Kiểu tính Hedge: cân bằng hoặc xếp lớp ARCS
 input double HedgeVolumePercent_ = 100.0; // Tỷ lệ khối lượng Hedge so với Core hiện tại (%); có thể <100 hoặc >100
@@ -37,6 +45,9 @@ input bool   EnableGlobalHedgeSL_          = true; // Bật Global SL cho toàn 
 input int    GlobalSLAfterGenerations_     = 5;    // Sau bao nhiêu thế hệ Hedge thì chuyển sang Global SL
 input double GlobalHedgeSLNetProfitPips_   = 3.0;  // Lợi nhuận ròng tối thiểu muốn khóa cho từng lớp tại Global SL (pip)
 input double RecoveryReentryBufferPips_    = 10.0; // Buffer xác nhận tái kích hoạt Recovery sau khi Global SL khớp (pip)
+
+input group "21 — ARCS: OVERLAP SAU KHI HEDGE"
+input bool OverlapAfterHedge_ = false; // true: vẫn tỉa Overlap Core khi Recovery đã Hedge; ARCS refresh Core/Hedge trước bước kế tiếp
 
 bool Recovery_T16SizingPolicyValid(const eRecoverySizingPolicy policy)
 {
@@ -97,6 +108,27 @@ double Recovery_T16GlobalSlFoldPure(const eRecoveryCoreDirection coreDir,
                                        : MathMax(accumulated, candidate);
 }
 
+eRecoveryModifyDisposition Recovery_T162ModifyDispositionPure(const bool requestAccepted,
+                                                               const bool outcomeAmbiguous)
+{
+   if(requestAccepted) return RECOVERY_MODIFY_ACCEPTED;
+   if(outcomeAmbiguous) return RECOVERY_MODIFY_RECONCILE;
+   return RECOVERY_MODIFY_DEFER_NO_EFFECT;
+}
+
+// An Overlap mutation must use the post-mutation Core units, never a stale
+// pre-close snapshot, when a future ARCS generation is sized.
+long Recovery_T162PostOverlapGenerationUnitsPure(const eRecoverySizingPolicy policy,
+                                                 const long refreshedCoreUnits,
+                                                 const long refreshedHedgeUnits,
+                                                 const double hedgePercent)
+{
+   return Recovery_T16NewGenerationUnitsPure(policy,
+                                             refreshedCoreUnits,
+                                             refreshedHedgeUnits,
+                                             hedgePercent);
+}
+
 uint Recovery_T16SemanticFingerprint()
 {
    string canonical =
@@ -108,6 +140,7 @@ uint Recovery_T16SemanticFingerprint()
       "|globalAfter=" + (string)GlobalSLAfterGenerations_ +
       "|globalProfit=" + DoubleToString(GlobalHedgeSLNetProfitPips_, 12) +
       "|reentryBuffer=" + DoubleToString(RecoveryReentryBufferPips_, 12) +
+      "|overlapAfterHedge=" + (OverlapAfterHedge_ ? "1" : "0") +
       "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
    return Recovery_Fnv1aTextPure(canonical);
 }
@@ -168,6 +201,7 @@ bool Recovery_T16UseStackEngine()
    if(MathAbs(HedgeVolumePercent_ - 100.0) > 1e-12) return true;
    if(HedgeSLMode_ == SL_VIRTUAL) return true;
    if(EnableGlobalHedgeSL_) return true;
+   if(OverlapAfterHedge_) return true;
    return false;
 }
 
