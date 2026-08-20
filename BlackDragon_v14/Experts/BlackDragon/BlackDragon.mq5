@@ -7,6 +7,10 @@
 #property version   "14.90"
 
 #include <BlackDragon/Config.mqh>
+#include <BlackDragon/Recovery/RecoveryTypes.mqh>
+#include <BlackDragon/Recovery/RecoveryEngine.mqh>
+#include <BlackDragon/Recovery/RecoveryDca.mqh>
+#include <BlackDragon/Recovery/RecoveryExitCoordinator.mqh>
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/License.mqh>
@@ -30,6 +34,8 @@ CWmfSignal       g_sigWMF;     // FE-405: WMF signal (TradingView port)
 ISignal         *g_signal = NULL;
 CBasketManager   g_basket;
 CExecutionLayer  g_exec;
+CRecoveryEngine  g_recovery;      // Recovery registry/FSM/mechanics; ACTIVE still gated until T9
+CRecoveryExitCoordinator g_recoveryExit; // T8: legacy exit / intervention safety bridge
 CSequenceSizer   g_seqSizer;    // explicit DCA lot sequence
 CChainSizer      g_chainSizer;  // DCA multiplier chain
 CDistancePlan    g_distPlan;    // DCA pip-distance chain
@@ -47,6 +53,29 @@ int OnInit()
 {
    Config_Init();
 
+   //--- Adaptive Recovery Hedge foundation. OFF is deliberately
+   //    permissive so legacy v14.9 initialization stays unchanged.
+   string recoveryWhy = "";
+   if(!Recovery_ValidateFoundation(RecoveryMode_, (long)Magic, RecoveryMagic_,
+                                   RecoveryStartAfterDca_,
+                                   AccountInfoInteger(ACCOUNT_MARGIN_MODE),
+                                   recoveryWhy))
+   {
+      Log_Error("Init", "Recovery foundation invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(!Recovery_ValidateShadowConfig(RecoveryMode_, HedgeGapPips_, recoveryWhy))
+   {
+      Log_Error("Init", "Recovery shadow config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
+                                  TargetRecoveryCorridorPips_, recoveryWhy))
+   {
+      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
    //--- FE-201: gold pip convention (1 USD = 10 pips). Reference quote is
    //    2-digit gold; on a 3-digit broker every point-based input is x10.
    Config_ApplyPointScale(Sym_PointScale());
@@ -54,6 +83,10 @@ int OnInit()
       Log_Info("Init", "Gold detected (" + (string)_Digits + " digits): PointScale=" +
                (string)Cfg.PointScale + " — 200 input points = 2.00 USD = 20 pips on any broker" +
                (AutoGoldPip ? "" : " (AutoGoldPip=OFF: scale forced 1)"));
+
+   // ACTIVE intentionally fails closed inside RecoveryEngine::Init until
+   // T9 persistence/startup reconciliation completes the full contract.
+   if(!g_recovery.Init()) return INIT_PARAMETERS_INCORRECT;
 
    Persist_Load();                       // restore panel toggles after restart
 
@@ -119,16 +152,28 @@ int OnInit()
       g_signal = &g_sigBD;
    }
    g_exec.Init();
+   if(RecoveryMode_ == recovery_ACTIVE)
+   {
+      string startupWhy = "";
+      if(!g_recovery.StartupReconcile(g_exec, startupWhy))
+         Log_Error("Recovery", "ACTIVE startup is FAIL-CLOSED: " + startupWhy);
+   }
+   g_recoveryExit.Init(&g_recovery, &g_exec); // T8 cleanup; T9 ACTIVE may now be reconciled
    g_news.Init();
    g_guard.Init();                       // FE-401/402: validate thresholds (wrong sign -> warn + off)
    g_basket.SeedDayProfit();             // also snapshots day-start balance (FE-402)
    g_panel.Init();
-   g_strategy.Init(&g_basket, &g_exec, sizer, &g_guard, &g_distPlan);
+   g_strategy.Init(&g_basket, &g_exec, sizer, &g_guard, &g_distPlan,
+                   &g_recovery, &g_recoveryExit);
 
    //--- FE-402: daily halt blocks AUTOMATED entries on BOTH chains
    //    (panel manual orders stay bypassed — Chu nha's decision)
+   g_strategy.AddNewSeriesFilter(new CRecoveryStartupFilter(&g_recovery));
    g_strategy.AddNewSeriesFilter(new CHaltFilter(&g_guard));
    g_strategy.AddGridFilter(new CHaltFilter(&g_guard));
+   // T7: a pure allow/block filter around the existing TryGridAdd path.
+   // OFF/SHADOW always allow, preserving legacy and shadow-observer parity.
+   g_strategy.AddGridFilter(new CRecoveryDcaFilter(&g_recovery, &g_basket));
 
    //--- FE-403 / v14.8.0: the detailed PC/local HH:MM schedule is now
    //    the only time-window filter (legacy Start_Hour/End_Hour removed).
@@ -170,6 +215,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   g_recovery.FlushPersistence();
    Persist_Save();
    g_strategy.Deinit();   // deletes registered filters (incl. g_adx)
    g_sigBD.Deinit();      // FE-405: both are guard-safe on unopened handles
@@ -213,6 +259,7 @@ void OnTick()
    }
 
    g_basket.Update(ctx);        // rebuild only when invalidated (C1)
+   g_recovery.OnTick(ctx);      // SHADOW observer; ACTIVE scheduling is still gated until T9
    g_strategy.OnTick(ctx, g_panel);
    //--- BD-R8 (v14.7.2): g_panel.DrawLevels() moved to OnTimer. ARCHITECTURE
    //    rule C3 puts UI redraws on the 500ms timer, not on the tick stream;
@@ -226,6 +273,12 @@ void OnTimer()
 {
    g_news.Refresh();            // hourly cache; never blocks OnTick (Nhom D)
    g_exec.Watchdog();           // async journal reconciliation (Nhom B)
+   g_recovery.FlushPersistence(); // T9: transition/deal-driven durable state only
+   // T8: process broker/manual exit cleanup on the existing 500ms cadence.
+   // No competing timer is introduced; OFF/SHADOW are no-ops.
+   string exitWhy = "";
+   if(g_recoveryExit.Drive(TimeCurrent(), exitWhy) && exitWhy != "")
+      Log_Warn("Recovery", "exitcoordtimer", "T8 exit coordination: " + exitWhy);
    //--- FE-404 (v14.5): mobile-control pendings (skip in tester — no user)
    if(UseMobileControl && !MQLInfoInteger(MQL_TESTER))
       if(g_mobile.Scan(&g_exec))
@@ -255,7 +308,18 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
 {
-   g_exec.OnTransaction(trans, request, result);      // confirm async journal
+   g_exec.OnTransaction(trans, request, result);      // confirm async journal first
+   // T8 observes external/broker close reasons before RecoveryEngine ledger
+   // handling. Coordinator-owned or non-EXPERT closes must not be mistaken
+   // for normal T5 realized-credit deals.
+   bool suppressRecoveryDeal = g_recoveryExit.OnTradeTransaction(trans);
+   if(!suppressRecoveryDeal)
+      g_recovery.OnTradeTransaction(trans);
+   else if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal != 0)
+   {
+      g_recovery.RecordDealCursor(trans.deal);
+      g_recovery.FlushPersistence();
+   }
    if(trans.type == TRADE_TRANSACTION_POSITION && trans.symbol == _Symbol)
       g_basket.Invalidate();                          // audit fix: SL/TP modify has no DEAL_ADD
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.symbol == _Symbol)

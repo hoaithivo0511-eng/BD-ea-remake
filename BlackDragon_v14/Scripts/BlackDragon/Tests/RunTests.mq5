@@ -17,6 +17,8 @@
 #include <BlackDragon/EntryFilters.mqh>     // v14.4: TL_* pure functions
 #include <BlackDragon/MobileControl.mqh>    // v14.5: MC_* pure functions
 #include <BlackDragon/WmfSignal.mqh>        // v14.6: WMF_* pure functions
+#include <BlackDragon/Recovery/RecoveryStateMachine.mqh> // T11 terminal transitions
+#include <BlackDragon/Recovery/RecoveryGlobalFlatten.mqh> // T11 flat/no-pending gate
 
 int g_pass = 0;
 int g_fail = 0;
@@ -311,7 +313,7 @@ void OnStart()
    CheckEq("M-chain order#5: *1.03^3*1.3", Grid_ChainLot(0.01, 4, mult, 100), 0.01 * MathPow(1.03, 3) * 1.3, 1e-12);
    CheckEq("M-chain order#10: du 9 he so",  Grid_ChainLot(0.01, 9, mult, 100),
            0.01 * MathPow(1.03, 3) * MathPow(1.3, 4) * 1.25 * 1.5, 1e-12);
-   CheckEq("M-chain order#12: lap 1.5",     Grid_ChainLot(0.01, 11, mult, 100),
+   CheckEq("M-chain order#12: lap 1.5", Grid_ChainLot(0.01, 11, mult, 100),
            0.01 * MathPow(1.03, 3) * MathPow(1.3, 4) * 1.25 * MathPow(1.5, 3), 1e-12);
    // anti-stuck: he so nho khong bi ket boi lam tron trung gian
    double small[];
@@ -417,6 +419,43 @@ void OnStart()
    CheckEq("BD-R10 foreign position stays foreign",  (double)Exec_CloseRequestMagic(2222), 2222);
    CheckEq("BD-R10 manual position stays magic-0",   (double)Exec_CloseRequestMagic(0), 0);
    CheckEq("BD-R10 invalid negative magic clamps 0", (double)Exec_CloseRequestMagic(-1), 0);
+
+   //--- T11: account MoneyGuard flatten is a terminal Recovery boundary ----
+   Check("T11 flat + no journal -> finalizable", Recovery_GlobalFlattenReadyPure(0, false));
+   Check("T11 flat + pending journal -> BLOCK", !Recovery_GlobalFlattenReadyPure(0, true));
+   Check("T11 live position -> BLOCK", !Recovery_GlobalFlattenReadyPure(1, false));
+   Check("T11 CORE_ONLY -> COMPLETED", Recovery_StateTransitionAllowed(recovery_CORE_ONLY, recovery_COMPLETED));
+   Check("T11 ARMED -> COMPLETED", Recovery_StateTransitionAllowed(recovery_ARMED, recovery_COMPLETED));
+   Check("T11 HEDGE_BUILDING -> COMPLETED", Recovery_StateTransitionAllowed(recovery_HEDGE_BUILDING, recovery_COMPLETED));
+   Check("T11 HEDGE_ACTIVE -> COMPLETED", Recovery_StateTransitionAllowed(recovery_HEDGE_ACTIVE, recovery_COMPLETED));
+   Check("T11 HEDGE_TP_PENDING -> COMPLETED", Recovery_StateTransitionAllowed(recovery_HEDGE_TP_PENDING, recovery_COMPLETED));
+   Check("T11 CORE_CLOSE_PENDING -> COMPLETED", Recovery_StateTransitionAllowed(recovery_CORE_CLOSE_PENDING, recovery_COMPLETED));
+   Check("T11 HEDGE_LOCK_PENDING -> COMPLETED", Recovery_StateTransitionAllowed(recovery_HEDGE_LOCK_PENDING, recovery_COMPLETED));
+   Check("T11 HEDGE_LOCKED -> COMPLETED", Recovery_StateTransitionAllowed(recovery_HEDGE_LOCKED, recovery_COMPLETED));
+   Check("T11 REHEDGE_PENDING -> COMPLETED", Recovery_StateTransitionAllowed(recovery_REHEDGE_PENDING, recovery_COMPLETED));
+   Check("T11 PAUSE_SOFT -> COMPLETED", Recovery_StateTransitionAllowed(recovery_PAUSE_SOFT, recovery_COMPLETED));
+   Check("T11 PAUSE_HARD -> COMPLETED", Recovery_StateTransitionAllowed(recovery_PAUSE_HARD, recovery_COMPLETED));
+   Check("T11 RECONCILE_REQUIRED -> COMPLETED", Recovery_StateTransitionAllowed(recovery_RECONCILE_REQUIRED, recovery_COMPLETED));
+   Check("T11 GLOBAL_STOP -> COMPLETED", Recovery_StateTransitionAllowed(recovery_GLOBAL_STOP, recovery_COMPLETED));
+   Check("T11 COMPLETED -> CORE_ONLY reusable", Recovery_StateTransitionAllowed(recovery_COMPLETED, recovery_CORE_ONLY));
+
+   //--- T12: atomic global-flatten finalizer ---------------------------
+         Check("T12 atomic finalizer: safe known-empty boundary",
+               Recovery_GlobalFlattenCanFinalizePure(0, false, false, false, false));
+         Check("T12 atomic finalizer: live position blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(1, false, false, false, false));
+         Check("T12 atomic finalizer: pending journal blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, true, false, false, false));
+         Check("T12 atomic finalizer: persistence fault blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, false, true, false, false));
+         Check("T12 atomic finalizer: BUY reconcile blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, false, false, true, false));
+         Check("T12 atomic finalizer: SELL reconcile blocks",
+               !Recovery_GlobalFlattenCanFinalizePure(0, false, false, false, true));
+         CheckEq("T12 non-terminal completion rolls serial once",
+                 Recovery_GlobalFlattenNextSerialPure(7, false), 8);
+         CheckEq("T12 persistence retry on COMPLETED keeps serial",
+                 Recovery_GlobalFlattenNextSerialPure(8, true), 8);
 
    PrintFormat("BlackDragon v14 unit tests: %d passed, %d failed", g_pass, g_fail);
    if(g_fail == 0) Print("ALL GREEN — safe to proceed to backtest comparison (golden baseline).");
