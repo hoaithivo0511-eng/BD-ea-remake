@@ -6,6 +6,48 @@
 #ifndef BD_RECOVERY_ARCS_STACK_T163_WRAPPER_MQH
 #define BD_RECOVERY_ARCS_STACK_T163_WRAPPER_MQH
 
+// Pure policy: a deterministic local lock wait may yield the remainder of the
+// tick to Core work ONLY when no broker command is pending and no ambiguous
+// execution result exists.
+bool Recovery_T163DeferredLockYieldPure(const bool recoveryConsumed,
+                                        const bool deterministicLocalWait,
+                                        const bool executionPending,
+                                        const bool executionReconcile)
+{
+   return recoveryConsumed && deterministicLocalWait &&
+          !executionPending && !executionReconcile;
+}
+
+// Pure policy: hitting the generation ceiling never authorizes Max+1, but it
+// also must not strand an existing Core basket when all Recovery Hedge exposure
+// has already gone. This state is derivable from durable generation count +
+// broker-observable Core/Hedge exposure, so no new persisted payload field is
+// required.
+bool Recovery_T163MaxedNoHedgePure(const int generationCount,
+                                   const int maxGenerations,
+                                   const long coreUnits,
+                                   const long hedgeUnits,
+                                   const bool terminalPhase)
+{
+   return terminalPhase && maxGenerations >= 1 &&
+          generationCount >= maxGenerations &&
+          coreUnits > 0 && hedgeUnits <= 0;
+}
+
+// Compatibility scheduling view for existing T7/T8 policy:
+// - REHEDGE_PENDING is DCA-stable but Overlap-deferred: ideal for a retained
+//   layer still waiting for a deterministic positive-lock opportunity.
+// - HEDGE_LOCKED is both DCA/Overlap-stable: used only for MAXED_NO_HEDGE,
+//   while StartGeneration remains independently forbidden by generationCount.
+eRecoveryState Recovery_T163SchedulingStatePure(const eRecoveryState baseState,
+                                                 const bool deferredLockYield,
+                                                 const bool maxedNoHedge)
+{
+   if(deferredLockYield) return recovery_REHEDGE_PENDING;
+   if(maxedNoHedge) return recovery_HEDGE_LOCKED;
+   return baseState;
+}
+
 // Pin the exact T16.2 implementation and expose its internals only to this
 // derived liveness layer. This mirrors the existing T14/T16 wrapper pattern.
 #define private protected
@@ -30,11 +72,13 @@ private:
    {
       int di = Idx(dir);
       eArcsPhase p = m_dir[di].phase;
-      if(p != ARCS_LOCKED && p != ARCS_REVERSAL_HOLD) return false;
-      if(m_dir[di].generationCount < MaxHedgeGenerations_) return false;
+      bool terminalPhase = p == ARCS_LOCKED || p == ARCS_REVERSAL_HOLD;
       long core = Recovery_ArcsCoreUnits(dir, m_volumeStep);
       long hedge = Recovery_ArcsTotalHedgeUnits(dir, m_volumeStep);
-      return core > 0 && hedge <= 0;
+      return Recovery_T163MaxedNoHedgePure(m_dir[di].generationCount,
+                                           MaxHedgeGenerations_,
+                                           core, hedge,
+                                           terminalPhase);
    }
 
    void UpdateMaxedTelemetry(const eRecoveryCoreDirection dir)
@@ -103,11 +147,19 @@ public:
          int di = DeterministicDeferredDirection(exec);
          if(di >= 0)
          {
-            m_dcaYield[di] = true;
-            eRecoveryCoreDirection dir = di == 0 ? recovery_CORE_BUY : recovery_CORE_SELL;
-            Log_Warn("Recovery", "t163lockyield" + (string)Recovery_CycleKey(dir),
-                     "T16.3 deferred-lock yield: retained Hedge vẫn chờ khóa, execution journal quiet; Core DCA được phép tiếp tục nếu ContinueDcaAfterHedge=true");
-            consumed = false;
+            int key = Recovery_CycleKey(di == 0 ? recovery_CORE_BUY : recovery_CORE_SELL);
+            bool canYield = Recovery_T163DeferredLockYieldPure(consumed,
+                                                               true,
+                                                               exec.HasPendingForCycle(key),
+                                                               exec.HasReconcileRequired(key));
+            if(canYield)
+            {
+               m_dcaYield[di] = true;
+               eRecoveryCoreDirection dir = di == 0 ? recovery_CORE_BUY : recovery_CORE_SELL;
+               Log_Warn("Recovery", "t163lockyield" + (string)Recovery_CycleKey(dir),
+                        "T16.3 deferred-lock yield: retained Hedge vẫn chờ khóa, execution journal quiet; Core DCA được phép tiếp tục nếu ContinueDcaAfterHedge=true");
+               consumed = false;
+            }
          }
       }
 
@@ -126,13 +178,9 @@ public:
    {
       CRecoveryArcsStackT162Base::GetCycle(dir, out);
       int di = Idx(dir);
-      if(m_dcaYield[di])
-      {
-         out.state = recovery_REHEDGE_PENDING;
-         return;
-      }
-      if(MaxedNoHedge(dir))
-         out.state = recovery_HEDGE_LOCKED;
+      out.state = Recovery_T163SchedulingStatePure(out.state,
+                                                   m_dcaYield[di],
+                                                   MaxedNoHedge(dir));
    }
 };
 
