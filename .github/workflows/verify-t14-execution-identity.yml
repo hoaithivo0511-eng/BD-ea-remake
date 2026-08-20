@@ -55,6 +55,7 @@ jobs:
           c=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh').read_text(encoding='utf-8')
           p=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExecutionIdentity.mqh').read_text(encoding='utf-8')
           t=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16Config.mqh').read_text(encoding='utf-8')
+          pol=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT163Policy.mqh').read_text(encoding='utf-8')
           a=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh').read_text(encoding='utf-8')
           ah=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh').read_text(encoding='utf-8')
           af=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh').read_text(encoding='utf-8')
@@ -77,10 +78,11 @@ jobs:
           assert 'Exec_T14ModifyProofMatches' in ah and 'waiting exact DEAL_ADD before next generation' in ah
           assert 'FreshBrokerTick' in af2 and 'RECOVERY_MODIFY_DEFER_NO_EFFECT' in af2
           assert 'FinalizeExpectedOverlapMutation' in af2 and 'post-Overlap ARCS live-book mismatch' in af2
-          assert 'Recovery_T163DeferredLockYieldPure' in af
-          assert 'Recovery_T163MaxedNoHedgePure' in af
-          assert 'Recovery_T163SchedulingStatePure' in af
-          assert 'recovery_REHEDGE_PENDING' in af and 'recovery_HEDGE_LOCKED' in af
+          assert 'Recovery_T163DeferredLockYieldPure' in pol
+          assert 'Recovery_T163MaxedNoHedgePure' in pol
+          assert 'Recovery_T163SchedulingStatePure' in pol
+          assert 'RecoveryT163Policy.mqh' in af and 'CRecoveryArcsStackT162Base' in af
+          assert 'recovery_REHEDGE_PENDING' in pol and 'recovery_HEDGE_LOCKED' in pol
           assert 'BD_ARCS_PERSIST_VERSION 4' in ap and 'ARCSv4_' in ap and 'Recovery_T16SemanticFingerprint' in ap
           print('T14-T16.3 static integration gates PASS')
 
