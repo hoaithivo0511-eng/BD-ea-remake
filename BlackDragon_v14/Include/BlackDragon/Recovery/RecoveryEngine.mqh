@@ -9,6 +9,7 @@
 #include <BlackDragon/ExecutionLayer.mqh>
 #include "RecoveryPersistence.mqh"
 #include "RecoveryT16Config.mqh"
+#include "RecoveryT165GuardScope.mqh"
 
 bool Recovery_T14HistoryOpenProof(const eRecoveryCoreDirection dir,
                                   const SRecoveryPersistPending &p)
@@ -94,6 +95,13 @@ private:
       return RecoveryMode_ != recovery_OFF && Recovery_T16UseStackEngine();
    }
 
+   void ObserveGuardDeal(const MqlTradeTransaction &trans)
+   {
+      if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal != 0 &&
+         trans.symbol == _Symbol)
+         Recovery_T165GuardObserveDeal(trans.deal, TimeCurrent());
+   }
+
 public:
    bool Init()
    {
@@ -109,8 +117,11 @@ public:
 
    void OnTradeTransaction(const MqlTradeTransaction &trans)
    {
-      if(UseT16()) { m_arcs.OnTradeTransaction(trans); return; }
-      CRecoveryEngineT15Base::OnTradeTransaction(trans);
+      if(UseT16()) m_arcs.OnTradeTransaction(trans);
+      else CRecoveryEngineT15Base::OnTradeTransaction(trans);
+      // Run after the Recovery ledger/history consumers. This cache observer
+      // may HistoryDealSelect without disturbing their selected history range.
+      ObserveGuardDeal(trans);
    }
 
    bool StartupReconcile(CExecutionLayer &exec, string &why)
@@ -133,8 +144,11 @@ public:
 
    void RecordDealCursor(const ulong deal)
    {
-      if(UseT16()) { m_arcs.RecordDealCursor(deal); return; }
-      CRecoveryEngineT15Base::RecordDealCursor(deal);
+      if(UseT16()) m_arcs.RecordDealCursor(deal);
+      else CRecoveryEngineT15Base::RecordDealCursor(deal);
+      // T8 can suppress the normal Recovery OnTradeTransaction path for a
+      // coordinator-owned close; keep Guard realized scope complete anyway.
+      Recovery_T165GuardObserveDeal(deal, TimeCurrent());
    }
 
    bool DriveActive(CExecutionLayer &exec, const EAContext &ctx, string &why)
@@ -252,9 +266,6 @@ public:
       return UseT16() && m_arcs.HasExposure(dir);
    }
 
-   // T16.5 margin reserve applies only to the ARCS engine and only while the
-   // current cycle may legally create another generation. This prevents the
-   // reserve gate from blocking Core DCA after MAXED_NO_HEDGE (no Gmax+1).
    bool T16CanOpenFurtherGeneration(const eRecoveryCoreDirection dir) const
    {
       return UseT16() && m_arcs.CanOpenFurtherGeneration(dir);
