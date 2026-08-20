@@ -1,11 +1,12 @@
 //+------------------------------------------------------------------+
-//| RecoveryT16Config.mqh — T16.2 ARCS Recovery configuration       |
+//| RecoveryT16Config.mqh — T16.4 ARCS Recovery configuration       |
 //| Vietnamese-facing inputs + pure policy helpers.                  |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T16_CONFIG_MQH
 #define BD_RECOVERY_T16_CONFIG_MQH
 
 #include "RecoveryTypes.mqh"
+#include "RecoveryT164Reachability.mqh"
 
 // T16.1+: one durable slot per generation within one ARCS cycle. Closed slots
 // remain tombstones until the cycle resets. Capacity exceeds input max range.
@@ -23,7 +24,7 @@ enum eRecoverySLMode
    SL_VIRTUAL = 1  // Không gửi SL; EA tự theo dõi và đóng lệnh khi chạm mức SL ảo
 };
 
-// T16.2: explicit broker rejection with no accepted mutation is NOT the same
+// T16.1+: explicit broker rejection with no accepted mutation is NOT the same
 // as an ambiguous timeout/connection outcome. Keep this taxonomy pure so the
 // runtime policy can be regression-tested independently from MT5 plumbing.
 enum eRecoveryModifyDisposition
@@ -169,6 +170,16 @@ bool Recovery_T16ValidateConfig(string &why)
       why = "Số vòng Hedge tối đa vượt capacity ARCS=" + (string)BD_ARCS_MAX_LAYERS;
       return false;
    }
+
+   // T16.4 / RETRO-A1+A2: ACTIVE must never start with a threshold that is
+   // mathematically unreachable under the enabled side's MaxOrders ceiling.
+   // Semantic remains CURRENT open Core count: required Core = 1 + DCA count.
+   if(!Recovery_T164ValidateReachability(RecoveryMode_,
+                                         Flag_Trade_Buy_, Flag_Trade_Sell_,
+                                         MaxOrdersBuy, MaxOrdersSell,
+                                         RecoveryStartAfterDca_, why))
+      return false;
+
    if(EnableGlobalHedgeSL_)
    {
       if(GlobalSLAfterGenerations_ < 1)
