@@ -2,7 +2,7 @@
 //| RecoveryT165MarginReserve.mqh — T16.5 DCA margin reserve         |
 //| Conservative preflight: before a Core DCA that can participate   |
 //| in Recovery, reserve enough current free margin for that DCA and |
-//| the next ARCS Hedge generation implied by the post-DCA Core.     |
+//| the next LEGAL ARCS Hedge generation implied by post-DCA Core.   |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T165_MARGIN_RESERVE_MQH
 #define BD_RECOVERY_T165_MARGIN_RESERVE_MQH
@@ -15,6 +15,7 @@
 bool Recovery_T165ProjectedDcaReserveAllows(const int coreDir,
                                             const BasketSide &side,
                                             const double proposedCoreLot,
+                                            const bool futureGenerationAllowed,
                                             string &why,
                                             double &requiredMarginOut,
                                             double &projectedHedgeLotOut)
@@ -23,11 +24,13 @@ bool Recovery_T165ProjectedDcaReserveAllows(const int coreDir,
    requiredMarginOut = 0.0;
    projectedHedgeLotOut = 0.0;
    if(RecoveryMode_ != recovery_ACTIVE || !RecoveryDcaMarginReserve_) return true;
+   // Margin reserve is an ARCS safety preflight. If this configuration is on
+   // the compatibility engine or this cycle already reached Max generations,
+   // there is no future ARCS generation to reserve for.
+   if(!futureGenerationAllowed) return true;
    if(coreDir != BD_DIR_BUY && coreDir != BD_DIR_SELL) return false;
    if(side.count <= 0 || proposedCoreLot <= 0.0) return true;
 
-   // If the post-DCA basket has still not reached Recovery's current-open
-   // threshold, no mandatory Hedge generation is reserved yet.
    int postCount = side.count + 1;
    if(!Recovery_DcaThresholdReached(postCount, RecoveryStartAfterDca_))
       return true;
