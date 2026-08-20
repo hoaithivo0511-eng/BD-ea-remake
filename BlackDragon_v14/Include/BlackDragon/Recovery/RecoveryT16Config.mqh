@@ -8,25 +8,20 @@
 #include "RecoveryTypes.mqh"
 #include "RecoveryT164Reachability.mqh"
 
-// T16.1+: one durable slot per generation within one ARCS cycle. Closed slots
-// remain tombstones until the cycle resets. Capacity exceeds input max range.
 #define BD_ARCS_MAX_LAYERS 64
 
 enum eRecoverySizingPolicy
 {
-   HEDGE_CAN_BANG = 0, // Giữ tổng Hedge quanh tỷ lệ % của Core (tương thích kiến trúc cũ)
-   ARCS_XEP_LOP   = 1  // Mỗi vòng mở một lớp Hedge mới theo % Core còn lại
+   HEDGE_CAN_BANG = 0,
+   ARCS_XEP_LOP   = 1
 };
 
 enum eRecoverySLMode
 {
-   SL_BROKER  = 0, // Đặt SL thật tại broker
-   SL_VIRTUAL = 1  // Không gửi SL; EA tự theo dõi và đóng lệnh khi chạm mức SL ảo
+   SL_BROKER  = 0,
+   SL_VIRTUAL = 1
 };
 
-// T16.1+: explicit broker rejection with no accepted mutation is NOT the same
-// as an ambiguous timeout/connection outcome. Keep this taxonomy pure so the
-// runtime policy can be regression-tested independently from MT5 plumbing.
 enum eRecoveryModifyDisposition
 {
    RECOVERY_MODIFY_ACCEPTED = 0,
@@ -121,8 +116,6 @@ eRecoveryModifyDisposition Recovery_T162ModifyDispositionPure(const bool request
    return RECOVERY_MODIFY_DEFER_NO_EFFECT;
 }
 
-// An Overlap mutation must use the post-mutation Core units, never a stale
-// pre-close snapshot, when a future ARCS generation is sized.
 long Recovery_T162PostOverlapGenerationUnitsPure(const eRecoverySizingPolicy policy,
                                                  const long refreshedCoreUnits,
                                                  const long refreshedHedgeUnits,
@@ -181,9 +174,6 @@ bool Recovery_T16ValidateConfig(string &why)
       return false;
    }
 
-   // T16.4 / RETRO-A1+A2: ACTIVE must never start with a threshold that is
-   // mathematically unreachable under the enabled side's MaxOrders ceiling.
-   // Semantic remains CURRENT open Core count: required Core = 1 + DCA count.
    if(!Recovery_T164ValidateReachability(RecoveryMode_,
                                          Flag_Trade_Buy_, Flag_Trade_Sell_,
                                          MaxOrdersBuy, MaxOrdersSell,
@@ -218,9 +208,6 @@ bool Recovery_T16ValidateConfig(string &why)
 
 bool Recovery_T16UseStackEngine()
 {
-   // Invalid ACTIVE reachability must never escape merely because all other
-   // T16 feature switches happen to select the legacy engine path. Route such
-   // a configuration through ARCS Init so the shared preflight fails fast.
    if(RecoveryMode_ == recovery_ACTIVE &&
       !Recovery_T164ValidateReachabilityPure(RecoveryMode_,
                                              Flag_Trade_Buy_, Flag_Trade_Sell_,
@@ -233,7 +220,8 @@ bool Recovery_T16UseStackEngine()
    if(HedgeSLMode_ == SL_VIRTUAL) return true;
    if(EnableGlobalHedgeSL_) return true;
    if(OverlapAfterHedge_) return true;
-   if(RecoveryDcaMarginReserve_) return true;
+   // T16.5 margin reserve is a Strategy preflight and MUST NOT force a
+   // compatibility/legacy Recovery configuration into the ARCS engine.
    return false;
 }
 
