@@ -2,10 +2,10 @@
 //| RunRecoveryLivenessTests.mq5 — T16.3 native liveness policy      |
 //+------------------------------------------------------------------+
 #property script_show_inputs
-#include <BlackDragon/Recovery/RecoveryT16Config.mqh>
-#include <BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh>
+#include <BlackDragon/Recovery/RecoveryT163Policy.mqh>
 #include <BlackDragon/Recovery/RecoveryDca.mqh>
 #include <BlackDragon/Recovery/RecoveryMutationPolicy.mqh>
+#include <BlackDragon/Recovery/RecoveryLock.mqh>
 
 int g_pass=0, g_fail=0;
 void Check(const string name,const bool cond)
