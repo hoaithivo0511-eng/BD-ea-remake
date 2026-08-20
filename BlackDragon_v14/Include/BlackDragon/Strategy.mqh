@@ -109,7 +109,10 @@ private:
          string reserveWhy = "";
          double requiredMargin = 0.0;
          double projectedHedgeLot = 0.0;
+         bool futureGenerationAllowed = m_recovery != NULL &&
+            m_recovery.T16CanOpenFurtherGeneration(RecoveryDir(dir));
          if(!Recovery_T165ProjectedDcaReserveAllows(dir, side, nextLot,
+                                                    futureGenerationAllowed,
                                                     reserveWhy,
                                                     requiredMargin,
                                                     projectedHedgeLot))
