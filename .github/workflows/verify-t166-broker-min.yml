@@ -53,6 +53,11 @@ jobs:
           assert 'Recovery_T166ExecutablePartialCloseUnitsPure' in exitp
           assert 'return Recovery_T166ExecutablePartialCloseUnitsPure' in exitp
           assert 'Recovery_PartialCloseTargetUnits' in arcs
+          start=arcs.index('bool StartGeneration')
+          zero=arcs.index('if(target <= 0)', start)
+          min_check=arcs.index('if(target < meta.minUnits)', start)
+          assert start < zero < min_check
+          assert 'không cần generation Hedge mới theo sizing policy hiện tại' in arcs[zero:min_check]
           print('T16.6 source invariants PASS')
 
       - name: Record exact source identity
