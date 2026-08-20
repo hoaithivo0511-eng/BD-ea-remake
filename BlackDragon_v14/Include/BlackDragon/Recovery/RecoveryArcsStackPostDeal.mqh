@@ -1,12 +1,13 @@
 //+------------------------------------------------------------------+
-//| RecoveryArcsStackPostDeal.mqh — T16.3 liveness compatibility     |
-//| Keeps the exact T16.2 post-deal implementation as a pinned base. |
-//| Adds scheduling-only liveness views without weakening safety.    |
+//| RecoveryArcsStackPostDeal.mqh — T16.4 reachability/liveness      |
+//| Keeps exact T16.2 mechanics + T16.3 scheduling hardening.        |
+//| Adds reachability observability without changing trade semantics.|
 //+------------------------------------------------------------------+
-#ifndef BD_RECOVERY_ARCS_STACK_T163_WRAPPER_MQH
-#define BD_RECOVERY_ARCS_STACK_T163_WRAPPER_MQH
+#ifndef BD_RECOVERY_ARCS_STACK_T164_WRAPPER_MQH
+#define BD_RECOVERY_ARCS_STACK_T164_WRAPPER_MQH
 
 #include "RecoveryT163Policy.mqh"
+#include "RecoveryT164Reachability.mqh"
 
 // Pin the exact T16.2 implementation. The T16.1 hardened base already exposes
 // original ARCS internals as protected; no second `private` macro is required.
@@ -72,6 +73,28 @@ private:
       return -1;
    }
 
+   void LogCoreSaturation(const eRecoveryCoreDirection dir,
+                          const int maxOrders)
+   {
+      if(RecoveryMode_ != recovery_ACTIVE || maxOrders < 1) return;
+      SArcsPosition core[];
+      int count = Recovery_ArcsBuildCore(dir, m_volumeStep, core);
+      if(count < maxOrders) return;
+
+      int required = Recovery_T164RequiredCoreCountPure(RecoveryStartAfterDca_);
+      bool reachable = Recovery_T164SideReachablePure(true, maxOrders,
+                                                      RecoveryStartAfterDca_);
+      int di = Idx(dir);
+      Log_Warn("Recovery", "t164maxorders" + (string)Recovery_CycleKey(dir),
+               "T16.4 Core DCA saturated: " + Recovery_DirectionName(dir) +
+               " count=" + (string)count +
+               " MaxOrders=" + (string)maxOrders +
+               "; RecoveryStartAfterDca=" + (string)RecoveryStartAfterDca_ +
+               " requiresCore=" + (string)required +
+               "; thresholdReachable=" + (reachable ? "yes" : "NO") +
+               "; ARCS phase=" + Recovery_ArcsPhaseName(m_dir[di].phase));
+   }
+
 public:
    CRecoveryArcsStackFinal(void) : CRecoveryArcsStackT162Base()
    {
@@ -79,6 +102,35 @@ public:
       m_dcaYield[1] = false;
       m_maxedLogged[0] = false;
       m_maxedLogged[1] = false;
+   }
+
+   bool Init()
+   {
+      if(!CRecoveryArcsStackT162Base::Init()) return false;
+
+      // Warning only: current-open-count semantics are owner-approved. If
+      // Overlap can start before the Recovery threshold, make the competition
+      // visible but do not silently change to cumulative-DCA counting.
+      if(RecoveryMode_ == recovery_ACTIVE &&
+         Recovery_T164OverlapMayPreemptPure(Overlap,
+                                            OverlapOrderNumber,
+                                            RecoveryStartAfterDca_))
+      {
+         Log_Warn("Recovery", "t164overlapthreshold",
+                  "T16.4 cấu hình cảnh báo: OverlapOrderNumber=" +
+                  (string)OverlapOrderNumber +
+                  " có thể tỉa Core trước ngưỡng Recovery cần " +
+                  (string)Recovery_T164RequiredCoreCountPure(RecoveryStartAfterDca_) +
+                  " lệnh Core đang mở; semantic hiện tại vẫn đếm current-open Core, không phải cumulative DCA");
+      }
+      return true;
+   }
+
+   void OnTick(const EAContext &ctx)
+   {
+      CRecoveryArcsStackT162Base::OnTick(ctx);
+      LogCoreSaturation(recovery_CORE_BUY, MaxOrdersBuy);
+      LogCoreSaturation(recovery_CORE_SELL, MaxOrdersSell);
    }
 
    bool Drive(CExecutionLayer &exec, const EAContext &ctx, string &why)
@@ -124,4 +176,4 @@ public:
    }
 };
 
-#endif // BD_RECOVERY_ARCS_STACK_T163_WRAPPER_MQH
+#endif // BD_RECOVERY_ARCS_STACK_T164_WRAPPER_MQH
