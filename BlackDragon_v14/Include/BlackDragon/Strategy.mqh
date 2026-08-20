@@ -205,11 +205,18 @@ private:
       double sellEconomic = Recovery_T165EconomicSideProfitPure(m_basket.sell.totalProfit,
                                                                  rg.recoveryForSellFloating);
       double dayNet = m_basket.DayProfit() + buyEconomic + sellEconomic;
+      double economicDayStartBalance = m_basket.DayStartBalance();
       bool dayNetValid = true;
       if(RecoveryMode_ == recovery_ACTIVE)
       {
          if(recoveryHistoryOk)
+         {
             dayNet += rg.recoveryRealizedToday;
+            // BasketManager's existing day-start estimate subtracts only Core
+            // realized P/L. Remove Recovery realized too so Daily-% uses the
+            // same economic Core+Recovery scope as its numerator.
+            economicDayStartBalance -= rg.recoveryRealizedToday;
+         }
          else
          {
             dayNetValid = false;
@@ -223,7 +230,7 @@ private:
       eGuardAction a = m_guard.CheckScoped(ctx.now,
                                            buyEconomic, sellEconomic,
                                            bothCoreOpen,
-                                           dayNet, m_basket.DayStartBalance(),
+                                           dayNet, economicDayStartBalance,
                                            dayNetValid);
       if(a == GUARD_NONE) return false;
 
