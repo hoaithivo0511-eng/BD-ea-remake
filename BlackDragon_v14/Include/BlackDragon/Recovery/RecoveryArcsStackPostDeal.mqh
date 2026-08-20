@@ -6,55 +6,13 @@
 #ifndef BD_RECOVERY_ARCS_STACK_T163_WRAPPER_MQH
 #define BD_RECOVERY_ARCS_STACK_T163_WRAPPER_MQH
 
-// Pure policy: a deterministic local lock wait may yield the remainder of the
-// tick to Core work ONLY when no broker command is pending and no ambiguous
-// execution result exists.
-bool Recovery_T163DeferredLockYieldPure(const bool recoveryConsumed,
-                                        const bool deterministicLocalWait,
-                                        const bool executionPending,
-                                        const bool executionReconcile)
-{
-   return recoveryConsumed && deterministicLocalWait &&
-          !executionPending && !executionReconcile;
-}
+#include "RecoveryT163Policy.mqh"
 
-// Pure policy: hitting the generation ceiling never authorizes Max+1, but it
-// also must not strand an existing Core basket when all Recovery Hedge exposure
-// has already gone. This state is derivable from durable generation count +
-// broker-observable Core/Hedge exposure, so no new persisted payload field is
-// required.
-bool Recovery_T163MaxedNoHedgePure(const int generationCount,
-                                   const int maxGenerations,
-                                   const long coreUnits,
-                                   const long hedgeUnits,
-                                   const bool terminalPhase)
-{
-   return terminalPhase && maxGenerations >= 1 &&
-          generationCount >= maxGenerations &&
-          coreUnits > 0 && hedgeUnits <= 0;
-}
-
-// Compatibility scheduling view for existing T7/T8 policy:
-// - REHEDGE_PENDING is DCA-stable but Overlap-deferred: ideal for a retained
-//   layer still waiting for a deterministic positive-lock opportunity.
-// - HEDGE_LOCKED is both DCA/Overlap-stable: used only for MAXED_NO_HEDGE,
-//   while StartGeneration remains independently forbidden by generationCount.
-eRecoveryState Recovery_T163SchedulingStatePure(const eRecoveryState baseState,
-                                                 const bool deferredLockYield,
-                                                 const bool maxedNoHedge)
-{
-   if(deferredLockYield) return recovery_REHEDGE_PENDING;
-   if(maxedNoHedge) return recovery_HEDGE_LOCKED;
-   return baseState;
-}
-
-// Pin the exact T16.2 implementation and expose its internals only to this
-// derived liveness layer. This mirrors the existing T14/T16 wrapper pattern.
-#define private protected
+// Pin the exact T16.2 implementation. The T16.1 hardened base already exposes
+// original ARCS internals as protected; no second `private` macro is required.
 #define CRecoveryArcsStackFinal CRecoveryArcsStackT162Base
 #include "RecoveryArcsStackPostDealT162Base.mqh"
 #undef CRecoveryArcsStackFinal
-#undef private
 
 class CRecoveryArcsStackFinal : public CRecoveryArcsStackT162Base
 {
@@ -102,9 +60,6 @@ private:
 
    int DeterministicDeferredDirection(CExecutionLayer &exec) const
    {
-      // Base Drive always evaluates BUY_CORE before SELL_CORE. If it returns a
-      // deterministic lock-wait reason, the first eligible LOCK_PENDING cycle
-      // is therefore the cycle that yielded this tick.
       int buyKey = Recovery_CycleKey(recovery_CORE_BUY);
       if(m_dir[0].phase == ARCS_LOCK_PENDING &&
          !exec.HasPendingForCycle(buyKey) && !exec.HasReconcileRequired(buyKey))
@@ -128,26 +83,18 @@ public:
 
    bool Drive(CExecutionLayer &exec, const EAContext &ctx, string &why)
    {
-      // Scheduling yield is intentionally ephemeral: it is recomputed from a
-      // fresh broker preflight every tick and is never trusted across restart.
       m_dcaYield[0] = false;
       m_dcaYield[1] = false;
 
       bool consumed = CRecoveryArcsStackT162Base::Drive(exec, ctx, why);
 
-      // T16.2 correctly keeps the retained layer in LOCK_PENDING when the
-      // positive SL cannot yet be placed, but returning true starved all Core
-      // work for hours. If there is NO pending command and NO ambiguous result,
-      // this is a deterministic local wait rather than an unresolved mutation.
-      // Yield the remainder of this tick to legacy Core DCA only. The next tick
-      // retries the lock first, and any actual/ambiguous broker command remains
-      // terminal for the tick exactly as before.
       if(consumed && DeterministicLockWaitWhy(why))
       {
          int di = DeterministicDeferredDirection(exec);
          if(di >= 0)
          {
-            int key = Recovery_CycleKey(di == 0 ? recovery_CORE_BUY : recovery_CORE_SELL);
+            eRecoveryCoreDirection dir = di == 0 ? recovery_CORE_BUY : recovery_CORE_SELL;
+            int key = Recovery_CycleKey(dir);
             bool canYield = Recovery_T163DeferredLockYieldPure(consumed,
                                                                true,
                                                                exec.HasPendingForCycle(key),
@@ -155,7 +102,6 @@ public:
             if(canYield)
             {
                m_dcaYield[di] = true;
-               eRecoveryCoreDirection dir = di == 0 ? recovery_CORE_BUY : recovery_CORE_SELL;
                Log_Warn("Recovery", "t163lockyield" + (string)Recovery_CycleKey(dir),
                         "T16.3 deferred-lock yield: retained Hedge vẫn chờ khóa, execution journal quiet; Core DCA được phép tiếp tục nếu ContinueDcaAfterHedge=true");
                consumed = false;
@@ -168,12 +114,6 @@ public:
       return consumed;
    }
 
-   // SRecoveryCycle is the compatibility/scheduling view used by T7/T8. Keep
-   // the internal ARCS phase untouched and expose only the safe scheduling
-   // equivalent needed by existing policy functions:
-   // - deferred lock => REHEDGE_PENDING: T7 permits DCA, T8 Overlap still defers;
-   // - maxed/no-Hedge => HEDGE_LOCKED: stable Core management is allowed, but
-   //   StartGeneration remains blocked by generationCount >= Max.
    void GetCycle(const eRecoveryCoreDirection dir, SRecoveryCycle &out) const
    {
       CRecoveryArcsStackT162Base::GetCycle(dir, out);
