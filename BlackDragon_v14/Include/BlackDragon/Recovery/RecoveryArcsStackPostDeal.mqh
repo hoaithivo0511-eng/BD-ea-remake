@@ -38,9 +38,6 @@ private:
                     WaitHeartbeat());
    }
 
-   // T16.5 replacement for original ARCS BUILDING. A preflight or explicit
-   // broker rejection with KNOWN no mutation is a capacity wait, not state
-   // corruption. Only observed overfill or ambiguous execution stays fail-closed.
    bool DriveBuildingCapacitySafe(CExecutionLayer &exec,
                                   const eRecoveryCoreDirection dir,
                                   const datetime now,
@@ -281,8 +278,6 @@ public:
       m_dcaYield[1] = false;
       why = "";
 
-      // T16.5 capacity wait intercepts BUILDING before the T16.0 base can turn
-      // deterministic margin/volume preflight failures into RECONCILE.
       if(m_dir[0].phase == ARCS_BUILDING)
       {
          bool consumed = DriveBuildingCapacitySafe(exec, recovery_CORE_BUY,
@@ -320,8 +315,6 @@ public:
                              "T16.3 deferred-lock yield: retained Hedge vẫn chờ khóa, execution journal quiet; Core DCA được phép tiếp tục nếu ContinueDcaAfterHedge=true",
                              WaitHeartbeat());
                consumed = false;
-               // The dedicated heartbeat above is the audit trail; suppress
-               // duplicate Strategy ACTIVE-mutation warning for this wait.
                why = "";
             }
          }
@@ -330,6 +323,11 @@ public:
       UpdateMaxedTelemetry(recovery_CORE_BUY);
       UpdateMaxedTelemetry(recovery_CORE_SELL);
       return consumed;
+   }
+
+   bool CanOpenFurtherGeneration(const eRecoveryCoreDirection dir) const
+   {
+      return m_dir[Idx(dir)].generationCount < MaxHedgeGenerations_;
    }
 
    void GetCycle(const eRecoveryCoreDirection dir, SRecoveryCycle &out) const
