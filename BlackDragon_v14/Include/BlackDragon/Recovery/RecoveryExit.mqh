@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryExit.mqh — T5 virtual TP, realized ledger, close plans   |
+//| RecoveryExit.mqh — T16.6 virtual TP / executable close planning |
 //| Invariants: pure planning/accounting only; no trade API calls.   |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_EXIT_MQH
@@ -112,23 +112,45 @@ bool Recovery_VirtualHedgeTpHit(const eRecoveryCoreDirection coreDir,
    return bid >= hedgeNetBE + tpDistancePrice;    // BUY hedge exits at bid
 }
 
+// T16.6 owner policy for the active Hedge generation only:
+// - configured economic intent is floored as before;
+// - if that intent is positive but below broker minimum, close minUnits;
+// - if a requested partial would leave an illegal sub-minimum remainder,
+//   reduce to the nearest legal non-overclose when possible;
+// - if no legal partial exists, full-close the tiny layer rather than
+//   classifying deterministic broker-grid quantization as RECONCILE.
+long Recovery_T166ExecutablePartialCloseUnitsPure(const long activeUnits,
+                                                  const double percent,
+                                                  const long minUnits)
+{
+   if(activeUnits <= 0 || percent <= 0.0 || percent > 100.0 || minUnits <= 0)
+      return 0;
+   if(activeUnits < minUnits) return 0; // unexpected/illegal live exposure
+   if(percent >= 100.0 - 1e-12) return activeUnits;
+
+   long target = (long)MathFloor((double)activeUnits * percent / 100.0 + 1e-9);
+   if(target < minUnits) target = minUnits;
+   if(target >= activeUnits) return activeUnits;
+
+   long remaining = activeUnits - target;
+   if(remaining == 0 || remaining >= minUnits) return target;
+
+   // Keep one broker minimum open if a smaller legal close can do so.
+   long reduced = activeUnits - minUnits;
+   if(reduced >= minUnits && reduced < target) return reduced;
+
+   // No legal partial is representable on this broker grid. Full close is the
+   // only executable non-overclose and leaves no retained layer to lock.
+   return activeUnits;
+}
+
 long Recovery_PartialCloseTargetUnits(const long activeUnits,
                                       const double percent,
                                       const long minUnits)
 {
-   if(activeUnits <= 0 || percent <= 0.0 || percent > 100.0 || minUnits <= 0)
-      return 0;
-   if(percent >= 100.0 - 1e-12) return activeUnits;
-   long target = (long)MathFloor((double)activeUnits * percent / 100.0 + 1e-9);
-   if(target < minUnits) return 0;
-   if(target >= activeUnits) return activeUnits;
-   long remaining = activeUnits - target;
-   if(remaining > 0 && remaining < minUnits)
-   {
-      target = activeUnits - minUnits; // reduce, never round exposure close upward
-      if(target < minUnits) return 0;
-   }
-   return target;
+   return Recovery_T166ExecutablePartialCloseUnitsPure(activeUnits,
+                                                       percent,
+                                                       minUnits);
 }
 
 long Recovery_LegalCloseUnits(const long requestedUnits,

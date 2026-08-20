@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| RecoveryT16Config.mqh — T16.5 ARCS Recovery configuration       |
-//| Vietnamese-facing inputs + pure policy helpers.                  |
+//| RecoveryT16Config.mqh — T16.6 ARCS Recovery configuration       |
+//| Vietnamese-facing inputs + sizing / broker-min policy helpers.   |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T16_CONFIG_MQH
 #define BD_RECOVERY_T16_CONFIG_MQH
@@ -9,6 +9,7 @@
 #include "RecoveryT164Reachability.mqh"
 
 #define BD_ARCS_MAX_LAYERS 64
+#define BD_ARCS_MIN_VOLUME_POLICY_REV 1
 
 enum eRecoverySizingPolicy
 {
@@ -66,16 +67,71 @@ long Recovery_T16PercentUnitsPure(const long coreUnits,
    return (long)MathFloor((double)coreUnits * hedgePercent / 100.0 + 1e-9);
 }
 
-long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
-                                        const long coreUnits,
-                                        const long existingHedgeUnits,
-                                        const double hedgePercent)
+// Mathematical sizing remains separately testable and broker-independent.
+long Recovery_T16NewGenerationRawUnitsPure(const eRecoverySizingPolicy policy,
+                                           const long coreUnits,
+                                           const long existingHedgeUnits,
+                                           const double hedgePercent)
 {
    long desired = Recovery_T16PercentUnitsPure(coreUnits, hedgePercent);
    if(desired <= 0) return 0;
    if(policy == ARCS_XEP_LOP) return desired;
    long existing = existingHedgeUnits > 0 ? existingHedgeUnits : 0;
    return desired > existing ? desired - existing : 0;
+}
+
+// T16.6 owner policy: a positive Hedge generation smaller than broker minimum
+// becomes exactly the broker minimum. Zero stays zero; no Hedge is invented.
+long Recovery_T166ClampPositiveGenerationUnitsPure(const long rawUnits,
+                                                   const long minUnits)
+{
+   if(rawUnits <= 0) return 0;
+   if(minUnits <= 0) return rawUnits;
+   return rawUnits < minUnits ? minUnits : rawUnits;
+}
+
+long Recovery_T16CurrentBrokerMinUnits()
+{
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double minVolume = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   if(step <= 0.0 || minVolume <= 0.0) return 0;
+   return Recovery_VolumeToUnitsCeil(minVolume, step);
+}
+
+// Compatibility entry point used throughout the ARCS runtime. T16.6 applies
+// the broker execution floor here so StartGeneration, post-Overlap sizing and
+// the T16.5 DCA margin reserve all consume the same executable target.
+long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
+                                        const long coreUnits,
+                                        const long existingHedgeUnits,
+                                        const double hedgePercent)
+{
+   long raw = Recovery_T16NewGenerationRawUnitsPure(policy,
+                                                    coreUnits,
+                                                    existingHedgeUnits,
+                                                    hedgePercent);
+   if(raw <= 0) return 0;
+
+   long minUnits = Recovery_T16CurrentBrokerMinUnits();
+   long planned = Recovery_T166ClampPositiveGenerationUnitsPure(raw, minUnits);
+   if(planned > raw)
+   {
+      // This helper can be evaluated repeatedly by reserve/planning paths.
+      // Suppress duplicate evidence for the same raw/planned pair.
+      static long lastRaw = -1;
+      static long lastPlanned = -1;
+      if(lastRaw != raw || lastPlanned != planned)
+      {
+         double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+         Print("[BD:Recovery] INFO T16.6 Hedge target clamped to broker minimum raw=",
+               DoubleToString(Recovery_UnitsToVolume(raw, step), 8),
+               " planned=",
+               DoubleToString(Recovery_UnitsToVolume(planned, step), 8));
+         lastRaw = raw;
+         lastPlanned = planned;
+      }
+   }
+   return planned;
 }
 
 bool Recovery_T16VirtualSlHitPure(const eRecoveryCoreDirection coreDir,
@@ -140,6 +196,7 @@ uint Recovery_T16SemanticFingerprint()
       "|reentryBuffer=" + DoubleToString(RecoveryReentryBufferPips_, 12) +
       "|overlapAfterHedge=" + (OverlapAfterHedge_ ? "1" : "0") +
       "|dcaMarginReserve=" + (RecoveryDcaMarginReserve_ ? "1" : "0") +
+      "|minVolumePolicyRev=" + (string)BD_ARCS_MIN_VOLUME_POLICY_REV +
       "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
    return Recovery_Fnv1aTextPure(canonical);
 }
