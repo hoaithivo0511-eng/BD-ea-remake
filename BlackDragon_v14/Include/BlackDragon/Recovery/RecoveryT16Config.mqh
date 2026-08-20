@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryT16Config.mqh — T16.4 ARCS Recovery configuration       |
+//| RecoveryT16Config.mqh — T16.5 ARCS Recovery configuration       |
 //| Vietnamese-facing inputs + pure policy helpers.                  |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T16_CONFIG_MQH
@@ -49,6 +49,10 @@ input double RecoveryReentryBufferPips_    = 10.0; // Buffer xác nhận tái k�
 
 input group "21 — ARCS: OVERLAP SAU KHI HEDGE"
 input bool OverlapAfterHedge_ = false; // true: vẫn tỉa Overlap Core khi Recovery đã Hedge; ARCS refresh Core/Hedge trước bước kế tiếp
+
+input group "22 — ARCS: AN TOÀN MARGIN & NHẬT KÝ"
+input bool RecoveryDcaMarginReserve_ = true; // true: trước DCA Core, giữ đủ margin ước tính cho DCA + thế hệ Hedge kế tiếp
+input int  RecoveryWaitLogSeconds_   = 900;  // Chu kỳ heartbeat log khi Recovery chỉ đang CHỜ (giây); 0 = chỉ log lần đầu mỗi key
 
 bool Recovery_T16SizingPolicyValid(const eRecoverySizingPolicy policy)
 {
@@ -142,6 +146,7 @@ uint Recovery_T16SemanticFingerprint()
       "|globalProfit=" + DoubleToString(GlobalHedgeSLNetProfitPips_, 12) +
       "|reentryBuffer=" + DoubleToString(RecoveryReentryBufferPips_, 12) +
       "|overlapAfterHedge=" + (OverlapAfterHedge_ ? "1" : "0") +
+      "|dcaMarginReserve=" + (RecoveryDcaMarginReserve_ ? "1" : "0") +
       "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
    return Recovery_Fnv1aTextPure(canonical);
 }
@@ -168,6 +173,11 @@ bool Recovery_T16ValidateConfig(string &why)
    if(MaxHedgeGenerations_ > BD_ARCS_MAX_LAYERS)
    {
       why = "Số vòng Hedge tối đa vượt capacity ARCS=" + (string)BD_ARCS_MAX_LAYERS;
+      return false;
+   }
+   if(RecoveryWaitLogSeconds_ < 0 || RecoveryWaitLogSeconds_ > 86400)
+   {
+      why = "Chu kỳ heartbeat log Recovery phải trong [0,86400] giây";
       return false;
    }
 
@@ -223,6 +233,7 @@ bool Recovery_T16UseStackEngine()
    if(HedgeSLMode_ == SL_VIRTUAL) return true;
    if(EnableGlobalHedgeSL_) return true;
    if(OverlapAfterHedge_) return true;
+   if(RecoveryDcaMarginReserve_) return true;
    return false;
 }
 
