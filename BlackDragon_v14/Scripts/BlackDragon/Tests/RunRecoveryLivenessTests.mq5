@@ -4,6 +4,8 @@
 #property script_show_inputs
 #include <BlackDragon/Recovery/RecoveryT16Config.mqh>
 #include <BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh>
+#include <BlackDragon/Recovery/RecoveryDca.mqh>
+#include <BlackDragon/Recovery/RecoveryMutationPolicy.mqh>
 
 int g_pass=0, g_fail=0;
 void Check(const string name,const bool cond)
