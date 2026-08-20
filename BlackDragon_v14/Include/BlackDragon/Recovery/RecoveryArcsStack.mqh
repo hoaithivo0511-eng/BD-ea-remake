@@ -214,13 +214,13 @@ private:
       mapped = true;
       if(ownerMagic == (long)RecoveryMagic_)
       {
-         if(dealType == DEAL_TYPE_BUY) return recovery_CORE_BUY;  // closes SELL hedge
-         if(dealType == DEAL_TYPE_SELL) return recovery_CORE_SELL;// closes BUY hedge
+         if(dealType == DEAL_TYPE_BUY) return recovery_CORE_BUY;
+         if(dealType == DEAL_TYPE_SELL) return recovery_CORE_SELL;
       }
       else if(ownerMagic == (long)Magic)
       {
-         if(dealType == DEAL_TYPE_SELL) return recovery_CORE_BUY; // closes BUY Core
-         if(dealType == DEAL_TYPE_BUY) return recovery_CORE_SELL; // closes SELL Core
+         if(dealType == DEAL_TYPE_SELL) return recovery_CORE_BUY;
+         if(dealType == DEAL_TYPE_BUY) return recovery_CORE_SELL;
       }
       mapped = false;
       return recovery_CORE_BUY;
@@ -437,6 +437,14 @@ private:
       long target = Recovery_T16NewGenerationUnitsPure(RecoverySizingPolicy_,
                                                        coreUnits, existing,
                                                        HedgeVolumePercent_);
+      // T16.6: zero is a valid policy result (for example HEDGE_CAN_BANG is
+      // already fully covered). It is deterministic and must never poison
+      // Recovery readiness or be classified as a broker-volume reconcile.
+      if(target <= 0)
+      {
+         why = "không cần generation Hedge mới theo sizing policy hiện tại";
+         return false;
+      }
       SRecoveryBundleVolumeMeta meta;
       if(!Recovery_ReadBundleVolumeMeta(_Symbol, meta, why)) return false;
       if(target < meta.minUnits)
@@ -1174,7 +1182,7 @@ private:
       ulong lastDeal = m_dir[di].lastDealTicket;
       long lastMsc = m_dir[di].lastDealTimeMsc;
       Recovery_ArcsDirectionReset(m_dir[di]);
-      m_dir[di].phase = ARCS_LOCKED; // transient parent for immediate StartGeneration
+      m_dir[di].phase = ARCS_LOCKED;
       m_dir[di].transitionReferencePrice = ref;
       m_dir[di].lastDealTicket = lastDeal;
       m_dir[di].lastDealTimeMsc = lastMsc;
@@ -1685,8 +1693,6 @@ public:
          m_ready = true;
          return Save(why);
       }
-      // Intentional stacked over-hedge is valid. Unknown partial topology
-      // changes are not auto-trimmed; they require explicit reconciliation.
       why = "partial side mutation trong ARCS stacked cần explicit reconcile";
       LatchReconcile(dir, why);
       return false;
