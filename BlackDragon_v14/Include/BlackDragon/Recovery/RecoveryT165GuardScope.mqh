@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| RecoveryT165GuardScope.mqh — T16.5 Guard scope coherence         |
 //| Floating Recovery exposure is read live. Realized-day Recovery   |
-//| cash is SEEDED once/day and maintained from trade transactions,  |
+//| cash is SEEDED once/day and maintained from Recovery deal events,|
 //| avoiding HistorySelect/full-history scans on every tick.         |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T165_GUARD_SCOPE_MQH
@@ -11,15 +11,14 @@
 
 struct SRecoveryT165GuardMetrics
 {
-   double recoveryForBuyFloating;   // SELL Recovery Hedge owned by BUY Core
-   double recoveryForSellFloating;  // BUY Recovery Hedge owned by SELL Core
+   double recoveryForBuyFloating;
+   double recoveryForSellFloating;
    double recoveryRealizedToday;
    bool   buyRecoveryOpen;
    bool   sellRecoveryOpen;
    bool   historyOk;
 };
 
-// Event-driven daily cache. This header is included once through Strategy.mqh.
 datetime g_t165GuardDayStart = 0;
 double   g_t165GuardRealized = 0.0;
 bool     g_t165GuardSeeded   = false;
@@ -51,12 +50,6 @@ void Recovery_T165GuardRememberDeal(const ulong deal)
    g_t165GuardSeenDeals[n] = deal;
 }
 
-double Recovery_T165SelectedDealCash()
-{
-   return HistoryDealGetDouble(HistoryDealGetTicket(HistoryDealsTotal() - 1), DEAL_PROFIT);
-}
-
-// Caller must have selected `deal` with HistoryDealSelect().
 double Recovery_T165DealCash(const ulong deal)
 {
    return HistoryDealGetDouble(deal, DEAL_PROFIT)
@@ -97,34 +90,27 @@ bool Recovery_T165SeedRealizedCache(const datetime now)
    return true;
 }
 
-// Called once from the EA's OnTradeTransaction AFTER Recovery has consumed the
-// deal. Duplicate callbacks are idempotent by deal ticket.
-void Recovery_T165GuardOnTradeTransaction(const MqlTradeTransaction &trans)
+// Idempotent observer for every broker-confirmed deal received by Recovery.
+// The engine calls this AFTER its own ledger/identity handling so HistorySelect
+// here cannot disturb the active Recovery transaction path.
+void Recovery_T165GuardObserveDeal(const ulong deal, const datetime now)
 {
-   if(RecoveryMode_ != recovery_ACTIVE || RecoveryMagic_ <= 0) return;
-   if(trans.type != TRADE_TRANSACTION_DEAL_ADD || trans.deal == 0 ||
-      trans.symbol != _Symbol)
-      return;
-
-   datetime now = TimeCurrent();
+   if(RecoveryMode_ != recovery_ACTIVE || RecoveryMagic_ <= 0 || deal == 0) return;
    datetime dayStart = StringToTime(TimeToString(now, TIME_DATE));
    if(!g_t165GuardSeeded || g_t165GuardDayStart != dayStart)
    {
-      // The deal is already broker-observable when DEAL_ADD is delivered, so
-      // reseeding includes it. Return to avoid double booking it below.
-      Recovery_T165SeedRealizedCache(now);
+      Recovery_T165SeedRealizedCache(now); // already includes this DEAL_ADD
       return;
    }
-   if(Recovery_T165GuardDealSeen(trans.deal)) return;
-   if(!HistoryDealSelect(trans.deal)) return;
-   if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) != _Symbol ||
-      HistoryDealGetInteger(trans.deal, DEAL_MAGIC) != (long)RecoveryMagic_)
+   if(Recovery_T165GuardDealSeen(deal)) return;
+   if(!HistoryDealSelect(deal)) return;
+   if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol ||
+      HistoryDealGetInteger(deal, DEAL_MAGIC) != (long)RecoveryMagic_)
       return;
-   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
    if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;
-
-   g_t165GuardRealized += Recovery_T165DealCash(trans.deal);
-   Recovery_T165GuardRememberDeal(trans.deal);
+   g_t165GuardRealized += Recovery_T165DealCash(deal);
+   Recovery_T165GuardRememberDeal(deal);
 }
 
 void Recovery_T165ReadRecoveryFloating(const string symbol,
