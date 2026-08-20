@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T14 identity + T16.2 ARCS compatibility    |
+//| RecoveryEngine.mqh — T14 identity + T16.5 ARCS compatibility    |
 //| Exact T13/T14 engine remains available for the legacy contract.  |
 //| T16 routes new sizing/stack/SL/Overlap semantics into ARCS.      |
 //+------------------------------------------------------------------+
@@ -250,6 +250,14 @@ public:
    bool T16HasExposure(const eRecoveryCoreDirection dir) const
    {
       return UseT16() && m_arcs.HasExposure(dir);
+   }
+
+   // T16.5 margin reserve applies only to the ARCS engine and only while the
+   // current cycle may legally create another generation. This prevents the
+   // reserve gate from blocking Core DCA after MAXED_NO_HEDGE (no Gmax+1).
+   bool T16CanOpenFurtherGeneration(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.CanOpenFurtherGeneration(dir);
    }
 
    bool T16ExpectedBrokerSlDeal(const ulong deal)
