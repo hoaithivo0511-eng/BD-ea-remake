@@ -208,6 +208,16 @@ bool Recovery_T16ValidateConfig(string &why)
 
 bool Recovery_T16UseStackEngine()
 {
+   // Invalid ACTIVE reachability must never escape merely because all other
+   // T16 feature switches happen to select the legacy engine path. Route such
+   // a configuration through ARCS Init so the shared preflight fails fast.
+   if(RecoveryMode_ == recovery_ACTIVE &&
+      !Recovery_T164ValidateReachabilityPure(RecoveryMode_,
+                                             Flag_Trade_Buy_, Flag_Trade_Sell_,
+                                             MaxOrdersBuy, MaxOrdersSell,
+                                             RecoveryStartAfterDca_))
+      return true;
+
    if(RecoverySizingPolicy_ == ARCS_XEP_LOP) return true;
    if(MathAbs(HedgeVolumePercent_ - 100.0) > 1e-12) return true;
    if(HedgeSLMode_ == SL_VIRTUAL) return true;
