@@ -151,18 +151,6 @@ double Pyramid_RiskCapLotPure(const double positiveFloatingCash,
    return positiveFloatingCash * pct / 100.0 / riskCashPerLot;
 }
 
-long Pyramid_HedgeStageTargetRawUnitsPure(const eRecoverySizingPolicy policy,
-                                          const long coreUnits,
-                                          const long existingBeforeGeneration,
-                                          const double stageCoveragePercent)
-{
-   long desired = Recovery_T16PercentUnitsPure(coreUnits, stageCoveragePercent);
-   if(desired <= 0) return 0;
-   if(policy == ARCS_XEP_LOP) return desired;
-   long existing = existingBeforeGeneration > 0 ? existingBeforeGeneration : 0;
-   return desired > existing ? desired - existing : 0;
-}
-
 double Pyramid_EffectiveCoveragePure(const double stageCoverage,
                                      const double hedgeVolumePercent,
                                      const double hardMaxCoverage)
@@ -182,6 +170,8 @@ bool Pyramid_ValidateConfig(string &why)
    { why = "Tổng Lot Core tối đa sau nhồi phải >= 0"; return false; }
    if(PyramidRiskBudgetPercent_ < 0.0 || PyramidRiskBudgetPercent_ > 100.0)
    { why = "Ngân sách lợi nhuận được phép rủi ro phải trong [0,100]%"; return false; }
+   if(CorePyramidMode_ != pyramid_TAT && PyramidRiskBudgetPercent_ <= 0.0)
+   { why = "Bật Pyramid Core thì ngân sách lợi nhuận được phép rủi ro phải > 0"; return false; }
    if(PyramidMinLockedProfitPips_ < 0.0 || PyramidMinRoomToTPPips_ < 0.0 || PyramidPeelGapPips_ < 0.0)
    { why = "Các ngưỡng pip của Pyramid Core phải >= 0"; return false; }
    if(PyramidReserveDcaSlots_ < 0)

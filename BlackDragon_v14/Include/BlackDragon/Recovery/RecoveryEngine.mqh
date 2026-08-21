@@ -1,7 +1,6 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T14 identity + T16.5 ARCS compatibility    |
+//| RecoveryEngine.mqh — T17 Pyramid over T16.6 ARCS                |
 //| Exact T13/T14 engine remains available for the legacy contract.  |
-//| T16 routes new sizing/stack/SL/Overlap semantics into ARCS.      |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
 #define BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
@@ -83,12 +82,12 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
 #undef Recovery_PendingVolumeEffectConfirmed
 #undef CRecoveryEngine
 
-#include "RecoveryArcsStackPostDeal.mqh"
+#include "RecoveryArcsStackT17Pyramid.mqh"
 
 class CRecoveryEngine : public CRecoveryEngineT15Base
 {
 private:
-   CRecoveryArcsStackFinal m_arcs;
+   CRecoveryArcsStackT17 m_arcs;
 
    bool UseT16() const
    {
@@ -119,8 +118,6 @@ public:
    {
       if(UseT16()) m_arcs.OnTradeTransaction(trans);
       else CRecoveryEngineT15Base::OnTradeTransaction(trans);
-      // Run after the Recovery ledger/history consumers. This cache observer
-      // may HistoryDealSelect without disturbing their selected history range.
       ObserveGuardDeal(trans);
    }
 
@@ -146,8 +143,6 @@ public:
    {
       if(UseT16()) m_arcs.RecordDealCursor(deal);
       else CRecoveryEngineT15Base::RecordDealCursor(deal);
-      // T8 can suppress the normal Recovery OnTradeTransaction path for a
-      // coordinator-owned close; keep Guard realized scope complete anyway.
       Recovery_T165GuardObserveDeal(deal, TimeCurrent());
    }
 

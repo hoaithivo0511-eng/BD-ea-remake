@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryT16Config.mqh — T16.6 ARCS Recovery configuration       |
+//| RecoveryT16Config.mqh — T17 over T16.6 ARCS configuration       |
 //| Vietnamese-facing inputs + sizing / broker-min policy helpers.   |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T16_CONFIG_MQH
@@ -7,6 +7,7 @@
 
 #include "RecoveryTypes.mqh"
 #include "RecoveryT164Reachability.mqh"
+#include <BlackDragon/Pyramid/PyramidConfig.mqh>
 
 #define BD_ARCS_MAX_LAYERS 64
 #define BD_ARCS_MIN_VOLUME_POLICY_REV 1
@@ -67,7 +68,6 @@ long Recovery_T16PercentUnitsPure(const long coreUnits,
    return (long)MathFloor((double)coreUnits * hedgePercent / 100.0 + 1e-9);
 }
 
-// Mathematical sizing remains separately testable and broker-independent.
 long Recovery_T16NewGenerationRawUnitsPure(const eRecoverySizingPolicy policy,
                                            const long coreUnits,
                                            const long existingHedgeUnits,
@@ -80,8 +80,6 @@ long Recovery_T16NewGenerationRawUnitsPure(const eRecoverySizingPolicy policy,
    return desired > existing ? desired - existing : 0;
 }
 
-// T16.6 owner policy: a positive Hedge generation smaller than broker minimum
-// becomes exactly the broker minimum. Zero stays zero; no Hedge is invented.
 long Recovery_T166ClampPositiveGenerationUnitsPure(const long rawUnits,
                                                    const long minUnits)
 {
@@ -98,9 +96,6 @@ long Recovery_T16CurrentBrokerMinUnits()
    return Recovery_VolumeToUnitsCeil(minVolume, step);
 }
 
-// Compatibility entry point used throughout the ARCS runtime. T16.6 applies
-// the broker execution floor here so StartGeneration, post-Overlap sizing and
-// the T16.5 DCA margin reserve all consume the same executable target.
 long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
                                         const long coreUnits,
                                         const long existingHedgeUnits,
@@ -116,8 +111,6 @@ long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
    long planned = Recovery_T166ClampPositiveGenerationUnitsPure(raw, minUnits);
    if(planned > raw)
    {
-      // This helper can be evaluated repeatedly by reserve/planning paths.
-      // Suppress duplicate evidence for the same raw/planned pair.
       static long lastRaw = -1;
       static long lastPlanned = -1;
       if(lastRaw != raw || lastPlanned != planned)
@@ -197,7 +190,8 @@ uint Recovery_T16SemanticFingerprint()
       "|overlapAfterHedge=" + (OverlapAfterHedge_ ? "1" : "0") +
       "|dcaMarginReserve=" + (RecoveryDcaMarginReserve_ ? "1" : "0") +
       "|minVolumePolicyRev=" + (string)BD_ARCS_MIN_VOLUME_POLICY_REV +
-      "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
+      "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS +
+      "|" + Pyramid_SemanticText();
    return Recovery_Fnv1aTextPure(canonical);
 }
 
@@ -272,13 +266,12 @@ bool Recovery_T16UseStackEngine()
                                              RecoveryStartAfterDca_))
       return true;
 
+   if(HedgePyramidMode_ != hedge_pyramid_TAT) return true;
    if(RecoverySizingPolicy_ == ARCS_XEP_LOP) return true;
    if(MathAbs(HedgeVolumePercent_ - 100.0) > 1e-12) return true;
    if(HedgeSLMode_ == SL_VIRTUAL) return true;
    if(EnableGlobalHedgeSL_) return true;
    if(OverlapAfterHedge_) return true;
-   // T16.5 margin reserve is a Strategy preflight and MUST NOT force a
-   // compatibility/legacy Recovery configuration into the ARCS engine.
    return false;
 }
 

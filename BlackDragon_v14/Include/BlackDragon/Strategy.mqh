@@ -1,7 +1,6 @@
 //+------------------------------------------------------------------+
-//| Strategy.mqh — BlackDragon v14.8.0 / T16.5                       |
-//| Composition root. T16.5 aligns guard valuation with coordinated  |
-//| Core+Recovery mutation scope and adds DCA margin reserve.         |
+//| Strategy.mqh — BlackDragon T17 Full Pyramid over T16.6          |
+//| Core Pyramid role-aware; DCA/Recovery semantics remain isolated. |
 //+------------------------------------------------------------------+
 #ifndef BD_STRATEGY_MQH
 #define BD_STRATEGY_MQH
@@ -13,6 +12,7 @@
 #include "ExecutionLayer.mqh"
 #include "MoneyGuard.mqh"
 #include "Panel.mqh"
+#include "Pyramid/CorePyramid.mqh"
 #include "Recovery/RecoveryExitCoordinator.mqh"
 #include "Recovery/RecoveryT165GuardScope.mqh"
 #include "Recovery/RecoveryT165MarginReserve.mqh"
@@ -27,6 +27,7 @@ private:
    CDistancePlan     *m_dist;
    CRecoveryEngine   *m_recovery;
    CRecoveryExitCoordinator *m_recoveryExit;
+   CCorePyramidEngine *m_pyramid;
    CVirtualExitPolicy m_exitPolicy;
    CFilterChain       m_newSeriesFilters;
    CFilterChain       m_gridFilters;
@@ -90,20 +91,32 @@ private:
    void TryGridAdd(const EAContext &ctx, BasketSide &side, const int dir, const int maxOrders)
    {
       if(side.count <= 0 || side.count >= maxOrders) return;
+
+      // T17 invariant: DCA không được chen vào khi Pyramid legs còn tồn tại.
+      // Pyramid LIFO Peel phải tháo optional trend-risk trước.
+      if(m_pyramid != NULL && m_pyramid.HasLegs(side)) return;
+
+      BasketSide dcaSide;
+      if(m_pyramid != NULL) m_pyramid.BuildDcaView(side, dcaSide);
+      else dcaSide = side;
+      if(dcaSide.count <= 0) return;
+
       datetime lastBar = (dir == BD_DIR_BUY) ? m_basket.LastBuyBar() : m_basket.LastSellBar();
       if(lastBar == ctx.barTime) return;
       if(m_exec.BusyOpen(dir)) return;
       if(!m_gridFilters.Allow(ctx, dir)) return;
-      PositionInfo last = side.pos[side.count - 1];
+      PositionInfo last = dcaSide.pos[dcaSide.count - 1];
       if(MinuteStop != 0 && ctx.now <= last.openTime + MinuteStop * 60) return;
 
-      int dist = m_dist.DistancePoints(side.count) * Cfg.PointScale;
+      int dist = m_dist.DistancePoints(dcaSide.count) * Cfg.PointScale;
       bool hit = (dir == BD_DIR_BUY)
          ? (ctx.ask <= last.openPrice - dist * ctx.point)
          : (ctx.bid >= last.openPrice + dist * ctx.point);
       if(!hit) return;
 
-      double nextLot = m_sizer.NextLot(side);
+      // T17: DCA chain index/sizer nhìn non-Pyramid Core; economic reserve
+      // vẫn nhìn FULL Core side (Seed+DCA+Pyramid) qua biến side bên dưới.
+      double nextLot = m_sizer.NextLot(dcaSide);
       if(RecoveryMode_ == recovery_ACTIVE && RecoveryDcaMarginReserve_)
       {
          string reserveWhy = "";
@@ -124,13 +137,19 @@ private:
          }
       }
 
-      if(m_exec.OpenMarket(dir, nextLot, side.count + 1)) m_basket.Invalidate();
+      if(m_exec.OpenMarket(dir, nextLot, dcaSide.count + 1)) m_basket.Invalidate();
    }
 
    bool ApplyExit(const EAContext &ctx, BasketSide &side, const int dir)
    {
       ExitDecision d = m_exitPolicy.Check(ctx, side, dir);
       if(d.kind == EXIT_NONE) return false;
+
+      // T17: Legacy Overlap không được dùng newest Pyramid leg như một DCA leg.
+      // TP/SL/Trail vẫn đóng toàn economic Core basket như trước.
+      if(d.kind == EXIT_OVERLAP && m_pyramid != NULL && m_pyramid.HasLegs(side))
+         return false;
+
       if(d.kind == EXIT_OVERLAP)
       {
          eRecoveryExitCoordRequest cr = BeginTicketClose(dir, d.pairLast, d.pairFirst,
@@ -212,9 +231,6 @@ private:
          if(recoveryHistoryOk)
          {
             dayNet += rg.recoveryRealizedToday;
-            // BasketManager's existing day-start estimate subtracts only Core
-            // realized P/L. Remove Recovery realized too so Daily-% uses the
-            // same economic Core+Recovery scope as its numerator.
             economicDayStartBalance -= rg.recoveryRealizedToday;
          }
          else
@@ -310,7 +326,8 @@ private:
 public:
    void Init(CBasketManager *basket, CExecutionLayer *exec, ILotSizer *sizer,
              CMoneyGuard *guard, CDistancePlan *dist,
-             CRecoveryEngine *recovery, CRecoveryExitCoordinator *recoveryExit)
+             CRecoveryEngine *recovery, CRecoveryExitCoordinator *recoveryExit,
+             CCorePyramidEngine *pyramid)
    {
       m_basket       = basket;
       m_exec         = exec;
@@ -319,6 +336,7 @@ public:
       m_dist         = dist;
       m_recovery     = recovery;
       m_recoveryExit = recoveryExit;
+      m_pyramid      = pyramid;
       m_newSeriesFilters.Add(new CSpreadFilter());
       m_newSeriesFilters.Add(new CPauseFilter());
       m_newSeriesFilters.Add(new CNewsFilter());
@@ -419,15 +437,43 @@ public:
          return;
       }
 
+      bool panelMutation = false;
       if(panelOpenBuy)
       {
          if(m_exec.BusyOpen(BD_DIR_BUY)) Log_Warn("Strategy", "panelbusy", "panel Open Buy ignored: async open in flight");
-         else if(m_exec.OpenMarket(BD_DIR_BUY, Cfg.EditLot, m_basket.buy.count + 1)) m_basket.Invalidate();
+         else if(m_exec.OpenMarket(BD_DIR_BUY, Cfg.EditLot, m_basket.buy.count + 1))
+         { m_basket.Invalidate(); panelMutation = true; }
       }
       if(panelOpenSell)
       {
          if(m_exec.BusyOpen(BD_DIR_SELL)) Log_Warn("Strategy", "panelbusy", "panel Open Sell ignored: async open in flight");
-         else if(m_exec.OpenMarket(BD_DIR_SELL, Cfg.EditLot, m_basket.sell.count + 1)) m_basket.Invalidate();
+         else if(m_exec.OpenMarket(BD_DIR_SELL, Cfg.EditLot, m_basket.sell.count + 1))
+         { m_basket.Invalidate(); panelMutation = true; }
+      }
+      if(panelMutation) return;
+
+      // T17 priority: high-scope Guard/Recovery/Exit trước; sau đó Pyramid
+      // peel/add; cuối cùng mới tới new-series/DCA legacy.
+      if(m_pyramid != NULL)
+      {
+         string pyrWhy = "";
+         if(m_basket.buy.count > 0 && m_newSeriesFilters.Allow(ctx, BD_DIR_BUY) &&
+            m_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY, MaxOrdersBuy,
+                            m_recovery, pyrWhy))
+         {
+            if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
+            m_basket.Invalidate();
+            return;
+         }
+         pyrWhy = "";
+         if(m_basket.sell.count > 0 && m_newSeriesFilters.Allow(ctx, BD_DIR_SELL) &&
+            m_pyramid.Drive(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell,
+                            m_recovery, pyrWhy))
+         {
+            if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
+            m_basket.Invalidate();
+            return;
+         }
       }
 
       TryOpenSeries(ctx);
