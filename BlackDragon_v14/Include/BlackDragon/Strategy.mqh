@@ -452,23 +452,26 @@ public:
       }
       if(panelMutation) return;
 
-      // T17 priority: high-scope Guard/Recovery/Exit trước; sau đó Pyramid
-      // peel/add; cuối cùng mới tới new-series/DCA legacy.
+      // T17 priority: high-scope Guard/Recovery/Exit trước; sau đó Pyramid.
+      // Entry filters chỉ cấp quyền ADD; LIFO Peel giảm rủi ro vẫn được Drive
+      // đánh giá ngay cả khi news/time/halt/ADX/spread đang chặn risk mới.
       if(m_pyramid != NULL)
       {
          string pyrWhy = "";
-         if(m_basket.buy.count > 0 && m_newSeriesFilters.Allow(ctx, BD_DIR_BUY) &&
+         bool allowPyramidAddBuy = m_newSeriesFilters.Allow(ctx, BD_DIR_BUY);
+         if(m_basket.buy.count > 0 &&
             m_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY, MaxOrdersBuy,
-                            m_recovery, pyrWhy))
+                            m_recovery, allowPyramidAddBuy, pyrWhy))
          {
             if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
             m_basket.Invalidate();
             return;
          }
          pyrWhy = "";
-         if(m_basket.sell.count > 0 && m_newSeriesFilters.Allow(ctx, BD_DIR_SELL) &&
+         bool allowPyramidAddSell = m_newSeriesFilters.Allow(ctx, BD_DIR_SELL);
+         if(m_basket.sell.count > 0 &&
             m_pyramid.Drive(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell,
-                            m_recovery, pyrWhy))
+                            m_recovery, allowPyramidAddSell, pyrWhy))
          {
             if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
             m_basket.Invalidate();
