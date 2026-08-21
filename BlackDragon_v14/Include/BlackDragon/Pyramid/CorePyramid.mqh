@@ -357,6 +357,12 @@ public:
       return Pyramid_HasLegs(side);
    }
 
+   bool HasPending(const int dir) const
+   {
+      if(m_exec == NULL || dir < BD_DIR_BUY || dir > BD_DIR_SELL) return false;
+      return m_exec.HasPendingForCycle(CycleKey(dir));
+   }
+
    void BuildDcaView(const BasketSide &source, BasketSide &out) const
    {
       Pyramid_BuildDcaView(source, out);
