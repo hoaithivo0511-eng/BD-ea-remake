@@ -61,19 +61,32 @@ jobs:
           assert '24 — NHỒI DƯƠNG RECOVERY HEDGE' in cfg
           assert 'PyramidRiskBudgetPercent_' in cfg and 'HedgePyramidCoverageSequence_' in cfg
           assert 'Pyramid_SemanticText' in cfg
+          assert 'OFF-parity' in cfg
+          assert 'if(CorePyramidMode_ != pyramid_TAT)' in cfg
+          assert 'if(HedgePyramidMode_ != hedge_pyramid_TAT)' in cfg
+          assert 'PyramidPeelGapPips_ <= 0.0' in cfg
 
           assert 'EXEC_CMD_CORE_PYRAMID_OPEN' in types
           assert 'EXEC_CMD_CORE_PYRAMID_CLOSE' in types
           assert 'm_campaignSeen' in core
           assert 'HistoryCampaignUsed' in core
+          assert 'bool &historyReady' in core
+          assert 'if(!historyReady)' in core
+          assert 'm_seedTicket[dir] = book.seedTicket' in core
           assert 'pyramid_CHU_KY_SACH' in core and 'm_campaignSeen[dir] && book.pyramidCount == 0' in core
           assert 'Pyramid_RiskCapLotPure' in core
           assert 'Pyramid_PeelHitPure' in core
           assert 'EXEC_RECONCILE_FAIL_CLOSED' in core
+          assert 'const bool allowAdd' in core
+          drive=core.index('bool Drive(')
+          peel_call=core.index('TryPeel(ctx', drive)
+          add_gate=core.index('!allowAdd', drive)
+          assert drive < peel_call < add_gate
 
           assert 'BuildDcaView' in strategy
           assert 'm_pyramid.HasLegs' in strategy
           assert 'm_pyramid.Drive' in strategy
+          assert 'allowPyramidAddBuy' in strategy and 'allowPyramidAddSell' in strategy
           assert strategy.index('m_pyramid.Drive') < strategy.index('TryOpenSeries(ctx)')
           assert 'if(m_pyramid != NULL && m_pyramid.HasLegs(side)) return;' in strategy
 
@@ -81,6 +94,7 @@ jobs:
           assert 'Recovery_ArcsBuildEconomicCore' in book
           assert 'Recovery_ArcsBuildEconomicCore(dir, step, core)' in book
           assert 'Pyramid_SemanticText()' in t16
+          assert 'CorePyramidMode_ != pyramid_TAT || HedgePyramidMode_ != hedge_pyramid_TAT' in t16
           assert 'HedgePyramidMode_ != hedge_pyramid_TAT' in t16
 
           assert 'class CRecoveryArcsStackT17' in t17
@@ -90,7 +104,7 @@ jobs:
           assert 'ProjectedRoomAllows' in t17
           assert 'generationCount++' not in t17
           assert '++m_dir[' not in t17
-          print('T17 source invariants PASS — 20 Vietnamese inputs + role isolation + staged Hedge coverage')
+          print('T17 source invariants PASS — 20 inputs + role isolation + risk-reduction/filter/history/OFF-parity hardening + staged Hedge coverage')
 
       - name: Record exact source identity
         shell: bash
