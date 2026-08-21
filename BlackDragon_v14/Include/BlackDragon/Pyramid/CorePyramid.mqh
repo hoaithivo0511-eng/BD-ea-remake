@@ -20,6 +20,8 @@ struct SPyramidBook
    double newestPyramidOpen;
    datetime newestPyramidTime;
    double nonPyramidLots;
+   ulong seedTicket;
+   datetime seedOpenTime;
 };
 
 void Pyramid_BookReset(SPyramidBook &b)
@@ -64,6 +66,11 @@ void Pyramid_ReadBook(const BasketSide &side, SPyramidBook &book)
       {
          book.nonPyramidCount++;
          book.nonPyramidLots += side.pos[i].lots;
+         if(book.seedTicket == 0)
+         {
+            book.seedTicket = side.pos[i].ticket;
+            book.seedOpenTime = side.pos[i].openTime;
+         }
       }
    }
 }
@@ -120,12 +127,55 @@ private:
    double m_distance[];
    double m_lots[];
    double m_mult[];
+   ulong m_seedTicket[2];
+   bool  m_campaignSeen[2];
 
    int CycleKey(const int dir) const { return 100 + dir; }
 
    double PipSize(const EAContext &ctx) const
    {
       return Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
+   }
+
+   bool HistoryCampaignUsed(const int dir, const datetime seedOpenTime) const
+   {
+      if(seedOpenTime <= 0) return false;
+      datetime from = seedOpenTime > 2 ? seedOpenTime - 2 : 0;
+      if(!HistorySelect(from, TimeCurrent())) return false;
+      long wantedType = dir == BD_DIR_BUY ? DEAL_TYPE_BUY : DEAL_TYPE_SELL;
+      for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+      {
+         ulong deal = HistoryDealGetTicket(i);
+         if(deal == 0) continue;
+         if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol ||
+            HistoryDealGetInteger(deal, DEAL_MAGIC) != (long)Magic ||
+            HistoryDealGetInteger(deal, DEAL_TYPE) != wantedType)
+            continue;
+         long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+         if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
+         string c = HistoryDealGetString(deal, DEAL_COMMENT);
+         if(!Pyramid_IsComment(c)) continue;
+         int cdir = Pyramid_CommentFieldInt(c, "D=");
+         if(cdir == dir) return true;
+      }
+      return false;
+   }
+
+   void RefreshCampaignState(const int dir, const SPyramidBook &book)
+   {
+      if(dir < 0 || dir > 1) return;
+      if(book.seedTicket == 0)
+      {
+         m_seedTicket[dir] = 0;
+         m_campaignSeen[dir] = false;
+         return;
+      }
+      if(m_seedTicket[dir] != book.seedTicket)
+      {
+         m_seedTicket[dir] = book.seedTicket;
+         m_campaignSeen[dir] = HistoryCampaignUsed(dir, book.seedOpenTime);
+      }
+      if(book.pyramidCount > 0) m_campaignSeen[dir] = true;
    }
 
    bool RecoveryAllowsAdd(CRecoveryEngine *recovery, const int dir) const
@@ -195,6 +245,9 @@ private:
    {
       if(CorePyramidMode_ == pyramid_TAT || PyramidMaxAdds_ <= 0) return false;
       if(side.count <= 0 || book.nonPyramidCount != 1) return false;
+      if(CorePyramidMode_ == pyramid_CHU_KY_SACH &&
+         m_campaignSeen[dir] && book.pyramidCount == 0)
+         return false;
       if(book.pyramidCount >= PyramidMaxAdds_) return false;
       if(side.count >= maxOrders) return false;
       if(PyramidReserveDcaSlots_ > 0 && side.count + 1 + PyramidReserveDcaSlots_ > maxOrders)
@@ -223,6 +276,8 @@ private:
       double candidate = ConfiguredLot(side, level);
       if(candidate <= 0.0) return false;
 
+      // Profit-funded cap là hard ceiling cho mọi lot mode. Lợi nhuận thắng
+      // tài trợ incremental risk; sequence/multiplier không được vượt ceiling.
       double riskPerLot = RiskCashPerLot(ctx);
       double riskCap = Pyramid_RiskCapLotPure(MathMax(side.totalProfit, 0.0),
                                               PyramidRiskBudgetPercent_,
@@ -257,7 +312,12 @@ private:
    }
 
 public:
-   CCorePyramidEngine(void) { m_exec = NULL; }
+   CCorePyramidEngine(void)
+   {
+      m_exec = NULL;
+      m_seedTicket[0] = m_seedTicket[1] = 0;
+      m_campaignSeen[0] = m_campaignSeen[1] = false;
+   }
 
    bool Init(CExecutionLayer *exec, string &why)
    {
@@ -294,9 +354,18 @@ public:
               const int maxOrders, CRecoveryEngine *recovery, string &why)
    {
       why = "";
-      if(CorePyramidMode_ == pyramid_TAT || side.count <= 0 || m_exec == NULL) return false;
+      if(CorePyramidMode_ == pyramid_TAT || side.count <= 0 || m_exec == NULL)
+      {
+         if(side.count <= 0 && dir >= 0 && dir <= 1)
+         {
+            m_seedTicket[dir] = 0;
+            m_campaignSeen[dir] = false;
+         }
+         return false;
+      }
       SPyramidBook book;
       Pyramid_ReadBook(side, book);
+      RefreshCampaignState(dir, book);
 
       bool recoveryOwns = false;
       if(RecoveryMode_ == recovery_ACTIVE && recovery != NULL && recovery.ActiveReady())
