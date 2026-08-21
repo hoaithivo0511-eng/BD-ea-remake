@@ -4,7 +4,7 @@
 #include <vector>
 #include <algorithm>
 
-// T17 final model oracle: Core favorable add/Peel + progressive Hedge hard-cap policy.
+// T17 final exact-head model oracle: Core favorable add/Peel + progressive Hedge hard-cap policy.
 static int pass_count=0, fail_count=0;
 static void check(const std::string& name, bool ok){ if(ok){++pass_count;} else {++fail_count; std::cout<<"FAIL: "<<name<<"\n";} }
 
