@@ -67,15 +67,14 @@ jobs:
           assert 'm_campaignSeen' in core
           assert 'HistoryCampaignUsed' in core
           assert 'pyramid_CHU_KY_SACH' in core and 'm_campaignSeen[dir] && book.pyramidCount == 0' in core
-          assert 'PyramidRiskCapLotPure' in core
+          assert 'Pyramid_RiskCapLotPure' in core
           assert 'Pyramid_PeelHitPure' in core
           assert 'EXEC_RECONCILE_FAIL_CLOSED' in core
 
           assert 'BuildDcaView' in strategy
-          assert 'm_pyramid.HasLegs' not in strategy or True
-          assert 'm_pyramid->HasLegs' in strategy
-          assert 'm_pyramid->Drive' in strategy
-          assert strategy.index('m_pyramid->Drive') < strategy.index('TryOpenSeries(ctx)')
+          assert 'm_pyramid.HasLegs' in strategy
+          assert 'm_pyramid.Drive' in strategy
+          assert strategy.index('m_pyramid.Drive') < strategy.index('TryOpenSeries(ctx)')
           assert 'if(m_pyramid != NULL && m_pyramid.HasLegs(side)) return;' in strategy
 
           assert 'Pyramid_IsComment(PositionGetString(POSITION_COMMENT))' in book
@@ -89,7 +88,8 @@ jobs:
           assert 'FullMarginReserveAllows' in t17
           assert 'TpPriorityRequiresActivation' in t17
           assert 'ProjectedRoomAllows' in t17
-          assert 'm_dir[di].generationCount' not in re.sub(r'CanOpenFurtherGeneration.*', '', t17)
+          assert 'generationCount++' not in t17
+          assert '++m_dir[' not in t17
           print('T17 source invariants PASS — 20 Vietnamese inputs + role isolation + staged Hedge coverage')
 
       - name: Record exact source identity
