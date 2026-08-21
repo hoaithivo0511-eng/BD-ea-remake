@@ -349,6 +349,20 @@ public:
 
    void OnTick(const EAContext &ctx, CPanel &panel)
    {
+      // T17 strict-journal barrier. An accepted/ambiguous Pyramid mutation can
+      // still arrive from the broker after this tick. Until its cycle journal
+      // resolves, no competing Panel/Guard/Recovery/Core mutation is safe:
+      // closing the seed first could otherwise leave a late-filled orphan leg.
+      // ExecutionLayer::Watchdog continues on OnTimer and can resolve/reconcile.
+      if(m_pyramid != NULL &&
+         (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
+      {
+         Log_WarnEvery("Pyramid", "strictpending",
+                       "T17 strict Pyramid mutation đang chờ broker/reconcile; tạm khóa mutation Strategy cho tới khi xác định outcome",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return;
+      }
+
       bool panelCloseBuy  = panel.TakeCloseBuy();
       bool panelCloseSell = panel.TakeCloseSell();
       bool panelOpenBuy   = panel.TakeOpenBuy();
