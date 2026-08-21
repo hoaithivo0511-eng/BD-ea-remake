@@ -221,15 +221,15 @@ private:
       if(pip <= 0.0) return false;
       if(!Pyramid_PeelHitPure(dir, book.newestPyramidOpen, ctx.bid, ctx.ask,
                               PyramidPeelGapPips_ * pip)) return false;
-      if(m_exec->HasAnyPendingClose() || m_exec->BusyOpen(dir) ||
-         m_exec->HasPendingForCycle(CycleKey(dir))) return false;
+      if(m_exec.HasAnyPendingClose() || m_exec.BusyOpen(dir) ||
+         m_exec.HasPendingForCycle(CycleKey(dir))) return false;
       if(!PositionSelectByTicket(book.newestPyramidTicket)) return false;
       double volume = PositionGetDouble(POSITION_VOLUME);
       if(volume <= 0.0) return false;
-      if(!m_exec->ClosePositionVolumeOwned(book.newestPyramidTicket, volume,
-                                           (long)Magic, CycleKey(dir),
-                                           EXEC_CMD_CORE_PYRAMID_CLOSE,
-                                           EXEC_RECONCILE_FAIL_CLOSED))
+      if(!m_exec.ClosePositionVolumeOwned(book.newestPyramidTicket, volume,
+                                          (long)Magic, CycleKey(dir),
+                                          EXEC_CMD_CORE_PYRAMID_CLOSE,
+                                          EXEC_RECONCILE_FAIL_CLOSED))
       {
          why = "LIFO Peel không gửi được lệnh đóng Pyramid #" + (string)book.newestPyramidTicket;
          return false;
@@ -253,8 +253,8 @@ private:
       if(PyramidReserveDcaSlots_ > 0 && side.count + 1 + PyramidReserveDcaSlots_ > maxOrders)
          return false;
       if(!RecoveryAllowsAdd(recovery, dir)) return false;
-      if(m_exec->BusyOpen(dir) || m_exec->HasAnyPendingClose() ||
-         m_exec->HasPendingForCycle(CycleKey(dir))) return false;
+      if(m_exec.BusyOpen(dir) || m_exec.HasAnyPendingClose() ||
+         m_exec.HasPendingForCycle(CycleKey(dir))) return false;
       if(!TrendAllows(ctx, dir)) return false;
 
       double pip = PipSize(ctx);
@@ -276,8 +276,6 @@ private:
       double candidate = ConfiguredLot(side, level);
       if(candidate <= 0.0) return false;
 
-      // Profit-funded cap là hard ceiling cho mọi lot mode. Lợi nhuận thắng
-      // tài trợ incremental risk; sequence/multiplier không được vượt ceiling.
       double riskPerLot = RiskCashPerLot(ctx);
       double riskCap = Pyramid_RiskCapLotPure(MathMax(side.totalProfit, 0.0),
                                               PyramidRiskBudgetPercent_,
@@ -296,11 +294,11 @@ private:
       if(candidate <= 0.0) return false;
 
       string comment = Pyramid_BuildComment(dir, level);
-      if(!m_exec->OpenMarketOwned(dir, candidate, (long)Magic,
-                                  CycleKey(dir),
-                                  EXEC_CMD_CORE_PYRAMID_OPEN,
-                                  EXEC_RECONCILE_FAIL_CLOSED,
-                                  comment))
+      if(!m_exec.OpenMarketOwned(dir, candidate, (long)Magic,
+                                 CycleKey(dir),
+                                 EXEC_CMD_CORE_PYRAMID_OPEN,
+                                 EXEC_RECONCILE_FAIL_CLOSED,
+                                 comment))
       {
          why = "Không gửi được lệnh nhồi dương Core level=" + (string)level;
          return false;
