@@ -51,6 +51,12 @@ static long clamp_min(long raw,long min_units){
     if(min_units<=0) return raw;
     return raw<min_units?min_units:raw;
 }
+static double runtime_hedge_pct(int mode,double requested,double configured,double hard){
+    if(mode==0 || requested<=0) return requested;
+    if(std::fabs(requested-configured)>1e-9) return requested;
+    if(hard>0 && requested>hard) return hard;
+    return requested;
+}
 static int parse_level(const std::string& c){
     if(c.rfind("BDP|",0)!=0) return -1;
     auto p=c.find("L="); if(p==std::string::npos) return -1; p+=2;
@@ -87,6 +93,10 @@ int main(){
     check("balanced already covered zero", raw_generation(0,100,60,55.0)==0);
     check("broker minimum clamp", clamp_min(1,2)==2);
     check("zero never invents hedge", clamp_min(0,2)==0);
+
+    check("runtime hard cap OFF preserves configured target", std::fabs(runtime_hedge_pct(0,115.0,115.0,75.0)-115.0)<1e-12);
+    check("runtime hard cap ON caps configured target", std::fabs(runtime_hedge_pct(1,115.0,115.0,75.0)-75.0)<1e-12);
+    check("runtime hard cap leaves explicit stage percent unchanged", std::fabs(runtime_hedge_pct(1,55.0,115.0,75.0)-55.0)<1e-12);
 
     check("role comment level", parse_level("BDP|D=0|L=4|R=1")==4);
     check("non pyramid comment rejected", parse_level("EA Black Dragon|4")==-1);
