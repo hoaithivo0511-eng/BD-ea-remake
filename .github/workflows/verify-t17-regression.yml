@@ -144,11 +144,11 @@ jobs:
           foreach($n in $names) {
             $src="$mql5\Scripts\BlackDragon\Tests\$n.mq5"; $out="$mql5\Scripts\BlackDragon\Tests\$n.ex5"; $log="$build\$n.log"
             Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow
-            if(-not(Test-Path $log)){throw "$n: no compile log"}
+            if(-not(Test-Path $log)){throw "${n}: no compile log"}
             $text=Get-Content $log -Encoding Unicode -Raw; Write-Host $text
             $err=@(($text -split "`r?`n")|Where-Object{$_ -match ' : error '}); $warn=@(($text -split "`r?`n")|Where-Object{$_ -match ' : warning '})
-            if(-not(Test-Path $out)){throw "$n: EX5 missing"}
-            if($err.Count -or $warn.Count){throw "$n: $($err.Count) errors / $($warn.Count) warnings"}
+            if(-not(Test-Path $out)){throw "${n}: EX5 missing"}
+            if($err.Count -or $warn.Count){throw "${n}: $($err.Count) errors / $($warn.Count) warnings"}
             Copy-Item $out $build -Force
           }
           $eaSrc="$mql5\Experts\BlackDragon\BlackDragon.mq5"; $eaOut="$mql5\Experts\BlackDragon\BlackDragon.ex5"; $eaLog="$build\BlackDragon.log"
