@@ -161,25 +161,51 @@ double Pyramid_EffectiveCoveragePure(const double stageCoverage,
    return v > 0.0 ? v : 0.0;
 }
 
+bool Pyramid_CoreModeValid(const eCorePyramidMode mode)
+{
+   return mode == pyramid_TAT || mode == pyramid_CHU_KY_SACH ||
+          mode == pyramid_TAI_KICH_HOAT;
+}
+
+bool Pyramid_LotModeValid(const ePyramidLotMode mode)
+{
+   return mode == pyramid_LOT_CHUOI || mode == pyramid_LOT_HE_SO ||
+          mode == pyramid_LOT_RUI_RO;
+}
+
+bool Pyramid_HedgeModeValid(const eHedgePyramidMode mode)
+{
+   return mode == hedge_pyramid_TAT || mode == hedge_pyramid_BAC_COVERAGE;
+}
+
 bool Pyramid_ValidateConfig(string &why)
 {
    why = "";
-   if(PyramidMaxAdds_ < 0 || PyramidMaxAdds_ > BD_PYRAMID_MAX_LEVELS)
-   { why = "Số lệnh nhồi dương tối đa phải trong [0,32]"; return false; }
-   if(PyramidMaxTotalLots_ < 0.0)
-   { why = "Tổng Lot Core tối đa sau nhồi phải >= 0"; return false; }
-   if(PyramidRiskBudgetPercent_ < 0.0 || PyramidRiskBudgetPercent_ > 100.0)
-   { why = "Ngân sách lợi nhuận được phép rủi ro phải trong [0,100]%"; return false; }
-   if(CorePyramidMode_ != pyramid_TAT && PyramidRiskBudgetPercent_ <= 0.0)
-   { why = "Bật Pyramid Core thì ngân sách lợi nhuận được phép rủi ro phải > 0"; return false; }
-   if(PyramidMinLockedProfitPips_ < 0.0 || PyramidMinRoomToTPPips_ < 0.0 || PyramidPeelGapPips_ < 0.0)
-   { why = "Các ngưỡng pip của Pyramid Core phải >= 0"; return false; }
-   if(PyramidReserveDcaSlots_ < 0)
-   { why = "Số slot chừa cho DCA phải >= 0"; return false; }
+   if(!Pyramid_CoreModeValid(CorePyramidMode_))
+   { why = "Chế độ Pyramid Core không hợp lệ"; return false; }
+   if(!Pyramid_HedgeModeValid(HedgePyramidMode_))
+   { why = "Chế độ Pyramid Hedge không hợp lệ"; return false; }
 
-   double tmp[];
+   // OFF-parity: cấu hình của module đang TẮT không được làm EA fail init.
+   // Chỉ validate ràng buộc runtime của Core Pyramid khi Core thực sự bật.
    if(CorePyramidMode_ != pyramid_TAT)
    {
+      if(!Pyramid_LotModeValid(PyramidLotMode_))
+      { why = "Cách tính Lot Pyramid Core không hợp lệ"; return false; }
+      if(PyramidMaxAdds_ < 0 || PyramidMaxAdds_ > BD_PYRAMID_MAX_LEVELS)
+      { why = "Số lệnh nhồi dương tối đa phải trong [0,32]"; return false; }
+      if(PyramidMaxTotalLots_ < 0.0)
+      { why = "Tổng Lot Core tối đa sau nhồi phải >= 0"; return false; }
+      if(PyramidRiskBudgetPercent_ <= 0.0 || PyramidRiskBudgetPercent_ > 100.0)
+      { why = "Bật Pyramid Core thì ngân sách lợi nhuận được phép rủi ro phải trong (0,100]%"; return false; }
+      if(PyramidMinLockedProfitPips_ < 0.0 || PyramidMinRoomToTPPips_ < 0.0)
+      { why = "Các ngưỡng lợi nhuận/TP của Pyramid Core phải >= 0"; return false; }
+      if(PyramidPeelGapPips_ <= 0.0)
+      { why = "Bật Pyramid Core thì khoảng Peel LIFO phải > 0 pip để định nghĩa risk budget"; return false; }
+      if(PyramidReserveDcaSlots_ < 0)
+      { why = "Số slot chừa cho DCA phải >= 0"; return false; }
+
+      double tmp[];
       if(!Pyramid_ParsePositiveSequence(PyramidDistanceSequence_, tmp))
       { why = "Chuỗi khoảng cách Pyramid Core không hợp lệ"; return false; }
       if(PyramidLotMode_ == pyramid_LOT_CHUOI && !Pyramid_ParsePositiveSequence(PyramidLotSequence_, tmp))
@@ -188,12 +214,14 @@ bool Pyramid_ValidateConfig(string &why)
       { why = "Chuỗi hệ số Pyramid Core không hợp lệ"; return false; }
    }
 
-   if(HedgePyramidMaxCoveragePercent_ <= 0.0)
-   { why = "Trần coverage Hedge Pyramid phải > 0"; return false; }
-   if(HedgePyramidMinRoomToTPPips_ < 0.0)
-   { why = "Khoảng tối thiểu tới TP Hedge phải >= 0"; return false; }
+   // Tương tự, Hedge Pyramid OFF phải không phụ thuộc các tham số staging.
    if(HedgePyramidMode_ != hedge_pyramid_TAT)
    {
+      if(HedgePyramidMaxCoveragePercent_ <= 0.0)
+      { why = "Trần coverage Hedge Pyramid phải > 0"; return false; }
+      if(HedgePyramidMinRoomToTPPips_ < 0.0)
+      { why = "Khoảng tối thiểu tới TP Hedge phải >= 0"; return false; }
+
       double cov[];
       double gaps[];
       if(!Pyramid_ParsePositiveSequence(HedgePyramidCoverageSequence_, cov))
