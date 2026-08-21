@@ -349,7 +349,8 @@ public:
    }
 
    bool Drive(const EAContext &ctx, const BasketSide &side, const int dir,
-              const int maxOrders, CRecoveryEngine *recovery, string &why)
+              const int maxOrders, CRecoveryEngine *recovery,
+              const bool allowAdd, string &why)
    {
       why = "";
       if(CorePyramidMode_ == pyramid_TAT || side.count <= 0 || m_exec == NULL)
@@ -372,8 +373,11 @@ public:
          recovery.GetCycle(dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL, c);
          recoveryOwns = c.state != recovery_CORE_ONLY;
       }
+      // Risk-reducing LIFO Peel is intentionally evaluated before allowAdd.
+      // News/time/halt/ADX/spread entry filters may block NEW risk, but they
+      // must never block deterministic removal of an already-open Pyramid leg.
       if(!recoveryOwns && TryPeel(ctx, dir, book, why)) return true;
-      if(recoveryOwns) return false;
+      if(recoveryOwns || !allowAdd) return false;
       return TryAdd(ctx, side, dir, maxOrders, book, recovery, why);
    }
 };
