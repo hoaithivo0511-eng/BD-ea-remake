@@ -96,15 +96,34 @@ long Recovery_T16CurrentBrokerMinUnits()
    return Recovery_VolumeToUnitsCeil(minVolume, step);
 }
 
+// T17 runtime target alignment. The historical raw helper above remains a
+// broker-independent oracle. Runtime callers that pass the configured
+// HedgeVolumePercent_ must see the same final coverage cap as the staged
+// Hedge Pyramid engine. This keeps StartGeneration, post-Overlap sizing and
+// T16.5 DCA margin reserve on one executable target and prevents a phantom
+// BUILDING generation when retained Hedge already satisfies the hard cap.
+double Recovery_T17RuntimeHedgePercent(const double requestedPercent)
+{
+   if(HedgePyramidMode_ == hedge_pyramid_TAT || requestedPercent <= 0.0)
+      return requestedPercent;
+   if(MathAbs(requestedPercent - HedgeVolumePercent_) > 1e-9)
+      return requestedPercent;
+   if(HedgePyramidMaxCoveragePercent_ > 0.0 &&
+      requestedPercent > HedgePyramidMaxCoveragePercent_)
+      return HedgePyramidMaxCoveragePercent_;
+   return requestedPercent;
+}
+
 long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
                                         const long coreUnits,
                                         const long existingHedgeUnits,
                                         const double hedgePercent)
 {
+   double runtimePercent = Recovery_T17RuntimeHedgePercent(hedgePercent);
    long raw = Recovery_T16NewGenerationRawUnitsPure(policy,
                                                     coreUnits,
                                                     existingHedgeUnits,
-                                                    hedgePercent);
+                                                    runtimePercent);
    if(raw <= 0) return 0;
 
    long minUnits = Recovery_T16CurrentBrokerMinUnits();
