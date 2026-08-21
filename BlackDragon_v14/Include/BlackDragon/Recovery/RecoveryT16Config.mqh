@@ -96,6 +96,23 @@ long Recovery_T16CurrentBrokerMinUnits()
    return Recovery_VolumeToUnitsCeil(minVolume, step);
 }
 
+// Pure oracle for T17 hard-cap alignment. Only the runtime wrapper below reads
+// input globals; model/native tests can exercise the edge without mutating an
+// input variable.
+double Recovery_T17RuntimeHedgePercentPure(const eHedgePyramidMode mode,
+                                           const double requestedPercent,
+                                           const double configuredPercent,
+                                           const double hardMaxCoverage)
+{
+   if(mode == hedge_pyramid_TAT || requestedPercent <= 0.0)
+      return requestedPercent;
+   if(MathAbs(requestedPercent - configuredPercent) > 1e-9)
+      return requestedPercent;
+   if(hardMaxCoverage > 0.0 && requestedPercent > hardMaxCoverage)
+      return hardMaxCoverage;
+   return requestedPercent;
+}
+
 // T17 runtime target alignment. The historical raw helper above remains a
 // broker-independent oracle. Runtime callers that pass the configured
 // HedgeVolumePercent_ must see the same final coverage cap as the staged
@@ -104,14 +121,10 @@ long Recovery_T16CurrentBrokerMinUnits()
 // BUILDING generation when retained Hedge already satisfies the hard cap.
 double Recovery_T17RuntimeHedgePercent(const double requestedPercent)
 {
-   if(HedgePyramidMode_ == hedge_pyramid_TAT || requestedPercent <= 0.0)
-      return requestedPercent;
-   if(MathAbs(requestedPercent - HedgeVolumePercent_) > 1e-9)
-      return requestedPercent;
-   if(HedgePyramidMaxCoveragePercent_ > 0.0 &&
-      requestedPercent > HedgePyramidMaxCoveragePercent_)
-      return HedgePyramidMaxCoveragePercent_;
-   return requestedPercent;
+   return Recovery_T17RuntimeHedgePercentPure(HedgePyramidMode_,
+                                              requestedPercent,
+                                              HedgeVolumePercent_,
+                                              HedgePyramidMaxCoveragePercent_);
 }
 
 long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
