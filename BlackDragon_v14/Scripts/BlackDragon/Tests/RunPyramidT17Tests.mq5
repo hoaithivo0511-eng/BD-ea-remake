@@ -49,6 +49,13 @@ void OnStart()
    Check("broker minimum clamp", Recovery_T166ClampPositiveGenerationUnitsPure(1,2)==2);
    Check("zero never invents hedge", Recovery_T166ClampPositiveGenerationUnitsPure(0,2)==0);
 
+   Check("runtime hard cap OFF preserves configured target",
+         Near(Recovery_T17RuntimeHedgePercentPure(hedge_pyramid_TAT,115.0,115.0,75.0),115.0));
+   Check("runtime hard cap ON caps configured target",
+         Near(Recovery_T17RuntimeHedgePercentPure(hedge_pyramid_BAC_COVERAGE,115.0,115.0,75.0),75.0));
+   Check("runtime hard cap leaves explicit stage percent unchanged",
+         Near(Recovery_T17RuntimeHedgePercentPure(hedge_pyramid_BAC_COVERAGE,55.0,115.0,75.0),55.0));
+
    string c=Pyramid_BuildComment(0,4);
    Check("role comment level", Pyramid_LevelFromComment(c)==4);
    Check("non pyramid comment rejected", Pyramid_LevelFromComment("EA Black Dragon|4")==-1);
