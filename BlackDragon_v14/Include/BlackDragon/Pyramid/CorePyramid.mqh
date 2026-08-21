@@ -137,11 +137,14 @@ private:
       return Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
    }
 
-   bool HistoryCampaignUsed(const int dir, const datetime seedOpenTime) const
+   bool HistoryCampaignUsed(const int dir, const datetime seedOpenTime,
+                            bool &historyReady) const
    {
+      historyReady = false;
       if(seedOpenTime <= 0) return false;
       datetime from = seedOpenTime > 2 ? seedOpenTime - 2 : 0;
       if(!HistorySelect(from, TimeCurrent())) return false;
+      historyReady = true;
       long wantedType = dir == BD_DIR_BUY ? DEAL_TYPE_BUY : DEAL_TYPE_SELL;
       for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
       {
@@ -172,8 +175,19 @@ private:
       }
       if(m_seedTicket[dir] != book.seedTicket)
       {
+         bool historyReady = false;
+         bool used = HistoryCampaignUsed(dir, book.seedOpenTime, historyReady);
+         if(!historyReady)
+         {
+            // CHU_KY_SACH must never interpret "history unavailable" as
+            // "no previous Pyramid". Keep the old seed identity so this path
+            // retries every tick until HistorySelect becomes usable.
+            m_campaignSeen[dir] = (CorePyramidMode_ == pyramid_CHU_KY_SACH) ||
+                                  book.pyramidCount > 0;
+            return;
+         }
          m_seedTicket[dir] = book.seedTicket;
-         m_campaignSeen[dir] = HistoryCampaignUsed(dir, book.seedOpenTime);
+         m_campaignSeen[dir] = used;
       }
       if(book.pyramidCount > 0) m_campaignSeen[dir] = true;
    }
