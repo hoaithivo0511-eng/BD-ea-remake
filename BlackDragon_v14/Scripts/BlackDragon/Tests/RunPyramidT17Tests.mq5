@@ -1,5 +1,6 @@
 //+------------------------------------------------------------------+
 //| RunPyramidT17Tests.mq5 — T17 native pure-policy tests            |
+//| Final exact-head checkpoint also triggers full T16 regression.   |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Pyramid/PyramidConfig.mqh>
