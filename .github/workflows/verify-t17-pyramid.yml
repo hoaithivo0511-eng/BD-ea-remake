@@ -78,6 +78,8 @@ jobs:
           assert 'Pyramid_PeelHitPure' in core
           assert 'EXEC_RECONCILE_FAIL_CLOSED' in core
           assert 'const bool allowAdd' in core
+          assert 'bool HasPending(const int dir) const' in core
+          assert 'm_exec.HasPendingForCycle(CycleKey(dir))' in core
           drive=core.index('bool Drive(')
           peel_call=core.index('TryPeel(ctx', drive)
           add_gate=core.index('!allowAdd', drive)
@@ -89,6 +91,12 @@ jobs:
           assert 'allowPyramidAddBuy' in strategy and 'allowPyramidAddSell' in strategy
           assert strategy.index('m_pyramid.Drive') < strategy.index('TryOpenSeries(ctx)')
           assert 'if(m_pyramid != NULL && m_pyramid.HasLegs(side)) return;' in strategy
+          assert 'm_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)' in strategy
+          pending=strategy.index('m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)')
+          panel=strategy.index('bool panelCloseBuy')
+          guard=strategy.index('if(ApplyGuard(ctx))')
+          recovery=strategy.index('m_recovery.DriveActive')
+          assert pending < panel < guard < recovery
 
           assert 'Pyramid_IsComment(PositionGetString(POSITION_COMMENT))' in book
           assert 'Recovery_ArcsBuildEconomicCore' in book
@@ -110,7 +118,7 @@ jobs:
           assert 'ProjectedRoomAllows' in t17
           assert 'generationCount++' not in t17
           assert '++m_dir[' not in t17
-          print('T17 source invariants PASS — 20 inputs + role isolation + risk-reduction/filter/history/OFF-parity/hard-cap hardening + staged Hedge coverage')
+          print('T17 source invariants PASS — 20 inputs + role isolation + strict serialization + risk-reduction/filter/history/OFF-parity/hard-cap hardening + staged Hedge coverage')
 
       - name: Record exact source identity
         shell: bash
