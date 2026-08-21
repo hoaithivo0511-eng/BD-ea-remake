@@ -178,6 +178,9 @@ long Recovery_T162PostOverlapGenerationUnitsPure(const eRecoverySizingPolicy pol
 
 uint Recovery_T16SemanticFingerprint()
 {
+   // Exact OFF-parity: when both Pyramid modules are disabled, preserve the
+   // canonical T16.6 string byte-for-byte so an existing safe Recovery state
+   // is not invalidated merely by upgrading to the T17 binary.
    string canonical =
       "base=" + (string)Recovery_CurrentSemanticConfigFingerprint() +
       "|sizing=" + (string)(int)RecoverySizingPolicy_ +
@@ -190,8 +193,9 @@ uint Recovery_T16SemanticFingerprint()
       "|overlapAfterHedge=" + (OverlapAfterHedge_ ? "1" : "0") +
       "|dcaMarginReserve=" + (RecoveryDcaMarginReserve_ ? "1" : "0") +
       "|minVolumePolicyRev=" + (string)BD_ARCS_MIN_VOLUME_POLICY_REV +
-      "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS +
-      "|" + Pyramid_SemanticText();
+      "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
+   if(CorePyramidMode_ != pyramid_TAT || HedgePyramidMode_ != hedge_pyramid_TAT)
+      canonical += "|" + Pyramid_SemanticText();
    return Recovery_Fnv1aTextPure(canonical);
 }
 
