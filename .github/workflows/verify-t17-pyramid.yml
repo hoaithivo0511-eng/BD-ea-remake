@@ -39,7 +39,7 @@ jobs:
           SRC='BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t17_model.cpp'
           g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t17
           /tmp/t17 | tee /tmp/t17.out
-          grep -q 'Pyramid T17 model: 26 passed, 0 failed' /tmp/t17.out
+          grep -q 'Pyramid T17 model: 29 passed, 0 failed' /tmp/t17.out
           grep -q 'ALL GREEN' /tmp/t17.out
 
       - name: Verify T17 source invariants
@@ -96,6 +96,12 @@ jobs:
           assert 'Pyramid_SemanticText()' in t16
           assert 'CorePyramidMode_ != pyramid_TAT || HedgePyramidMode_ != hedge_pyramid_TAT' in t16
           assert 'HedgePyramidMode_ != hedge_pyramid_TAT' in t16
+          assert 'Recovery_T17RuntimeHedgePercentPure' in t16
+          assert 'double runtimePercent = Recovery_T17RuntimeHedgePercent(hedgePercent);' in t16
+          runtime=t16.index('double runtimePercent = Recovery_T17RuntimeHedgePercent(hedgePercent);')
+          raw=t16.index('Recovery_T16NewGenerationRawUnitsPure(policy,', runtime)
+          assert runtime < raw
+          assert 'runtimePercent);' in t16[raw:raw+300]
 
           assert 'class CRecoveryArcsStackT17' in t17
           assert '|P=' in t17
@@ -104,7 +110,7 @@ jobs:
           assert 'ProjectedRoomAllows' in t17
           assert 'generationCount++' not in t17
           assert '++m_dir[' not in t17
-          print('T17 source invariants PASS — 20 inputs + role isolation + risk-reduction/filter/history/OFF-parity hardening + staged Hedge coverage')
+          print('T17 source invariants PASS — 20 inputs + role isolation + risk-reduction/filter/history/OFF-parity/hard-cap hardening + staged Hedge coverage')
 
       - name: Record exact source identity
         shell: bash
@@ -208,9 +214,9 @@ jobs:
           $raw=Get-Content $latest.FullName -Raw; Write-Host $raw
           $m=[regex]::Match($raw,'Pyramid T17 tests:\s*(\d+) passed,\s*(\d+) failed')
           if(-not $m.Success){throw 'T17 summary missing'}
-          if([int]$m.Groups[1].Value -ne 26 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
-          { throw "T17 expected 26/0" }
-          Write-Host 'T17 native PASS 26/0'
+          if([int]$m.Groups[1].Value -ne 29 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
+          { throw "T17 expected 29/0" }
+          Write-Host 'T17 native PASS 29/0'
 
       - name: Package exact T17 evidence
         shell: pwsh
