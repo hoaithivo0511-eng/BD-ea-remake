@@ -108,6 +108,8 @@ void OnStart()
          !Pyramid_DcaPriorityReleaseNeededPure(true,58,59,30));
    Check("DCA priority no release without Pyramid",
          !Pyramid_DcaPriorityReleaseNeededPure(true,59,59,0));
+   Check("DCA priority no release before DCA is actually due",
+         !Pyramid_DcaPriorityReleaseNeededPure(false,59,59,30));
 
    Check("TP loss recovery shift", Near(Pyramid_TpRecoveryShiftPure(-50.0,0.10,1.0,0.01),5.0));
    Check("BUY economic TP shifted away", Near(Pyramid_AdjustTpLevelPure(0,4002.0,-50.0,0.10,1.0,0.01),4007.0));
