@@ -54,6 +54,7 @@ void OnStart()
    Check("serial can continue long trend", Pyramid_NextSerialLevelPure(100)==101);
    Check("concurrent 2 of 3 allowed", Pyramid_ConcurrentAddAllowedPure(2,3));
    Check("concurrent 3 of 3 blocked", !Pyramid_ConcurrentAddAllowedPure(3,3));
+   Check("concurrent cap zero disables ADD", !Pyramid_ConcurrentAddAllowedPure(0,0));
    Check("historical 30 adds do not consume concurrent capacity", Pyramid_ConcurrentAddAllowedPure(0,3));
    Check("live Pyramid is rearm anchor", Near(Pyramid_RearmAnchorPure(4020.0,3990.0),4020.0));
    Check("no live Pyramid falls back current BE", Near(Pyramid_RearmAnchorPure(0.0,3990.0),3990.0));

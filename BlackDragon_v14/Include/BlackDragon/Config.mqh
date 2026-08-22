@@ -59,7 +59,7 @@ input ENUM_TIMEFRAMES TF_Stoh     = PERIOD_CURRENT; // Khung thời gian Stochas
 input int             Up_Level    = 90;             // Ngưỡng Stochastic xác nhận Sell
 input int             Down_Level  = 10;             // Ngưỡng Stochastic xác nhận Buy
 input int             KPeriod     = 7;              // Chu kỳ %K của Stochastic
-input int             DPeriod     = 1;              // Chu kỳ %D của Stochastic
+input int             DPeriod     = 1;               // Chu kỳ %D của Stochastic
 input int             Slowing     = 2;              // Hệ số Slowing của Stochastic
 
 input group "04 — Tín hiệu WMF"
@@ -83,7 +83,7 @@ input string   MartinSequence_ = "1.5";               // Chuỗi hệ số nhân
 input double   MaxLot_         = 5;                   // Lot tối đa cho mỗi lệnh
 
 input group "06 — Khoảng cách DCA"
-input int    MinuteStop        = 0;                         // Thời gian tối thiểu giữa hai lệnh DCA (phút)
+input int    MinuteStop        = 0;                         // Delay tối thiểu giữa các ADD DCA/Pyramid Core/bậc Hedge Pyramid (phút); 0 = tắt
 input string DistanceSequence_ = "20x5-24-28.8-34.6-41.5"; // Chuỗi khoảng cách DCA (pip); hết chuỗi lặp khoảng cách cuối
 
 input group "07 — TP / SL / Trailing / Overlap"
