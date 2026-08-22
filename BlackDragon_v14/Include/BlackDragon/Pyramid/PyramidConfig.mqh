@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| PyramidConfig.mqh — T17.1 nhồi dương Core + Recovery Hedge      |
-//| 20 input đầy đủ, toàn bộ nhãn/giải thích hiển thị bằng tiếng Việt.|
+//| PyramidConfig.mqh — T17.2 Core/Hedge Pyramid policy              |
+//| Serial re-arm không giữ historical favorable extreme.            |
 //+------------------------------------------------------------------+
 #ifndef BD_PYRAMID_CONFIG_MQH
 #define BD_PYRAMID_CONFIG_MQH
@@ -31,15 +31,15 @@ input group "23 — NHỒI DƯƠNG LỆNH CHÍNH (PYRAMID CORE)"
 input eCorePyramidMode CorePyramidMode_ = pyramid_TAT; // Chế độ nhồi dương lệnh chính
 input string PyramidDistanceSequence_ = "10x2-15-20"; // Khoảng giá thuận chiều giữa các lần nhồi (pip)
 input ePyramidLotMode PyramidLotMode_ = pyramid_LOT_HE_SO; // Cách tính Lot nhồi dương
-input string PyramidLotSequence_ = "0.01-0.01-0.012-0.014"; // Chuỗi Lot nhồi dương; hết chuỗi lặp Lot cuối
+input string PyramidLotSequence_ = "0.01-0.01-0.012-0.014"; // Chuỗi Lot cố định; hết chuỗi lặp Lot cuối
 input string PyramidMultiplierSequence_ = "1.0-1.2-1.15-1.1"; // Chuỗi hệ số nhân từ Lot gốc
-input int PyramidMaxAdds_ = 4; // Tổng số lần nhồi dương tối đa trong một campaign Core
-input double PyramidMaxTotalLots_ = 1.00; // Tổng Lot Core tối đa sau khi nhồi; 0 = chỉ theo MaxLot/MaxOrders
-input double PyramidRiskBudgetPercent_ = 30.0; // Tối đa % lợi nhuận kinh tế campaign được phép rủi ro cho Pyramid
-input double PyramidMinLockedProfitPips_ = 5.0; // Chỉ nhồi khi rổ đang lời tối thiểu số pip này tính từ hòa vốn
-input int PyramidReserveDcaSlots_ = 3; // Luôn chừa tối thiểu số slot MaxOrders này cho DCA nếu thị trường đảo chiều
-input double PyramidMinRoomToTPPips_ = 5.0; // Không nhồi nếu khoảng còn lại tới TP rổ nhỏ hơn số pip này
-input double PyramidPeelGapPips_ = 7.0; // Giá hồi ngược từ lệnh Pyramid mới nhất bao nhiêu pip thì tháo LIFO
+input int PyramidMaxAdds_ = 4; // Số lệnh Pyramid Core được phép mở đồng thời; 0 = không ADD
+input double PyramidMaxTotalLots_ = 1.00; // Tổng Lot Core tối đa sau khi nhồi; 0 = tắt giới hạn này
+input double PyramidRiskBudgetPercent_ = 30.0; // % lợi nhuận kinh tế dùng làm risk cap; 0 = tắt (không áp cho Lot chuỗi cố định)
+input double PyramidMinLockedProfitPips_ = 5.0; // Rổ phải lời tối thiểu từ hòa vốn; 0 = tắt điều kiện
+input int PyramidReserveDcaSlots_ = 3; // Chừa slot MaxOrders cho DCA; 0 = tắt điều kiện
+input double PyramidMinRoomToTPPips_ = 5.0; // Khoảng tối thiểu còn lại tới TP; 0 = tắt điều kiện
+input double PyramidPeelGapPips_ = 7.0; // Giá hồi ngược từ Pyramid mới nhất bao nhiêu pip thì tháo LIFO
 input bool PyramidRequireTrend_ = true; // Yêu cầu không có tín hiệu đối nghịch tại thời điểm nhồi
 
 input group "24 — NHỒI DƯƠNG RECOVERY HEDGE"
@@ -52,7 +52,7 @@ input double HedgePyramidMinRoomToTPPips_ = 5.0; // Không tăng Hedge nếu tar
 input bool HedgePyramidLockBeforeAdd_ = true; // Chỉ tăng bậc khi phần Hedge đang có đã ở phía lợi nhuận ròng
 
 #define BD_PYRAMID_COMMENT_PREFIX "BDP|"
-#define BD_PYRAMID_POLICY_REV 2
+#define BD_PYRAMID_POLICY_REV 3
 #define BD_PYRAMID_MAX_LEVELS 32
 
 bool Pyramid_IsComment(const string comment)
@@ -142,7 +142,6 @@ double Pyramid_RoomToTpPipsPure(const int dir,
    return room / pipSize;
 }
 
-// Legacy one-shot helper remains for compatibility with prior regression tests.
 double Pyramid_RiskCapLotPure(const double positiveFloatingCash,
                               const double budgetPercent,
                               const double riskCashPerLot)
@@ -152,8 +151,6 @@ double Pyramid_RiskCapLotPure(const double positiveFloatingCash,
    return positiveFloatingCash * pct / 100.0 / riskCashPerLot;
 }
 
-// T17.1 campaign budget: realized Pyramid cash is part of economic P/L and
-// already-open Pyramid risk consumes budget before another leg may be added.
 double Pyramid_AvailableRiskCashPure(const double floatingCash,
                                      const double realizedPyramidCash,
                                      const double openPyramidRiskCash,
@@ -168,14 +165,56 @@ double Pyramid_AvailableRiskCashPure(const double floatingCash,
    return MathMax(allowed - used, 0.0);
 }
 
-int Pyramid_NextCampaignLevelPure(const int highestHistoricalLevel)
+int Pyramid_NextSerialLevelPure(const int highestHistoricalLevel)
 {
    return highestHistoricalLevel < 1 ? 1 : highestHistoricalLevel + 1;
 }
 
+// Compatibility alias for older T17 callers/tests. T17.2 runtime uses serial wording.
+int Pyramid_NextCampaignLevelPure(const int highestHistoricalLevel)
+{
+   return Pyramid_NextSerialLevelPure(highestHistoricalLevel);
+}
+
+bool Pyramid_ConcurrentAddAllowedPure(const int openPyramidCount, const int maxAdds)
+{
+   return maxAdds > 0 && openPyramidCount >= 0 && openPyramidCount < maxAdds;
+}
+
+// Compatibility oracle only; no T17.2 runtime caller uses lifetime add count as a cap.
 bool Pyramid_CumulativeAddAllowedPure(const int cumulativeAdds, const int maxAdds)
 {
    return maxAdds > 0 && cumulativeAdds >= 0 && cumulativeAdds < maxAdds;
+}
+
+double Pyramid_RearmAnchorPure(const double newestLivePyramidOpen,
+                               const double basketBreakeven)
+{
+   return newestLivePyramidOpen > 0.0 ? newestLivePyramidOpen : basketBreakeven;
+}
+
+bool Pyramid_AddTimingAllowsPure(const datetime lastAddTime,
+                                 const datetime lastAddBar,
+                                 const datetime now,
+                                 const datetime barTime,
+                                 const int minuteStop)
+{
+   if(barTime > 0 && lastAddBar == barTime) return false;
+   if(minuteStop > 0 && lastAddTime > 0 && now <= lastAddTime + minuteStop * 60)
+      return false;
+   return true;
+}
+
+bool Pyramid_RiskBudgetAppliesPure(const ePyramidLotMode mode,
+                                   const double budgetPercent)
+{
+   return mode != pyramid_LOT_CHUOI && budgetPercent > 0.0;
+}
+
+bool Pyramid_RiskModeReadyPure(const ePyramidLotMode mode,
+                               const double budgetPercent)
+{
+   return mode != pyramid_LOT_RUI_RO || budgetPercent > 0.0;
 }
 
 double Pyramid_CampaignEconomicProfitPure(const double floatingCash,
@@ -184,8 +223,6 @@ double Pyramid_CampaignEconomicProfitPure(const double floatingCash,
    return floatingCash + realizedPyramidCash;
 }
 
-// Recover only prior realized Pyramid LOSS before the normal basket TP.
-// Positive realized Pyramid cash never pulls TP closer than the configured TP.
 double Pyramid_TpRecoveryShiftPure(const double realizedPyramidCash,
                                    const double totalLots,
                                    const double tickValue,
@@ -244,22 +281,20 @@ bool Pyramid_ValidateConfig(string &why)
    if(!Pyramid_HedgeModeValid(HedgePyramidMode_))
    { why = "Chế độ Pyramid Hedge không hợp lệ"; return false; }
 
-   // OFF-parity: cấu hình của module đang TẮT không được làm EA fail init.
-   // Chỉ validate ràng buộc runtime của Core Pyramid khi Core thực sự bật.
    if(CorePyramidMode_ != pyramid_TAT)
    {
       if(!Pyramid_LotModeValid(PyramidLotMode_))
       { why = "Cách tính Lot Pyramid Core không hợp lệ"; return false; }
-      if(PyramidMaxAdds_ < 0 || PyramidMaxAdds_ > BD_PYRAMID_MAX_LEVELS)
-      { why = "Tổng số lần nhồi dương tối đa phải trong [0,32]"; return false; }
+      if(PyramidMaxAdds_ < 0)
+      { why = "Số Pyramid Core mở đồng thời tối đa phải >= 0"; return false; }
       if(PyramidMaxTotalLots_ < 0.0)
       { why = "Tổng Lot Core tối đa sau nhồi phải >= 0"; return false; }
-      if(PyramidRiskBudgetPercent_ <= 0.0 || PyramidRiskBudgetPercent_ > 100.0)
-      { why = "Bật Pyramid Core thì ngân sách lợi nhuận được phép rủi ro phải trong (0,100]%"; return false; }
+      if(PyramidRiskBudgetPercent_ < 0.0 || PyramidRiskBudgetPercent_ > 100.0)
+      { why = "Ngân sách lợi nhuận được phép rủi ro phải trong [0,100]%"; return false; }
       if(PyramidMinLockedProfitPips_ < 0.0 || PyramidMinRoomToTPPips_ < 0.0)
       { why = "Các ngưỡng lợi nhuận/TP của Pyramid Core phải >= 0"; return false; }
       if(PyramidPeelGapPips_ <= 0.0)
-      { why = "Bật Pyramid Core thì khoảng Peel LIFO phải > 0 pip để định nghĩa risk budget"; return false; }
+      { why = "Bật Pyramid Core thì khoảng Peel LIFO phải > 0 pip"; return false; }
       if(PyramidReserveDcaSlots_ < 0)
       { why = "Số slot chừa cho DCA phải >= 0"; return false; }
 
@@ -272,7 +307,6 @@ bool Pyramid_ValidateConfig(string &why)
       { why = "Chuỗi hệ số Pyramid Core không hợp lệ"; return false; }
    }
 
-   // Tương tự, Hedge Pyramid OFF phải không phụ thuộc các tham số staging.
    if(HedgePyramidMode_ != hedge_pyramid_TAT)
    {
       if(HedgePyramidMaxCoveragePercent_ <= 0.0)
@@ -303,7 +337,7 @@ string Pyramid_SemanticText()
           "|coreLotMode=" + (string)(int)PyramidLotMode_ +
           "|coreLotSeq=" + PyramidLotSequence_ +
           "|coreMulSeq=" + PyramidMultiplierSequence_ +
-          "|coreMaxAdds=" + (string)PyramidMaxAdds_ +
+          "|coreMaxConcurrent=" + (string)PyramidMaxAdds_ +
           "|coreMaxLots=" + DoubleToString(PyramidMaxTotalLots_, 12) +
           "|coreRiskPct=" + DoubleToString(PyramidRiskBudgetPercent_, 12) +
           "|coreMinLock=" + DoubleToString(PyramidMinLockedProfitPips_, 12) +

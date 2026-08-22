@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| RecoveryArcsStackT17Pyramid.mqh — T17 progressive Hedge coverage|
-//| Các bậc coverage nằm TRONG cùng một ARCS generation.             |
+//| RecoveryArcsStackT17Pyramid.mqh — T17.2 progressive Hedge       |
+//| One logical coverage stage/bar + MinuteStop; child bundles exempt.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ARCS_STACK_T17_PYRAMID_MQH
 #define BD_RECOVERY_ARCS_STACK_T17_PYRAMID_MQH
@@ -25,7 +25,7 @@ private:
    {
       Log_WarnEvery("Recovery", "t17hedgepyr" + (string)Recovery_CycleKey(dir) +
                     "g" + (string)generation,
-                    "T17 Hedge Pyramid WAIT " + Recovery_DirectionName(dir) +
+                    "T17.2 Hedge Pyramid WAIT " + Recovery_DirectionName(dir) +
                     " G" + (string)generation + ": " + reason,
                     Heartbeat());
    }
@@ -106,8 +106,8 @@ private:
                     const double gapPips) const
    {
       double gap = Recovery_PipsToPricePure(gapPips, m_isGold, _Point, _Digits);
-      if(dir == recovery_CORE_BUY) return ctx.bid <= anchor - gap; // SELL Hedge thắng khi giá giảm
-      return ctx.ask >= anchor + gap;                              // BUY Hedge thắng khi giá tăng
+      if(dir == recovery_CORE_BUY) return ctx.bid <= anchor - gap;
+      return ctx.ask >= anchor + gap;
    }
 
    bool CurrentHedgeProfitable(const eRecoveryCoreDirection dir,
@@ -157,7 +157,7 @@ private:
       if(Recovery_VirtualHedgeTpHit(dir, snap.netBE, ctx.bid, ctx.ask,
                                     m_tpDistancePrice))
       {
-         why = "T17 ưu tiên TP: dừng tăng coverage và kích hoạt volume Hedge hiện tại";
+         why = "T17.2 ưu tiên TP: dừng tăng coverage và kích hoạt volume Hedge hiện tại";
          ActivateCurrentVolume(dir, li, l, live, local);
          return true;
       }
@@ -234,8 +234,8 @@ private:
       GetLayer(dir, li, l);
       if(!l.used || l.state != ARCS_LAYER_BUILDING)
       {
-         LatchReconcile(dir, "T17 BUILDING không có active layer hợp lệ");
-         why = "T17 BUILDING active layer invalid";
+         LatchReconcile(dir, "T17.2 BUILDING không có active layer hợp lệ");
+         why = "T17.2 BUILDING active layer invalid";
          return true;
       }
 
@@ -243,16 +243,16 @@ private:
       exec.ReconcileCycle(key);
       if(exec.HasReconcileRequired(key))
       {
-         LatchReconcile(dir, "T17 execution journal yêu cầu reconcile khi mở Hedge");
-         why = "T17 Hedge Pyramid execution reconcile required";
+         LatchReconcile(dir, "T17.2 execution journal yêu cầu reconcile khi mở Hedge");
+         why = "T17.2 Hedge Pyramid execution reconcile required";
          return true;
       }
 
       long live = Recovery_ArcsLayerUnits(dir, l.generation, m_volumeStep);
       if(live > l.targetUnits)
       {
-         LatchReconcile(dir, "T17 generation live volume vượt final target");
-         why = "T17 generation over target";
+         LatchReconcile(dir, "T17.2 generation live volume vượt final target");
+         why = "T17.2 generation over target";
          return true;
       }
       l.openedUnits = live;
@@ -274,10 +274,8 @@ private:
       }
       else if(finalTarget > 0 && l.targetUnits != finalTarget && live > 0)
       {
-         // Core is not allowed to mutate while BUILDING. A target drift here
-         // therefore means ownership/config evidence changed unexpectedly.
-         LatchReconcile(dir, "T17 final Hedge Pyramid target drift khi generation đang BUILDING");
-         why = "T17 final target drift";
+         LatchReconcile(dir, "T17.2 final Hedge Pyramid target drift khi generation đang BUILDING");
+         why = "T17.2 final target drift";
          return true;
       }
 
@@ -310,19 +308,29 @@ private:
       }
       if(stage < 0)
       {
-         // Effective sequence finished before legacy target; do not invent a
-         // hidden extra level. Freeze current legal exposure and let TP drive.
          if(live > 0) ActivateCurrentVolume(dir, li, l, live, why);
          return true;
       }
 
+      // Multiple broker child orders may complete ONE logical stage without
+      // a bar/minute wait. Timing applies only when crossing to a NEW stage.
       bool continuingPartialStage = live > previousTarget;
       if(!continuingPartialStage && live > 0)
       {
          SArcsPosition pos[];
          Recovery_ArcsBuildLayerPositions(dir, l.generation, m_volumeStep, pos);
          if(ArraySize(pos) <= 0)
-         { LatchReconcile(dir, "T17 không tìm thấy Hedge anchor cho bậc coverage tiếp theo"); return true; }
+         { LatchReconcile(dir, "T17.2 không tìm thấy Hedge anchor cho bậc coverage tiếp theo"); return true; }
+
+         datetime lastStageOpen = pos[ArraySize(pos)-1].openTime;
+         datetime lastStageBar = (lastStageOpen >= ctx.barTime) ? ctx.barTime : 0;
+         if(!Pyramid_AddTimingAllowsPure(lastStageOpen, lastStageBar,
+                                         ctx.now, ctx.barTime, MinuteStop))
+         {
+            LogWait(dir, l.generation, "chờ nến mới/MinuteStop trước bậc coverage mới");
+            return true;
+         }
+
          double anchor = pos[ArraySize(pos)-1].openPrice;
          double gapPips = Pyramid_SeqValue(m_gap, stage - 1);
          if(!HedgeGapHit(dir, ctx, anchor, gapPips))
@@ -356,7 +364,7 @@ private:
          { LatchReconcile(dir, local); why = local; return true; }
          if(!ProjectedRoomAllows(dir, ctx, snap, remainingStage))
          {
-            why = "T17 ưu tiên TP: room-to-TP không đủ để tăng coverage";
+            why = "T17.2 ưu tiên TP: room-to-TP không đủ để tăng coverage";
             ActivateCurrentVolume(dir, li, l, live, preflight);
             return true;
          }
@@ -397,8 +405,8 @@ private:
                                                exec.HasReconcileRequired(key));
       if(disposition == RECOVERY_T165_CAPACITY_RECONCILE)
       {
-         LatchReconcile(dir, "T17 outcome mở Hedge Pyramid không xác định");
-         why = "T17 Hedge Pyramid child outcome ambiguous";
+         LatchReconcile(dir, "T17.2 outcome mở Hedge Pyramid không xác định");
+         why = "T17.2 Hedge Pyramid child outcome ambiguous";
          return true;
       }
       if(disposition == RECOVERY_T165_CAPACITY_WAIT_NO_EFFECT)
@@ -406,7 +414,7 @@ private:
          LogWait(dir, l.generation, "broker từ chối child Hedge Pyramid với outcome xác định không mutation");
          return true;
       }
-      Log_Info("Recovery", "T17 Hedge Pyramid " + Recovery_DirectionName(dir) +
+      Log_Info("Recovery", "T17.2 Hedge Pyramid " + Recovery_DirectionName(dir) +
                " G" + (string)l.generation + " P" + (string)(stage + 1) +
                " targetCoverage=" + DoubleToString(m_cov[stage], 2) +
                "% child=" + DoubleToString(volume, 2) + " lot");
@@ -421,12 +429,12 @@ public:
       string why = "";
       if(!Pyramid_ValidateConfig(why))
       {
-         Log_Error("Recovery", "T17 Pyramid config invalid: " + why);
+         Log_Error("Recovery", "T17.2 Pyramid config invalid: " + why);
          return false;
       }
       if(!BuildEffectiveCoverage(why))
       {
-         Log_Error("Recovery", "T17 Hedge Pyramid config invalid: " + why);
+         Log_Error("Recovery", "T17.2 Hedge Pyramid config invalid: " + why);
          return false;
       }
       return CRecoveryArcsStackFinal::Init();

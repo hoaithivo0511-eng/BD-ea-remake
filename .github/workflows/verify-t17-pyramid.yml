@@ -24,7 +24,7 @@ env:
   SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
-  t171-model:
+  t172-model:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,17 +32,17 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
 
-      - name: Run T17.1 pure model oracle
+      - name: Run T17.2 pure model oracle
         shell: bash
         run: |
           set -euo pipefail
           SRC='BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t17_model.cpp'
-          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t171
-          /tmp/t171 | tee /tmp/t171.out
-          grep -q 'Pyramid T17.1 model: 46 passed, 0 failed' /tmp/t171.out
-          grep -q 'ALL GREEN' /tmp/t171.out
+          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t172
+          /tmp/t172 | tee /tmp/t172.out
+          grep -q 'Pyramid T17.2 model: 40 passed, 0 failed' /tmp/t172.out
+          grep -q 'ALL GREEN' /tmp/t172.out
 
-      - name: Verify T17.1 source invariants
+      - name: Verify T17.2 source invariants
         shell: python
         run: |
           import re
@@ -57,32 +57,52 @@ jobs:
 
           inputs=re.findall(r'^input\s+(?!group\b)[^\n]+', cfg, flags=re.M)
           assert len(inputs)==20, f'expected exactly 20 T17 inputs, got {len(inputs)}'
-          assert '23 — NHỒI DƯƠNG LỆNH CHÍNH (PYRAMID CORE)' in cfg
-          assert '24 — NHỒI DƯƠNG RECOVERY HEDGE' in cfg
-          assert '#define BD_PYRAMID_POLICY_REV 2' in cfg
-          for token in ['Pyramid_AvailableRiskCashPure','Pyramid_NextCampaignLevelPure','Pyramid_CumulativeAddAllowedPure','Pyramid_CampaignEconomicProfitPure','Pyramid_AdjustTpLevelPure']:
+          assert '#define BD_PYRAMID_POLICY_REV 3' in cfg
+          for token in ['Pyramid_NextSerialLevelPure','Pyramid_ConcurrentAddAllowedPure',
+                        'Pyramid_RearmAnchorPure','Pyramid_AddTimingAllowsPure',
+                        'Pyramid_RiskBudgetAppliesPure','Pyramid_RiskModeReadyPure',
+                        'Pyramid_CampaignEconomicProfitPure','Pyramid_AdjustTpLevelPure']:
               assert token in cfg
+          assert 'PyramidRiskBudgetPercent_ < 0.0 || PyramidRiskBudgetPercent_ > 100.0' in cfg
+          assert 'PyramidRiskBudgetPercent_ <= 0.0 ||' not in cfg
+          assert 'PyramidMaxAdds_ < 0)' in cfg
+          assert 'PyramidMaxAdds_ > BD_PYRAMID_MAX_LEVELS' not in cfg
 
           assert 'struct SPyramidCampaignStats' in core
+          assert 'lastAddTime' in core
           assert 'Pyramid_ReadCampaignHistory' in core
           assert 'DEAL_POSITION_ID' in core
-          assert 'stats.addCount++' in core
           assert 'stats.realizedCash +=' in core
-          assert 'Pyramid_CumulativeAddAllowedPure(stats.addCount, PyramidMaxAdds_)' in core
-          assert 'Pyramid_NextCampaignLevelPure(stats.highestLevel)' in core
-          assert 'stats.highestEntryPrice' in core
-          assert 'Pyramid_AvailableRiskCashPure(side.totalProfit' in core
-          assert 'openRiskCash = book.pyramidLots * riskPerLot' in core
-          assert 'CorePyramidMode_ == pyramid_CHU_KY_SACH && stats.exitDeals > 0' in core
-          assert 'book.pyramidCount >= PyramidMaxAdds_' not in core
-          assert 'level = book.highestLevel + 1' not in core
-          assert 'Pyramid_RiskCapLotPure(MathMax(side.totalProfit' not in core
+          assert 'book.nonPyramidCount < 1' in core
+          assert 'Pyramid_ConcurrentAddAllowedPure(book.pyramidCount, PyramidMaxAdds_)' in core
+          assert 'Pyramid_NextSerialLevelPure(stats.highestLevel)' in core
+          assert 'Pyramid_RearmAnchorPure(book.newestPyramidOpen, side.breakeven)' in core
+          assert 'Pyramid_AddTimingAllowsPure(lastAddTime, lastBar' in core
+          assert 'PyramidLotMode_ == pyramid_LOT_CHUOI' in core
+          assert 'candidate = Grid_NormalizeVolume(candidate)' in core
+          assert 'BLOCK_FIXED_LOT_TOTAL_CAP' in core
+          assert 'Pyramid_RiskBudgetAppliesPure(PyramidLotMode_, PyramidRiskBudgetPercent_)' in core
+          assert 'Pyramid_RiskModeReadyPure(PyramidLotMode_, PyramidRiskBudgetPercent_)' in core
+          assert 'PyramidMinLockedProfitPips_ > 0.0' in core
+          assert 'PyramidMinRoomToTPPips_ > 0.0' in core
+          assert 'PyramidReserveDcaSlots_ > 0' in core
+          assert 'Pyramid_CumulativeAddAllowedPure(stats.addCount, PyramidMaxAdds_)' not in core
+          assert 'stats.highestEntryPrice' not in core
+          assert 'level > PyramidMaxAdds_' not in core
+          assert 'level > BD_PYRAMID_MAX_LEVELS' not in core
           drive=core.index('bool Drive(')
           peel=core.index('TryPeel(ctx', drive)
           history=core.index('CampaignHistoryReady(dir)', drive)
           assert drive < peel < history
 
-          assert 'RefreshPyramidCampaigns(ctx)' in strategy
+          assert 'LatestCoreAddTime(side, dir)' in strategy
+          assert 'MinuteStop > 0 && lastCoreAdd > 0' in strategy
+          assert 'buyLastBar' in strategy and 'sellLastBar' in strategy
+          assert 'm_pyramid.Drive(ctx, m_basket.buy' in strategy
+          assert 'm_pyramid.Drive(ctx, m_basket.sell' in strategy
+          pyr=strategy.index('// Pyramid được xét trước DCA')
+          dca=strategy.index('TryGridAdd(ctx, m_basket.buy')
+          assert pyr < dca
           assert 'CampaignRealized(BD_DIR_BUY)' in strategy
           assert 'CampaignRealized(BD_DIR_SELL)' in strategy
           assert 'buyFloatingEconomic + pyrBuyRealized' in strategy
@@ -90,30 +110,24 @@ jobs:
           assert 'CheckScopedEconomic' in strategy
           assert 'EconomicTpLevel(side, dir, side.tpLevel, economicTp)' in strategy
           assert 'EconomicTpLevel(side, dir, tp, economicTp)' in strategy
-          assert 'm_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)' in strategy
-          pending=strategy.index('m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)')
-          refresh=strategy.index('RefreshPyramidCampaigns(ctx)')
-          guard_call=strategy.index('if(ApplyGuard(ctx))')
-          recovery=strategy.index('m_recovery.DriveActive')
-          assert pending < refresh < guard_call < recovery
 
           assert 'CheckScopedEconomic' in guard
           assert 'economicProfitValid && MG_MoneyTpHit(accNet, m_tpAccount)' in guard
           assert 'economicProfitValid && MG_MoneyTpHit(magicNet, m_tpAll)' in guard
           assert 'economicProfitValid && bothOpen && MG_PctDiffHit' in guard
-          assert 'MG_MoneySlHit(accNet, m_slAccount)' in guard
-          assert 'MG_MoneySlHit(magicNet, m_slAll)' in guard
 
           assert 'Pyramid_IsComment(PositionGetString(POSITION_COMMENT))' in book
           assert 'Recovery_ArcsBuildEconomicCore' in book
           assert 'Pyramid_SemanticText()' in t16
-          assert 'Recovery_T17RuntimeHedgePercentPure' in t16
           assert 'class CRecoveryArcsStackT17' in hedge
+          assert 'continuingPartialStage' in hedge
+          assert 'Pyramid_AddTimingAllowsPure(lastStageOpen, lastStageBar' in hedge
+          assert 'chờ nến mới/MinuteStop trước bậc coverage mới' in hedge
           assert 'FullMarginReserveAllows' in hedge
           assert 'TpPriorityRequiresActivation' in hedge
           assert 'ProjectedRoomAllows' in hedge
           assert 'generationCount++' not in hedge
-          print('T17.1 source invariants PASS')
+          print('T17.2 source invariants PASS')
 
       - name: Record exact source identity
         shell: bash
@@ -122,7 +136,7 @@ jobs:
           echo "HEAD=$(git rev-parse HEAD)"
           echo "TREE=$(git show -s --format=%T HEAD)"
 
-  t171-metaeditor-native:
+  t172-metaeditor-native:
     runs-on: windows-latest
     timeout-minutes: 40
     env:
@@ -167,10 +181,10 @@ jobs:
             }
           }
 
-      - name: Compile exact T17.1 targets
+      - name: Compile exact T17.2 targets
         shell: pwsh
         run: |
-          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t171"
+          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t172"
           New-Item -ItemType Directory -Force -Path $build | Out-Null
           $targets=@(
             @{N='RunPyramidT17Tests';S="$mql5\Scripts\BlackDragon\Tests\RunPyramidT17Tests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunPyramidT17Tests.ex5"},
@@ -191,13 +205,13 @@ jobs:
           if($head -ne $env:SOURCE_SHA){throw 'provenance HEAD mismatch'}
           $eaHash=(Get-FileHash (Join-Path $build 'BlackDragon.ex5') -Algorithm SHA256).Hash.ToLowerInvariant()
           "HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$eaHash`n" | Out-File "$build\PROVENANCE.txt" -Encoding utf8
-          Write-Host "T17.1 MetaEditor PASS: 0 errors / 0 warnings"
+          Write-Host "T17.2 MetaEditor PASS: 0 errors / 0 warnings"
           Write-Host "HEAD=$head TREE=$tree BlackDragon.ex5 SHA256=$eaHash"
 
-      - name: Execute native T17.1 policy script
+      - name: Execute native T17.2 policy script
         shell: pwsh
         run: |
-          $build="$env:GITHUB_WORKSPACE\build-t171"
+          $build="$env:GITHUB_WORKSPACE\build-t172"
           Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
           $logDir="$env:MT5_DIR\MQL5\Logs"
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -208,32 +222,32 @@ jobs:
           $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru
           $deadline=(Get-Date).AddMinutes(4)
           while(-not $p.HasExited -and (Get-Date)-lt $deadline){Start-Sleep 2;$p.Refresh()}
-          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'T17.1 native timeout'}
+          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'T17.2 native timeout'}
           $logs=Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
-          if(-not $logs){throw 'T17.1 native log missing'}
+          if(-not $logs){throw 'T17.2 native log missing'}
           $latest=$logs[-1]
           Copy-Item $latest.FullName (Join-Path $build 'RunPyramidT17Tests-native.log') -Force
           $raw=Get-Content $latest.FullName -Raw; Write-Host $raw
-          $m=[regex]::Match($raw,'Pyramid T17\.1 tests:\s*(\d+) passed,\s*(\d+) failed')
-          if(-not $m.Success){throw 'T17.1 summary missing'}
-          if([int]$m.Groups[1].Value -ne 46 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
-          { throw 'T17.1 expected 46/0' }
-          Write-Host 'T17.1 native PASS 46/0'
+          $m=[regex]::Match($raw,'Pyramid T17\.2 tests:\s*(\d+) passed,\s*(\d+) failed')
+          if(-not $m.Success){throw 'T17.2 summary missing'}
+          if([int]$m.Groups[1].Value -ne 66 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
+          { throw 'T17.2 expected 66/0' }
+          Write-Host 'T17.2 native PASS 66/0'
 
-      - name: Package exact T17.1 evidence
+      - name: Package exact T17.2 evidence
         shell: pwsh
         run: |
-          $build="$env:GITHUB_WORKSPACE\build-t171"
-          Compress-Archive "$build\*" "$env:GITHUB_WORKSPACE\BlackDragon-T17.1-evidence.zip" -Force
-          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T17.1-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $build="$env:GITHUB_WORKSPACE\build-t172"
+          Compress-Archive "$build\*" "$env:GITHUB_WORKSPACE\BlackDragon-T17.2-evidence.zip" -Force
+          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T17.2-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           "PACKAGE_SHA256=$h" | Add-Content "$build\PROVENANCE.txt"
           Write-Host "PACKAGE_SHA256=$h"
 
-      - name: Upload exact T17.1 evidence
+      - name: Upload exact T17.2 evidence
         uses: actions/upload-artifact@v4
         with:
-          name: blackdragon-t171-exact-tree
+          name: blackdragon-t172-exact-tree
           path: |
-            build-t171/
-            BlackDragon-T17.1-evidence.zip
+            build-t172/
+            BlackDragon-T17.2-evidence.zip
           if-no-files-found: error

@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| Strategy.mqh — BlackDragon T17.1 Pyramid runtime hardening      |
-//| Campaign-realized P/L is coordinated with TP/Guard semantics.    |
+//| Strategy.mqh — BlackDragon T17.2 Pyramid runtime                |
+//| Shared Core timing + DCA-recovery Pyramid; T17.1 economics stay. |
 //+------------------------------------------------------------------+
 #ifndef BD_STRATEGY_MQH
 #define BD_STRATEGY_MQH
@@ -75,7 +75,7 @@ private:
       bool sellOk = m_pyramid.RefreshCampaignStats(m_basket.sell, BD_DIR_SELL, ctx.now);
       if(!buyOk || !sellOk)
          Log_WarnEvery("Pyramid", "campaignhistory",
-                       "T17.1 chưa đọc đủ campaign history; tạm hoãn Pyramid ADD và positive TP/PctDiff, Peel/SL vẫn hoạt động",
+                       "T17.2 chưa đọc đủ campaign history; tạm hoãn Pyramid ADD và positive TP/PctDiff, Peel/SL vẫn hoạt động",
                        Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
    }
 
@@ -103,8 +103,7 @@ private:
    {
       if(side.count <= 0 || side.count >= maxOrders) return;
 
-      // T17 invariant: DCA không được chen vào khi Pyramid legs còn tồn tại.
-      // Pyramid LIFO Peel phải tháo optional trend-risk trước.
+      // DCA vẫn chờ Pyramid live được Peel hết trước khi averaging trở lại.
       if(m_pyramid != NULL && m_pyramid.HasLegs(side)) return;
 
       BasketSide dcaSide;
@@ -117,7 +116,18 @@ private:
       if(m_exec.BusyOpen(dir)) return;
       if(!m_gridFilters.Allow(ctx, dir)) return;
       PositionInfo last = dcaSide.pos[dcaSide.count - 1];
-      if(MinuteStop != 0 && ctx.now <= last.openTime + MinuteStop * 60) return;
+
+      // T17.2: MinuteStop là shared Core-add cooldown. Một Pyramid đã Peel
+      // vẫn giữ last-add timestamp từ campaign history, nên DCA không chen
+      // ngay vào sau một Pyramid mutation vừa xảy ra.
+      datetime lastCoreAdd = last.openTime;
+      if(m_pyramid != NULL)
+      {
+         datetime pyrTime = m_pyramid.LatestCoreAddTime(side, dir);
+         if(pyrTime > lastCoreAdd) lastCoreAdd = pyrTime;
+      }
+      if(MinuteStop > 0 && lastCoreAdd > 0 &&
+         ctx.now <= lastCoreAdd + MinuteStop * 60) return;
 
       int dist = m_dist.DistancePoints(dcaSide.count) * Cfg.PointScale;
       bool hit = (dir == BD_DIR_BUY)
@@ -125,8 +135,6 @@ private:
          : (ctx.bid >= last.openPrice + dist * ctx.point);
       if(!hit) return;
 
-      // T17: DCA chain index/sizer nhìn non-Pyramid Core; economic reserve
-      // vẫn nhìn FULL Core side (Seed+DCA+Pyramid) qua biến side bên dưới.
       double nextLot = m_sizer.NextLot(dcaSide);
       if(RecoveryMode_ == recovery_ACTIVE && RecoveryDcaMarginReserve_)
       {
@@ -156,9 +164,6 @@ private:
       ExitDecision d = m_exitPolicy.Check(ctx, side, dir);
       if(d.kind == EXIT_NONE) return false;
 
-      // T17.1: virtual TP must recover prior realized Pyramid losses before
-      // closing the remaining basket. SL/trailing remain risk exits and are
-      // never blocked merely to recover Pyramid losses.
       if(d.kind == EXIT_TP && m_pyramid != NULL)
       {
          double economicTp = side.tpLevel;
@@ -169,8 +174,6 @@ private:
             return false;
       }
 
-      // T17: Legacy Overlap không được dùng newest Pyramid leg như một DCA leg.
-      // TP/SL/Trail vẫn đóng toàn economic Core basket như trước.
       if(d.kind == EXIT_OVERLAP && m_pyramid != NULL && m_pyramid.HasLegs(side))
          return false;
 
@@ -213,9 +216,6 @@ private:
       double sl, tp;
       if(!m_exitPolicy.RealLevels(ctx, side, isBuy, sl, tp)) return;
 
-      // Real TP is shifted by the same campaign loss recovery as virtual TP.
-      // If history is temporarily unavailable, clear/defer positive TP only;
-      // real SL/trailing remains available.
       if(TP_Mode == mode_Real && Cfg.TP != 0 && m_pyramid != NULL)
       {
          double economicTp = tp;
@@ -270,9 +270,6 @@ private:
                                ? m_pyramid.CampaignRealized(BD_DIR_SELL) : 0.0;
       bool economicProfitValid = pyrBuyReady && pyrSellReady;
 
-      // Magic/side/Account positive-profit guards include active-campaign
-      // realized Pyramid cash. Daily net deliberately does NOT add it again:
-      // BasketManager::DayProfit already books same-Magic Pyramid deal exits.
       double buyEconomic = buyFloatingEconomic + pyrBuyRealized;
       double sellEconomic = sellFloatingEconomic + pyrSellRealized;
       double accountEconomic = AccountInfoDouble(ACCOUNT_PROFIT) +
@@ -298,8 +295,8 @@ private:
       }
 
       if(!economicProfitValid)
-         Log_WarnEvery("Guard", "t171pyrhistory",
-                       "T17.1 Pyramid campaign history chưa sẵn sàng; positive MoneyTP/PctDiff tạm hoãn để không chốt hidden realized loss",
+         Log_WarnEvery("Guard", "t172pyrhistory",
+                       "T17.2 Pyramid campaign history chưa sẵn sàng; positive MoneyTP/PctDiff tạm hoãn để không chốt hidden realized loss",
                        Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
 
       bool bothCoreOpen = m_basket.buy.count > 0 && m_basket.sell.count > 0;
@@ -411,9 +408,6 @@ public:
 
    void OnTick(const EAContext &ctx, CPanel &panel)
    {
-      // T17 strict-journal barrier. An accepted/ambiguous Pyramid mutation can
-      // still arrive from the broker after this tick. Until its cycle journal
-      // resolves, no competing Panel/Guard/Recovery/Core mutation is safe.
       if(m_pyramid != NULL &&
          (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
       {
@@ -472,7 +466,6 @@ public:
          return;
       }
 
-      // One history reconstruction per side/tick feeds Guard, TP and Add.
       RefreshPyramidCampaigns(ctx);
 
       if(ApplyGuard(ctx))
@@ -529,30 +522,46 @@ public:
       }
       if(panelMutation) return;
 
-      // T17 priority: high-scope Guard/Recovery/Exit trước; sau đó Pyramid.
-      // Entry filters chỉ cấp quyền ADD; LIFO Peel giảm rủi ro vẫn được Drive
-      // đánh giá ngay cả khi news/time/halt/ADX/spread đang chặn risk mới.
+      // Pyramid được xét trước DCA: khi DCA basket hồi dương qua BE+gap,
+      // T17.2 có thể chuyển sang Pyramid mà không cần trở về Seed-only.
       if(m_pyramid != NULL)
       {
          string pyrWhy = "";
+         datetime buyLastBar = m_basket.LastBuyBar();
          bool allowPyramidAddBuy = m_newSeriesFilters.Allow(ctx, BD_DIR_BUY);
-         if(m_basket.buy.count > 0 &&
-            m_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY, MaxOrdersBuy,
-                            m_recovery, allowPyramidAddBuy, pyrWhy))
+         if(m_basket.buy.count > 0)
          {
-            if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
-            m_basket.Invalidate();
-            return;
+            bool changed = m_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY, MaxOrdersBuy,
+                                           m_recovery, allowPyramidAddBuy,
+                                           buyLastBar, pyrWhy);
+            if(changed)
+            {
+               if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
+               m_basket.Invalidate();
+               return;
+            }
+            if(pyrWhy != "")
+               Log_WarnEvery("Pyramid", "t172block0", pyrWhy,
+                             Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
          }
+
          pyrWhy = "";
+         datetime sellLastBar = m_basket.LastSellBar();
          bool allowPyramidAddSell = m_newSeriesFilters.Allow(ctx, BD_DIR_SELL);
-         if(m_basket.sell.count > 0 &&
-            m_pyramid.Drive(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell,
-                            m_recovery, allowPyramidAddSell, pyrWhy))
+         if(m_basket.sell.count > 0)
          {
-            if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
-            m_basket.Invalidate();
-            return;
+            bool changed = m_pyramid.Drive(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell,
+                                           m_recovery, allowPyramidAddSell,
+                                           sellLastBar, pyrWhy);
+            if(changed)
+            {
+               if(pyrWhy != "") Log_Info("Pyramid", pyrWhy);
+               m_basket.Invalidate();
+               return;
+            }
+            if(pyrWhy != "")
+               Log_WarnEvery("Pyramid", "t172block1", pyrWhy,
+                             Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
          }
       }
 
