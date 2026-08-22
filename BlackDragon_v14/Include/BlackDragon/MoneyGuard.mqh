@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
-//| MoneyGuard.mqh — BlackDragon v14.3.0 / T17.1                    |
-//| Purpose   : FE-401/402 money TP/SL decisions. T17.1 lets caller |
-//|             supply realized-aware campaign/account economics.    |
+//| MoneyGuard.mqh — BlackDragon T17.3                              |
+//| Purpose   : FE-401/402 money TP/SL decisions. Absolute-money     |
+//|             guards use CURRENT floating P/L and outrank strategy.|
 //| Invariants: READ-ONLY consumer; NEVER sends trade requests.      |
 //+------------------------------------------------------------------+
 #ifndef BD_MONEYGUARD_MQH
@@ -32,6 +32,27 @@ bool MG_PctDiffHit(const double buyProfit, const double sellProfit, const double
    double lose = MathMin(buyProfit, sellProfit);
    if(lose >= 0) return false;
    return win + lose * (1.0 + pct / 100.0) >= 0;
+}
+
+// T17.3: PctDiff is a secondary guard. The ratio must hit AND the current
+// combined floating surplus must cover a caller-derived execution buffer.
+bool MG_PctDiffHitBuffered(const double buyProfit, const double sellProfit,
+                           const double pct, const double executionBufferCash)
+{
+   if(!MG_PctDiffHit(buyProfit, sellProfit, pct)) return false;
+   double buffer = MathMax(executionBufferCash, 0.0);
+   return buyProfit + sellProfit + 1e-9 >= buffer;
+}
+
+// Pure latch transition used by Strategy: once a close is armed, a later
+// price retreat cannot cancel it. Only broker-observable flat scope clears it.
+eGuardAction MG_LatchNextPure(const eGuardAction latched,
+                              const eGuardAction triggered,
+                              const bool scopeFlat)
+{
+   if(latched != GUARD_NONE)
+      return scopeFlat ? GUARD_NONE : latched;
+   return triggered;
 }
 
 bool MG_DailyTpHit(const double dayNet, const double tpMoney,
@@ -109,7 +130,7 @@ public:
       bool any = m_pctDiff > 0 || m_tpAccount > 0 || m_slAccount < 0 || m_tpAll > 0 || m_slAll < 0 ||
                  m_tpHedged > 0 || m_tpBuy > 0 || m_slBuy < 0 || m_tpSell > 0 || m_slSell < 0 ||
                  m_dailyTpM > 0 || m_dailySlM < 0 || m_dailyTpP > 0 || m_dailySlP < 0;
-      if(any) Log_Info("Guard", "MoneyGuard active (FE-401/402) — thresholds armed");
+      if(any) Log_Info("Guard", "MoneyGuard active (FE-401/402) — T17.3 floating-money priority armed");
       if(Halted(TimeCurrent()))
          Log_Info("Guard", "daily halt RESTORED from state file — trading stays halted until " +
                   TimeToString(m_haltUntil, TIME_DATE | TIME_MINUTES));
@@ -118,10 +139,83 @@ public:
    bool     Halted(const datetime now) const { return m_haltUntil != 0 && now < m_haltUntil; }
    datetime HaltUntil(const datetime now) const { return Halted(now) ? m_haltUntil : 0; }
 
-   // T17.1: positive-profit exits may use a caller-supplied economic scope
-   // that includes realized Pyramid cash. If that history is unavailable,
-   // positive TP/PctDiff exits are deferred fail-closed. Negative SL controls
-   // remain active on the fallback values supplied by Strategy.
+   // P0 T17.3: absolute-money rules operate only on CURRENT floating P/L.
+   // No realized Pyramid/Recovery history is accepted here, so a previously
+   // realized Peel loss can never postpone a configured floating-money exit.
+   eGuardAction CheckFloatingPriority(const datetime now,
+                                      const double buyFloating,
+                                      const double sellFloating,
+                                      const bool bothOpen,
+                                      const double accountFloating)
+   {
+      if(m_haltUntil != 0 && now >= m_haltUntil)
+      {
+         m_haltUntil = 0;
+         Cfg.HaltUntil = 0;
+         Log_Info("Guard", "daily halt over — trading resumed");
+      }
+
+      double magicNet = buyFloating + sellFloating;
+
+      if(MG_MoneyTpHit(accountFloating, m_tpAccount))
+      { Log_Warn("Guard", "tpacc", "Money TP All account FLOATING: " + DoubleToString(accountFloating, 2) + " >= " + DoubleToString(m_tpAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
+      if(MG_MoneySlHit(accountFloating, m_slAccount))
+      { Log_Warn("Guard", "slacc", "Money SL All account FLOATING: " + DoubleToString(accountFloating, 2) + " <= " + DoubleToString(m_slAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
+
+      if(bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged))
+      { Log_Warn("Guard", "tphdg", "Money TP All (hedged) FLOATING: " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpHedged, 2)); return GUARD_CLOSE_MAGIC; }
+      if(MG_MoneyTpHit(magicNet, m_tpAll))
+      { Log_Warn("Guard", "tpall", "Money TP All FLOATING: " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpAll, 2)); return GUARD_CLOSE_MAGIC; }
+      if(MG_MoneySlHit(magicNet, m_slAll))
+      { Log_Warn("Guard", "slall", "Money SL All FLOATING: " + DoubleToString(magicNet, 2) + " <= " + DoubleToString(m_slAll, 2)); return GUARD_CLOSE_MAGIC; }
+
+      if(MG_MoneyTpHit(buyFloating, m_tpBuy))
+      { Log_Warn("Guard", "tpbuy", "Money TP Buy FLOATING: " + DoubleToString(buyFloating, 2)); return GUARD_CLOSE_BUY; }
+      if(MG_MoneySlHit(buyFloating, m_slBuy))
+      { Log_Warn("Guard", "slbuy", "Money SL Buy FLOATING: " + DoubleToString(buyFloating, 2)); return GUARD_CLOSE_BUY; }
+      if(MG_MoneyTpHit(sellFloating, m_tpSell))
+      { Log_Warn("Guard", "tpsel", "Money TP Sell FLOATING: " + DoubleToString(sellFloating, 2)); return GUARD_CLOSE_SELL; }
+      if(MG_MoneySlHit(sellFloating, m_slSell))
+      { Log_Warn("Guard", "slsel", "Money SL Sell FLOATING: " + DoubleToString(sellFloating, 2)); return GUARD_CLOSE_SELL; }
+
+      return GUARD_NONE;
+   }
+
+   // Secondary guards run only after the absolute-money priority pass.
+   eGuardAction CheckSecondaryFloating(const datetime now,
+                                       const double buyFloating,
+                                       const double sellFloating,
+                                       const bool bothOpen,
+                                       const double dayNet,
+                                       const double dayStartBalance,
+                                       const bool dayNetValid,
+                                       const double pctDiffExecutionBufferCash)
+   {
+      if(dayNetValid && !Halted(now) &&
+         (MG_DailyTpHit(dayNet, m_dailyTpM, dayStartBalance, m_dailyTpP) ||
+          MG_DailySlHit(dayNet, m_dailySlM, dayStartBalance, m_dailySlP)))
+      {
+         Log_Warn("Guard", "daily", "Daily net " + DoubleToString(dayNet, 2) + " (start balance " +
+                  DoubleToString(dayStartBalance, 2) + ") hit the daily target/limit");
+         StartHalt(now);
+         return GUARD_CLOSE_MAGIC_DAILY;
+      }
+
+      if(bothOpen && MG_PctDiffHitBuffered(buyFloating, sellFloating,
+                                           m_pctDiff, pctDiffExecutionBufferCash))
+      {
+         Log_Warn("Guard", "pctd", "PctDiff close-all FLOATING: buy " +
+                  DoubleToString(buyFloating, 2) + " / sell " +
+                  DoubleToString(sellFloating, 2) + " @ " +
+                  DoubleToString(m_pctDiff, 2) + "%; execution buffer=" +
+                  DoubleToString(MathMax(pctDiffExecutionBufferCash, 0.0), 2));
+         return GUARD_CLOSE_MAGIC;
+      }
+      return GUARD_NONE;
+   }
+
+   // Compatibility API retained for pre-T17.3 test callers. Production
+   // Strategy no longer uses this realized-aware path for absolute money TP/SL.
    eGuardAction CheckScopedEconomic(const datetime now,
                                     const double buyProfit, const double sellProfit,
                                     const bool bothOpen,
@@ -134,55 +228,29 @@ public:
       {
          m_haltUntil = 0;
          Cfg.HaltUntil = 0;
-         Log_Info("Guard", "daily halt over — trading resumed");
       }
 
       double magicNet = buyProfit + sellProfit;
       double accNet   = economicProfitValid ? accountEconomicProfit
                                             : AccountInfoDouble(ACCOUNT_PROFIT);
 
-      if(economicProfitValid && MG_MoneyTpHit(accNet, m_tpAccount))
-      { Log_Warn("Guard", "tpacc", "Money TP All account ECONOMIC: " + DoubleToString(accNet, 2) + " >= " + DoubleToString(m_tpAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
-      if(MG_MoneySlHit(accNet, m_slAccount))
-      { Log_Warn("Guard", "slacc", "Money SL All account: " + DoubleToString(accNet, 2) + " <= " + DoubleToString(m_slAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
-
+      if(economicProfitValid && MG_MoneyTpHit(accNet, m_tpAccount)) return GUARD_CLOSE_ACCOUNT;
+      if(MG_MoneySlHit(accNet, m_slAccount)) return GUARD_CLOSE_ACCOUNT;
       if(dayNetValid && !Halted(now) &&
          (MG_DailyTpHit(dayNet, m_dailyTpM, dayStartBalance, m_dailyTpP) ||
           MG_DailySlHit(dayNet, m_dailySlM, dayStartBalance, m_dailySlP)))
-      {
-         Log_Warn("Guard", "daily", "Daily economic net " + DoubleToString(dayNet, 2) + " (start balance " +
-                  DoubleToString(dayStartBalance, 2) + ") hit the daily target/limit");
-         StartHalt(now);
-         return GUARD_CLOSE_MAGIC_DAILY;
-      }
-
-      // Preserve existing activation semantic: special hedged TP is armed
-      // only when BOTH legacy Core baskets are open. T17.1 changes valuation,
-      // not activation: Pyramid realized P/L is now part of caller economics.
-      if(economicProfitValid && bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged))
-      { Log_Warn("Guard", "tphdg", "Money TP All (hedged): economic net " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpHedged, 2)); return GUARD_CLOSE_MAGIC; }
-      if(economicProfitValid && MG_MoneyTpHit(magicNet, m_tpAll))
-      { Log_Warn("Guard", "tpall", "Money TP All: economic net " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpAll, 2)); return GUARD_CLOSE_MAGIC; }
-      if(MG_MoneySlHit(magicNet, m_slAll))
-      { Log_Warn("Guard", "slall", "Money SL All: economic net " + DoubleToString(magicNet, 2) + " <= " + DoubleToString(m_slAll, 2)); return GUARD_CLOSE_MAGIC; }
-
-      if(economicProfitValid && bothOpen && MG_PctDiffHit(buyProfit, sellProfit, m_pctDiff))
-      { Log_Warn("Guard", "pctd", "PctDiff close-all ECONOMIC scope: buy " + DoubleToString(buyProfit, 2) + " / sell " + DoubleToString(sellProfit, 2) + " @ " + DoubleToString(m_pctDiff, 2) + "%"); return GUARD_CLOSE_MAGIC; }
-
-      if(economicProfitValid && MG_MoneyTpHit(buyProfit, m_tpBuy))
-      { Log_Warn("Guard", "tpbuy", "Money TP Buy economic scope: " + DoubleToString(buyProfit, 2)); return GUARD_CLOSE_BUY; }
-      if(MG_MoneySlHit(buyProfit, m_slBuy))
-      { Log_Warn("Guard", "slbuy", "Money SL Buy economic scope: " + DoubleToString(buyProfit, 2)); return GUARD_CLOSE_BUY; }
-      if(economicProfitValid && MG_MoneyTpHit(sellProfit, m_tpSell))
-      { Log_Warn("Guard", "tpsel", "Money TP Sell economic scope: " + DoubleToString(sellProfit, 2)); return GUARD_CLOSE_SELL; }
-      if(MG_MoneySlHit(sellProfit, m_slSell))
-      { Log_Warn("Guard", "slsel", "Money SL Sell economic scope: " + DoubleToString(sellProfit, 2)); return GUARD_CLOSE_SELL; }
-
+      { StartHalt(now); return GUARD_CLOSE_MAGIC_DAILY; }
+      if(economicProfitValid && bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged)) return GUARD_CLOSE_MAGIC;
+      if(economicProfitValid && MG_MoneyTpHit(magicNet, m_tpAll)) return GUARD_CLOSE_MAGIC;
+      if(MG_MoneySlHit(magicNet, m_slAll)) return GUARD_CLOSE_MAGIC;
+      if(economicProfitValid && bothOpen && MG_PctDiffHit(buyProfit, sellProfit, m_pctDiff)) return GUARD_CLOSE_MAGIC;
+      if(economicProfitValid && MG_MoneyTpHit(buyProfit, m_tpBuy)) return GUARD_CLOSE_BUY;
+      if(MG_MoneySlHit(buyProfit, m_slBuy)) return GUARD_CLOSE_BUY;
+      if(economicProfitValid && MG_MoneyTpHit(sellProfit, m_tpSell)) return GUARD_CLOSE_SELL;
+      if(MG_MoneySlHit(sellProfit, m_slSell)) return GUARD_CLOSE_SELL;
       return GUARD_NONE;
    }
 
-   // T16.5-compatible API. Existing callers/tests retain pre-T17.1 semantics
-   // unless they explicitly provide realized-aware account economics.
    eGuardAction CheckScoped(const datetime now,
                             const double buyProfit, const double sellProfit,
                             const bool bothOpen,

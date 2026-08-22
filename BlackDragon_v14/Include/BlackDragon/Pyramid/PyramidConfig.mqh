@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| PyramidConfig.mqh — T17.2 Core/Hedge Pyramid policy              |
-//| Serial re-arm không giữ historical favorable extreme.            |
+//| PyramidConfig.mqh — T17.3 Core/Hedge Pyramid policy              |
+//| Serial re-arm giữ campaign ledger nhưng không giữ price extreme. |
 //+------------------------------------------------------------------+
 #ifndef BD_PYRAMID_CONFIG_MQH
 #define BD_PYRAMID_CONFIG_MQH
@@ -36,8 +36,8 @@ input string PyramidMultiplierSequence_ = "1.0-1.2-1.15-1.1"; // Chuỗi hệ s�
 input int PyramidMaxAdds_ = 4; // Số lệnh Pyramid Core được phép mở đồng thời; 0 = không ADD
 input double PyramidMaxTotalLots_ = 1.00; // Tổng Lot Core tối đa sau khi nhồi; 0 = tắt giới hạn này
 input double PyramidRiskBudgetPercent_ = 30.0; // % lợi nhuận kinh tế dùng làm risk cap; 0 = tắt (không áp cho Lot chuỗi cố định)
-input double PyramidMinLockedProfitPips_ = 5.0; // Rổ phải lời tối thiểu từ hòa vốn; 0 = tắt điều kiện
-input int PyramidReserveDcaSlots_ = 3; // Chừa slot MaxOrders cho DCA; 0 = tắt điều kiện
+input double PyramidMinLockedProfitPips_ = 5.0; // Lợi nhuận kinh tế campaign tối thiểu quy đổi pip; 0 = tắt
+input int PyramidReserveDcaSlots_ = 3; // Chừa slot MaxOrders cho DCA; 0 = không chừa chủ động
 input double PyramidMinRoomToTPPips_ = 5.0; // Khoảng tối thiểu còn lại tới TP; 0 = tắt điều kiện
 input double PyramidPeelGapPips_ = 7.0; // Giá hồi ngược từ Pyramid mới nhất bao nhiêu pip thì tháo LIFO
 input bool PyramidRequireTrend_ = true; // Yêu cầu không có tín hiệu đối nghịch tại thời điểm nhồi
@@ -52,7 +52,7 @@ input double HedgePyramidMinRoomToTPPips_ = 5.0; // Không tăng Hedge nếu tar
 input bool HedgePyramidLockBeforeAdd_ = true; // Chỉ tăng bậc khi phần Hedge đang có đã ở phía lợi nhuận ròng
 
 #define BD_PYRAMID_COMMENT_PREFIX "BDP|"
-#define BD_PYRAMID_POLICY_REV 3
+#define BD_PYRAMID_POLICY_REV 4
 #define BD_PYRAMID_MAX_LEVELS 32
 
 bool Pyramid_IsComment(const string comment)
@@ -170,7 +170,7 @@ int Pyramid_NextSerialLevelPure(const int highestHistoricalLevel)
    return highestHistoricalLevel < 1 ? 1 : highestHistoricalLevel + 1;
 }
 
-// Compatibility alias for older T17 callers/tests. T17.2 runtime uses serial wording.
+// Compatibility alias for older T17 callers/tests.
 int Pyramid_NextCampaignLevelPure(const int highestHistoricalLevel)
 {
    return Pyramid_NextSerialLevelPure(highestHistoricalLevel);
@@ -181,7 +181,7 @@ bool Pyramid_ConcurrentAddAllowedPure(const int openPyramidCount, const int maxA
    return maxAdds > 0 && openPyramidCount >= 0 && openPyramidCount < maxAdds;
 }
 
-// Compatibility oracle only; no T17.2 runtime caller uses lifetime add count as a cap.
+// Compatibility oracle only; runtime no longer uses lifetime add count as cap.
 bool Pyramid_CumulativeAddAllowedPure(const int cumulativeAdds, const int maxAdds)
 {
    return maxAdds > 0 && cumulativeAdds >= 0 && cumulativeAdds < maxAdds;
@@ -193,6 +193,25 @@ double Pyramid_RearmAnchorPure(const double newestLivePyramidOpen,
    return newestLivePyramidOpen > 0.0 ? newestLivePyramidOpen : basketBreakeven;
 }
 
+// T17.3 anchor precedence:
+// 1) a newer non-Pyramid Core add (Seed/DCA epoch) resets spacing to current BE;
+// 2) otherwise the latest Pyramid exit is a TEMPORARY post-Peel re-arm anchor;
+// 3) after a later Pyramid add succeeds, newest live fill resumes as anchor.
+// No historical favorable extreme is retained.
+double Pyramid_T173RearmAnchorPure(const double newestLivePyramidOpen,
+                                   const double basketBreakeven,
+                                   const long newestNonPyramidTimeMsc,
+                                   const long lastPyramidAddTimeMsc,
+                                   const long lastPyramidExitTimeMsc,
+                                   const double lastPyramidExitPrice)
+{
+   if(newestNonPyramidTimeMsc > lastPyramidAddTimeMsc && basketBreakeven > 0.0)
+      return basketBreakeven;
+   if(lastPyramidExitTimeMsc > lastPyramidAddTimeMsc && lastPyramidExitPrice > 0.0)
+      return lastPyramidExitPrice;
+   return Pyramid_RearmAnchorPure(newestLivePyramidOpen, basketBreakeven);
+}
+
 bool Pyramid_AddTimingAllowsPure(const datetime lastAddTime,
                                  const datetime lastAddBar,
                                  const datetime now,
@@ -201,6 +220,20 @@ bool Pyramid_AddTimingAllowsPure(const datetime lastAddTime,
 {
    if(barTime > 0 && lastAddBar == barTime) return false;
    if(minuteStop > 0 && lastAddTime > 0 && now <= lastAddTime + minuteStop * 60)
+      return false;
+   return true;
+}
+
+// ADD may not follow ANY Pyramid ADD/Peel mutation in the same bar. A Peel
+// itself is never blocked by this helper because risk reduction stays urgent.
+bool Pyramid_T173AddAfterMutationAllowsPure(const datetime lastMutationTime,
+                                             const datetime now,
+                                             const datetime barTime,
+                                             const int minuteStop)
+{
+   if(barTime > 0 && lastMutationTime >= barTime) return false;
+   if(minuteStop > 0 && lastMutationTime > 0 &&
+      now <= lastMutationTime + minuteStop * 60)
       return false;
    return true;
 }
@@ -221,6 +254,41 @@ double Pyramid_CampaignEconomicProfitPure(const double floatingCash,
                                           const double realizedPyramidCash)
 {
    return floatingCash + realizedPyramidCash;
+}
+
+double Pyramid_PipsCashPure(const double pips,
+                            const double totalLots,
+                            const double tickValue,
+                            const double tickSize,
+                            const double pipSize)
+{
+   if(pips <= 0.0 || totalLots <= 0.0 || tickValue <= 0.0 ||
+      tickSize <= 0.0 || pipSize <= 0.0)
+      return 0.0;
+   return pips * pipSize / tickSize * tickValue * totalLots;
+}
+
+bool Pyramid_EconomicMinLockedAllowsPure(const double floatingCash,
+                                         const double realizedPyramidCash,
+                                         const double minLockedPips,
+                                         const double totalLots,
+                                         const double tickValue,
+                                         const double tickSize,
+                                         const double pipSize)
+{
+   if(minLockedPips <= 0.0) return true;
+   double need = Pyramid_PipsCashPure(minLockedPips, totalLots,
+                                      tickValue, tickSize, pipSize);
+   if(need <= 0.0) return false;
+   return Pyramid_CampaignEconomicProfitPure(floatingCash, realizedPyramidCash) + 1e-9 >= need;
+}
+
+bool Pyramid_DcaPriorityReleaseNeededPure(const bool dcaDue,
+                                          const int totalOpenCount,
+                                          const int maxOrders,
+                                          const int openPyramidCount)
+{
+   return dcaDue && maxOrders > 0 && totalOpenCount >= maxOrders && openPyramidCount > 0;
 }
 
 double Pyramid_TpRecoveryShiftPure(const double realizedPyramidCash,

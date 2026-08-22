@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
-//| CorePyramid.mqh — T17.2 serial/no-extreme Pyramid + LIFO Peel   |
-//| Campaign economics survive DCA epochs; price anchor does not.    |
+//| CorePyramid.mqh — T17.3 serial re-arm + DCA coexistence         |
+//| Campaign economics survive epochs; historical price extreme does|
+//| not. Peel exit creates temporary hysteresis anchor only.         |
 //+------------------------------------------------------------------+
 #ifndef BD_CORE_PYRAMID_MQH
 #define BD_CORE_PYRAMID_MQH
@@ -19,6 +20,10 @@ struct SPyramidBook
    ulong newestPyramidTicket;
    double newestPyramidOpen;
    datetime newestPyramidTime;
+   long newestPyramidTimeMsc;
+   ulong newestNonPyramidTicket;
+   datetime newestNonPyramidTime;
+   long newestNonPyramidTimeMsc;
    double pyramidLots;
    double nonPyramidLots;
    ulong seedTicket;
@@ -33,6 +38,16 @@ struct SPyramidCampaignStats
    int highestLevel;
    double lastSerialEntryPrice;
    datetime lastAddTime;
+   long lastAddTimeMsc;
+   ulong lastAddDeal;
+   datetime lastExitTime;
+   long lastExitTimeMsc;
+   ulong lastExitDeal;
+   double lastExitPrice;
+   datetime lastMutationTime;
+   long lastMutationTimeMsc;
+   ulong lastMutationDeal;
+   bool lastMutationWasExit;
    double realizedCash;
 };
 
@@ -67,15 +82,18 @@ void Pyramid_ReadBook(const BasketSide &side, SPyramidBook &book)
       bool isP = false;
       int level = -1;
       if(!Pyramid_TicketRole(side.pos[i].ticket, isP, level)) continue;
+      long openMsc = PositionGetInteger(POSITION_TIME_MSC);
+      if(openMsc <= 0) openMsc = (long)side.pos[i].openTime * 1000;
       if(isP)
       {
          book.pyramidCount++;
          book.pyramidLots += side.pos[i].lots;
          if(level > book.highestLevel) book.highestLevel = level;
-         if(side.pos[i].openTime > book.newestPyramidTime ||
-            (side.pos[i].openTime == book.newestPyramidTime &&
+         if(openMsc > book.newestPyramidTimeMsc ||
+            (openMsc == book.newestPyramidTimeMsc &&
              side.pos[i].ticket > book.newestPyramidTicket))
          {
+            book.newestPyramidTimeMsc = openMsc;
             book.newestPyramidTime = side.pos[i].openTime;
             book.newestPyramidTicket = side.pos[i].ticket;
             book.newestPyramidOpen = side.pos[i].openPrice;
@@ -89,6 +107,14 @@ void Pyramid_ReadBook(const BasketSide &side, SPyramidBook &book)
          {
             book.seedTicket = side.pos[i].ticket;
             book.seedOpenTime = side.pos[i].openTime;
+         }
+         if(openMsc > book.newestNonPyramidTimeMsc ||
+            (openMsc == book.newestNonPyramidTimeMsc &&
+             side.pos[i].ticket > book.newestNonPyramidTicket))
+         {
+            book.newestNonPyramidTimeMsc = openMsc;
+            book.newestNonPyramidTime = side.pos[i].openTime;
+            book.newestNonPyramidTicket = side.pos[i].ticket;
          }
       }
    }
@@ -146,8 +172,28 @@ bool Pyramid_UlongContains(const ulong &values[], const ulong value)
    return false;
 }
 
-// Campaign source of truth: serial identity + realized cash survive restart.
-// T17.2 deliberately does NOT use lastSerialEntryPrice as permanent price anchor.
+bool Pyramid_LaterDeal(const long tmsc, const ulong deal,
+                       const long currentMsc, const ulong currentDeal)
+{
+   return tmsc > currentMsc || (tmsc == currentMsc && deal > currentDeal);
+}
+
+void Pyramid_RecordMutation(SPyramidCampaignStats &stats,
+                            const long tmsc,
+                            const datetime time,
+                            const ulong deal,
+                            const bool isExit)
+{
+   if(!Pyramid_LaterDeal(tmsc, deal, stats.lastMutationTimeMsc,
+                         stats.lastMutationDeal)) return;
+   stats.lastMutationTimeMsc = tmsc;
+   stats.lastMutationTime = time;
+   stats.lastMutationDeal = deal;
+   stats.lastMutationWasExit = isExit;
+}
+
+// Campaign source of truth: serial identity + realized cash + latest mutation
+// survive restart. T17.3 never uses lastSerialEntryPrice as permanent anchor.
 bool Pyramid_ReadCampaignHistory(const int dir,
                                  const datetime seedOpenTime,
                                  const datetime now,
@@ -184,7 +230,15 @@ bool Pyramid_ReadCampaignHistory(const int dir,
          stats.addCount++;
       }
       datetime dealTime = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
-      if(dealTime > stats.lastAddTime) stats.lastAddTime = dealTime;
+      long dealMsc = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
+      if(dealMsc <= 0) dealMsc = (long)dealTime * 1000;
+      if(Pyramid_LaterDeal(dealMsc, deal, stats.lastAddTimeMsc, stats.lastAddDeal))
+      {
+         stats.lastAddTimeMsc = dealMsc;
+         stats.lastAddTime = dealTime;
+         stats.lastAddDeal = deal;
+      }
+      Pyramid_RecordMutation(stats, dealMsc, dealTime, deal, false);
       if(level >= stats.highestLevel)
       {
          stats.highestLevel = level;
@@ -200,10 +254,24 @@ bool Pyramid_ReadCampaignHistory(const int dir,
       if(positionId == 0 || !Pyramid_UlongContains(positionIds, positionId)) continue;
       stats.realizedCash += HistoryDealGetDouble(deal, DEAL_PROFIT)
                           + HistoryDealGetDouble(deal, DEAL_SWAP)
-                          + HistoryDealGetDouble(deal, DEAL_COMMISSION);
+                          + HistoryDealGetDouble(deal, DEAL_COMMISSION)
+                          + HistoryDealGetDouble(deal, DEAL_FEE);
       long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
       if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT)
+      {
          stats.exitDeals++;
+         datetime dealTime = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
+         long dealMsc = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
+         if(dealMsc <= 0) dealMsc = (long)dealTime * 1000;
+         if(Pyramid_LaterDeal(dealMsc, deal, stats.lastExitTimeMsc, stats.lastExitDeal))
+         {
+            stats.lastExitTimeMsc = dealMsc;
+            stats.lastExitTime = dealTime;
+            stats.lastExitDeal = deal;
+            stats.lastExitPrice = HistoryDealGetDouble(deal, DEAL_PRICE);
+         }
+         Pyramid_RecordMutation(stats, dealMsc, dealTime, deal, true);
+      }
    }
 
    stats.ready = true;
@@ -283,14 +351,19 @@ private:
       return t;
    }
 
-   bool TryPeel(const EAContext &ctx, const int dir,
-                const SPyramidBook &book, string &why)
+   datetime LatestPyramidMutationTimeInternal(const BasketSide &side, const int dir) const
+   {
+      datetime t = LatestLiveOpenTime(side);
+      if(dir >= BD_DIR_BUY && dir <= BD_DIR_SELL && m_stats[dir].ready &&
+         m_stats[dir].lastMutationTime > t)
+         t = m_stats[dir].lastMutationTime;
+      return t;
+   }
+
+   bool CloseNewestPyramid(const SPyramidBook &book, const int dir,
+                           const string reason, string &why)
    {
       if(book.pyramidCount <= 0 || book.newestPyramidTicket == 0) return false;
-      double pip = PipSize(ctx);
-      if(pip <= 0.0) return false;
-      if(!Pyramid_PeelHitPure(dir, book.newestPyramidOpen, ctx.bid, ctx.ask,
-                              PyramidPeelGapPips_ * pip)) return false;
       if(m_exec.HasAnyPendingClose() || m_exec.BusyOpen(dir) ||
          m_exec.HasPendingForCycle(CycleKey(dir))) return false;
       if(!PositionSelectByTicket(book.newestPyramidTicket)) return false;
@@ -301,12 +374,22 @@ private:
                                           EXEC_CMD_CORE_PYRAMID_CLOSE,
                                           EXEC_RECONCILE_FAIL_CLOSED))
       {
-         why = "LIFO Peel không gửi được lệnh đóng Pyramid #" + (string)book.newestPyramidTicket;
+         why = reason + " không gửi được close Pyramid #" + (string)book.newestPyramidTicket;
          return false;
       }
-      why = "T17.2 LIFO Peel đóng Pyramid mới nhất ticket=" +
-            (string)book.newestPyramidTicket;
+      why = reason + " ticket=" + (string)book.newestPyramidTicket;
       return true;
+   }
+
+   bool TryPeel(const EAContext &ctx, const int dir,
+                const SPyramidBook &book, string &why)
+   {
+      if(book.pyramidCount <= 0 || book.newestPyramidTicket == 0) return false;
+      double pip = PipSize(ctx);
+      if(pip <= 0.0) return false;
+      if(!Pyramid_PeelHitPure(dir, book.newestPyramidOpen, ctx.bid, ctx.ask,
+                              PyramidPeelGapPips_ * pip)) return false;
+      return CloseNewestPyramid(book, dir, "T17.3 LIFO Peel", why);
    }
 
    bool TryAdd(const EAContext &ctx, const BasketSide &side, const int dir,
@@ -331,18 +414,26 @@ private:
       { why = "BLOCK_PENDING"; return false; }
       if(!TrendAllows(ctx, dir)) { why = "BLOCK_TREND"; return false; }
 
-      datetime lastAddTime = LatestCoreAddTimeInternal(side, dir);
-      if(!Pyramid_AddTimingAllowsPure(lastAddTime, lastBar, ctx.now, ctx.barTime, MinuteStop))
-      { why = "BLOCK_TIMING"; return false; }
+      datetime lastMutation = LatestPyramidMutationTimeInternal(side, dir);
+      if(lastBar == ctx.barTime ||
+         !Pyramid_T173AddAfterMutationAllowsPure(lastMutation, ctx.now,
+                                                  ctx.barTime, MinuteStop))
+      { why = "BLOCK_TIMING_MUTATION"; return false; }
 
       double pip = PipSize(ctx);
       if(pip <= 0.0) return false;
       if(PyramidMinLockedProfitPips_ > 0.0)
       {
-         double favorable = Pyramid_FavorablePipsPure(dir, side.breakeven,
-                                                      ctx.bid, ctx.ask, pip);
-         if(favorable + 1e-9 < PyramidMinLockedProfitPips_)
-         { why = "BLOCK_MIN_PROFIT"; return false; }
+         double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+         double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+         if(!Pyramid_EconomicMinLockedAllowsPure(side.totalProfit,
+                                                  stats.realizedCash,
+                                                  PyramidMinLockedProfitPips_,
+                                                  side.totalLots,
+                                                  tickValue,
+                                                  tickSize,
+                                                  pip))
+         { why = "BLOCK_MIN_PROFIT_ECONOMIC"; return false; }
       }
       if(PyramidMinRoomToTPPips_ > 0.0)
       {
@@ -353,7 +444,12 @@ private:
       }
 
       int level = Pyramid_NextSerialLevelPure(stats.highestLevel);
-      double anchor = Pyramid_RearmAnchorPure(book.newestPyramidOpen, side.breakeven);
+      double anchor = Pyramid_T173RearmAnchorPure(book.newestPyramidOpen,
+                                                   side.breakeven,
+                                                   book.newestNonPyramidTimeMsc,
+                                                   stats.lastAddTimeMsc,
+                                                   stats.lastExitTimeMsc,
+                                                   stats.lastExitPrice);
       if(anchor <= 0.0) return false;
       double gapPips = Pyramid_SeqValue(m_distance, level - 1);
       if(!Pyramid_FavorableGapHitPure(dir, anchor, ctx.bid, ctx.ask, gapPips * pip))
@@ -410,12 +506,18 @@ private:
          why = "Không gửi được lệnh nhồi dương Core serial=" + (string)level;
          return false;
       }
-      why = "T17.2 Pyramid Core mở serial=" + (string)level +
+      string anchorKind = book.newestNonPyramidTimeMsc > stats.lastAddTimeMsc ? "dca-BE" :
+                          stats.lastExitTimeMsc > stats.lastAddTimeMsc ? "post-exit" :
+                          book.pyramidCount > 0 ? "live-Pyramid" : "basket-BE";
+      double triggerPrice = dir == BD_DIR_BUY ? ctx.ask : ctx.bid;
+      why = "T17.3 Pyramid Core mở serial=" + (string)level +
             " concurrent=" + (string)(book.pyramidCount + 1) +
             "/" + (string)PyramidMaxAdds_ +
             " lot=" + DoubleToString(candidate, 2) +
             " anchor=" + DoubleToString(anchor, ctx.digits) +
-            (book.pyramidCount > 0 ? "(live Pyramid)" : "(basket BE)") +
+            " anchorKind=" + anchorKind +
+            " trigger=" + DoubleToString(triggerPrice, ctx.digits) +
+            " gapPips=" + DoubleToString(gapPips, 2) +
             " economic=" + DoubleToString(Pyramid_CampaignEconomicProfitPure(side.totalProfit,
                                                                                stats.realizedCash), 2);
       return true;
@@ -476,6 +578,17 @@ public:
    datetime LatestCoreAddTime(const BasketSide &side, const int dir) const
    {
       return LatestCoreAddTimeInternal(side, dir);
+   }
+
+   // DCA priority path used only after every normal DCA gate has already hit
+   // and broker slot capacity is full because Pyramid occupies the side.
+   bool ReleaseNewestForDca(const BasketSide &side, const int dir, string &why)
+   {
+      why = "";
+      if(m_exec == NULL || dir < BD_DIR_BUY || dir > BD_DIR_SELL) return false;
+      SPyramidBook book;
+      Pyramid_ReadBook(side, book);
+      return CloseNewestPyramid(book, dir, "T17.3 DCA_PRIORITY_RELEASE", why);
    }
 
    bool RefreshCampaignStats(const BasketSide &side, const int dir, const datetime now)
@@ -579,6 +692,7 @@ public:
          recovery.GetCycle(dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL, c);
          recoveryOwns = c.state != recovery_CORE_ONLY;
       }
+      // Risk-reducing Peel remains allowed before ADD-history readiness.
       if(!recoveryOwns && TryPeel(ctx, dir, book, why)) return true;
       if(recoveryOwns || !allowAdd || !CampaignHistoryReady(dir)) return false;
       return TryAdd(ctx, side, dir, maxOrders, lastBar, book, m_stats[dir], recovery, why);

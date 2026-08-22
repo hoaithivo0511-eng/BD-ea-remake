@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| Strategy.mqh — BlackDragon T17.2 Pyramid runtime                |
-//| Shared Core timing + DCA-recovery Pyramid; T17.1 economics stay. |
+//| Strategy.mqh — BlackDragon T17.3 runtime                         |
+//| P0 floating MoneyGuard + Pyramid/DCA coexistence + re-arm.       |
 //+------------------------------------------------------------------+
 #ifndef BD_STRATEGY_MQH
 #define BD_STRATEGY_MQH
@@ -31,6 +31,8 @@ private:
    CVirtualExitPolicy m_exitPolicy;
    CFilterChain       m_newSeriesFilters;
    CFilterChain       m_gridFilters;
+   eGuardAction       m_guardLatched;
+   datetime           m_guardLatchAt;
 
    eRecoveryCoreDirection RecoveryDir(const int dir) const
    {
@@ -75,8 +77,266 @@ private:
       bool sellOk = m_pyramid.RefreshCampaignStats(m_basket.sell, BD_DIR_SELL, ctx.now);
       if(!buyOk || !sellOk)
          Log_WarnEvery("Pyramid", "campaignhistory",
-                       "T17.2 chưa đọc đủ campaign history; tạm hoãn Pyramid ADD và positive TP/PctDiff, Peel/SL vẫn hoạt động",
+                       "T17.3 chưa đọc đủ Pyramid campaign history; tạm hoãn Pyramid ADD/economic basket TP, risk-reducing Peel và floating MoneyGuard vẫn hoạt động",
                        Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+   }
+
+   string GuardActionName(const eGuardAction action) const
+   {
+      if(action == GUARD_CLOSE_ACCOUNT) return "ACCOUNT";
+      if(action == GUARD_CLOSE_MAGIC) return "MAGIC";
+      if(action == GUARD_CLOSE_BUY) return "BUY";
+      if(action == GUARD_CLOSE_SELL) return "SELL";
+      if(action == GUARD_CLOSE_MAGIC_DAILY) return "DAILY";
+      return "NONE";
+   }
+
+   bool GuardScopeFlat(const eGuardAction action,
+                       const SRecoveryT165GuardMetrics &rg) const
+   {
+      if(action == GUARD_CLOSE_ACCOUNT)
+         return PositionsTotal() == 0;
+      if(action == GUARD_CLOSE_BUY)
+         return m_basket.buy.count == 0 && !rg.buyRecoveryOpen;
+      if(action == GUARD_CLOSE_SELL)
+         return m_basket.sell.count == 0 && !rg.sellRecoveryOpen;
+      if(action == GUARD_CLOSE_MAGIC || action == GUARD_CLOSE_MAGIC_DAILY)
+         return m_basket.buy.count == 0 && m_basket.sell.count == 0 &&
+                !rg.buyRecoveryOpen && !rg.sellRecoveryOpen;
+      return true;
+   }
+
+   bool AnyOpenPending() const
+   {
+      if(m_exec == NULL) return false;
+      if(m_exec.BusyOpen(BD_DIR_BUY) || m_exec.BusyOpen(BD_DIR_SELL)) return true;
+      if(m_pyramid != NULL &&
+         (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
+         return true;
+      return false;
+   }
+
+   void LatchGuard(const eGuardAction action, const datetime now)
+   {
+      if(action == GUARD_NONE) return;
+      eGuardAction next = MG_LatchNextPure(m_guardLatched, action, false);
+      if(m_guardLatched == GUARD_NONE && next != GUARD_NONE)
+      {
+         m_guardLatchAt = now;
+         Log_Warn("Guard", "latch", "T17.3 MoneyGuard CLOSE LATCHED scope=" +
+                  GuardActionName(next) + "; no new Seed/DCA/Pyramid/Recovery ADD until flat");
+      }
+      m_guardLatched = next;
+   }
+
+   bool DriveGuardLatch(const EAContext &ctx,
+                        const SRecoveryT165GuardMetrics &rg)
+   {
+      if(m_guardLatched == GUARD_NONE) return false;
+
+      bool flat = GuardScopeFlat(m_guardLatched, rg);
+      bool pendingOpen = AnyOpenPending();
+      bool pendingClose = m_exec != NULL && m_exec.HasAnyPendingClose();
+      bool recoveryBusy = RecoveryMode_ == recovery_ACTIVE && m_recoveryExit != NULL &&
+                          m_recoveryExit.HasBlockingWork();
+
+      if(flat && !pendingOpen && !pendingClose && !recoveryBusy)
+      {
+         Log_Info("Guard", "T17.3 MoneyGuard close-to-flat COMPLETE scope=" +
+                  GuardActionName(m_guardLatched) + " latchedAt=" +
+                  TimeToString(m_guardLatchAt, TIME_DATE | TIME_SECONDS));
+         m_guardLatched = MG_LatchNextPure(m_guardLatched, GUARD_NONE, true);
+         m_guardLatchAt = 0;
+         return true; // do not reopen on the same tick that flatten completes
+      }
+
+      // Existing open outcome must be known before issuing contradictory close.
+      if(pendingOpen)
+      {
+         Log_WarnEvery("Guard", "waitopen", "MoneyGuard latch waiting for in-flight OPEN outcome before close-to-flat",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return true;
+      }
+      if(pendingClose)
+         return true;
+      if(recoveryBusy)
+      {
+         DriveRecoveryExit(ctx.now);
+         return true;
+      }
+
+      bool coordinated = false;
+      bool legacyMutation = false;
+      bool buyOpen = m_basket.buy.count > 0 || rg.buyRecoveryOpen;
+      bool sellOpen = m_basket.sell.count > 0 || rg.sellRecoveryOpen;
+
+      if(m_guardLatched == GUARD_CLOSE_ACCOUNT)
+      {
+         if(RecoveryMode_ == recovery_ACTIVE && m_recoveryExit != NULL)
+         {
+            m_recoveryExit.BeginAccountWideClose(ctx.now);
+            coordinated = true;
+         }
+         else
+         {
+            m_exec.CloseAllAccount();
+            legacyMutation = true;
+         }
+      }
+      else if(m_guardLatched == GUARD_CLOSE_BUY)
+      {
+         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY,
+                                                            recovery_EXIT_REASON_GUARD_SIDE,
+                                                            ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            m_exec.CloseBasket(m_basket.buy);
+            legacyMutation = true;
+         }
+         else if(cr == recovery_EXIT_BLOCKED)
+            Log_Warn("Guard", "latchbuy", "MoneyGuard BUY latch waiting for Recovery reconciliation");
+         else coordinated = true;
+      }
+      else if(m_guardLatched == GUARD_CLOSE_SELL)
+      {
+         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL,
+                                                            recovery_EXIT_REASON_GUARD_SIDE,
+                                                            ctx.now);
+         if(cr == recovery_EXIT_BYPASS)
+         {
+            m_exec.CloseBasket(m_basket.sell);
+            legacyMutation = true;
+         }
+         else if(cr == recovery_EXIT_BLOCKED)
+            Log_Warn("Guard", "latchsell", "MoneyGuard SELL latch waiting for Recovery reconciliation");
+         else coordinated = true;
+      }
+      else
+      {
+         eRecoveryExitCoordReason rr = m_guardLatched == GUARD_CLOSE_MAGIC_DAILY ?
+                                       recovery_EXIT_REASON_GUARD_DAILY :
+                                       recovery_EXIT_REASON_GUARD_MAGIC;
+         if(buyOpen)
+         {
+            eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY, rr, ctx.now);
+            if(cr == recovery_EXIT_BYPASS)
+            {
+               m_exec.CloseBasket(m_basket.buy);
+               legacyMutation = true;
+            }
+            else if(cr == recovery_EXIT_BLOCKED)
+               Log_Warn("Guard", "latchmagicbuy", "MoneyGuard MAGIC latch BUY side waiting for Recovery reconciliation");
+            else coordinated = true;
+         }
+         if(sellOpen)
+         {
+            eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL, rr, ctx.now);
+            if(cr == recovery_EXIT_BYPASS)
+            {
+               m_exec.CloseBasket(m_basket.sell);
+               legacyMutation = true;
+            }
+            else if(cr == recovery_EXIT_BLOCKED)
+               Log_Warn("Guard", "latchmagicsell", "MoneyGuard MAGIC latch SELL side waiting for Recovery reconciliation");
+            else coordinated = true;
+         }
+      }
+      if(coordinated) DriveRecoveryExit(ctx.now);
+      if(legacyMutation) m_basket.Invalidate();
+      return true;
+   }
+
+   double PctDiffExecutionBufferCash(const EAContext &ctx) const
+   {
+      if(PctDiffClose <= 0.0) return 0.0;
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+      if(tickSize <= 0.0 || tickValue <= 0.0) return DBL_MAX;
+
+      double lots = m_basket.buy.totalLots + m_basket.sell.totalLots;
+      if(RecoveryMode_ == recovery_ACTIVE && RecoveryMagic_ > 0)
+      {
+         for(int i = PositionsTotal() - 1; i >= 0; i--)
+         {
+            ulong ticket = PositionGetTicket(i);
+            if(ticket == 0) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
+               PositionGetInteger(POSITION_MAGIC) != (long)RecoveryMagic_)
+               continue;
+            lots += PositionGetDouble(POSITION_VOLUME);
+         }
+      }
+      if(lots <= 0.0) return 0.0;
+      double executionMove = MathMax(MathMax(ctx.ask - ctx.bid, 0.0), tickSize);
+      return executionMove / tickSize * tickValue * lots;
+   }
+
+   bool ApplyGuardPriority(const EAContext &ctx)
+   {
+      if(m_guard == NULL) return false;
+      SRecoveryT165GuardMetrics rg;
+      Recovery_T165ReadGuardMetrics(ctx.now, rg); // floating is valid even if day-history seed fails
+
+      if(m_guardLatched != GUARD_NONE)
+         return DriveGuardLatch(ctx, rg);
+
+      double buyFloating = m_basket.buy.totalProfit + rg.recoveryForBuyFloating;
+      double sellFloating = m_basket.sell.totalProfit + rg.recoveryForSellFloating;
+      bool bothCoreOpen = m_basket.buy.count > 0 && m_basket.sell.count > 0;
+      double accountFloating = AccountInfoDouble(ACCOUNT_PROFIT);
+
+      eGuardAction action = m_guard.CheckFloatingPriority(ctx.now,
+                                                          buyFloating,
+                                                          sellFloating,
+                                                          bothCoreOpen,
+                                                          accountFloating);
+      if(action == GUARD_NONE) return false;
+      LatchGuard(action, ctx.now);
+      return DriveGuardLatch(ctx, rg);
+   }
+
+   bool ApplyGuardSecondary(const EAContext &ctx)
+   {
+      if(m_guard == NULL) return false;
+      SRecoveryT165GuardMetrics rg;
+      bool recoveryHistoryOk = Recovery_T165ReadGuardMetrics(ctx.now, rg);
+      if(m_guardLatched != GUARD_NONE)
+         return DriveGuardLatch(ctx, rg);
+
+      double buyFloating = m_basket.buy.totalProfit + rg.recoveryForBuyFloating;
+      double sellFloating = m_basket.sell.totalProfit + rg.recoveryForSellFloating;
+      double dayNet = m_basket.DayProfit() + buyFloating + sellFloating;
+      double dayStartBalance = m_basket.DayStartBalance();
+      bool dayNetValid = true;
+      if(RecoveryMode_ == recovery_ACTIVE)
+      {
+         if(recoveryHistoryOk)
+         {
+            dayNet += rg.recoveryRealizedToday;
+            dayStartBalance -= rg.recoveryRealizedToday;
+         }
+         else
+         {
+            dayNetValid = false;
+            Log_WarnEvery("Guard", "t165dailyhistory",
+                          "T16.5 không đọc được realized RecoveryMagic trong ngày; chỉ tạm hoãn DAILY guard, absolute floating-money guards vẫn hoạt động",
+                          Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         }
+      }
+
+      bool bothCoreOpen = m_basket.buy.count > 0 && m_basket.sell.count > 0;
+      double pctBuffer = PctDiffExecutionBufferCash(ctx);
+      eGuardAction action = m_guard.CheckSecondaryFloating(ctx.now,
+                                                           buyFloating,
+                                                           sellFloating,
+                                                           bothCoreOpen,
+                                                           dayNet,
+                                                           dayStartBalance,
+                                                           dayNetValid,
+                                                           pctBuffer);
+      if(action == GUARD_NONE) return false;
+      LatchGuard(action, ctx.now);
+      return DriveGuardLatch(ctx, rg);
    }
 
    void TryOpenSeries(const EAContext &ctx)
@@ -99,27 +359,23 @@ private:
       }
    }
 
-   void TryGridAdd(const EAContext &ctx, BasketSide &side, const int dir, const int maxOrders)
+   bool TryGridAdd(const EAContext &ctx, BasketSide &side,
+                   const int dir, const int maxOrders)
    {
-      if(side.count <= 0 || side.count >= maxOrders) return;
+      if(side.count <= 0 || maxOrders <= 0) return false;
 
-      // DCA vẫn chờ Pyramid live được Peel hết trước khi averaging trở lại.
-      if(m_pyramid != NULL && m_pyramid.HasLegs(side)) return;
-
+      // T17.3: DCA evaluates only Seed+DCA positions even while Pyramid is live.
       BasketSide dcaSide;
       if(m_pyramid != NULL) m_pyramid.BuildDcaView(side, dcaSide);
       else dcaSide = side;
-      if(dcaSide.count <= 0) return;
+      if(dcaSide.count <= 0 || dcaSide.count >= maxOrders) return false;
 
       datetime lastBar = (dir == BD_DIR_BUY) ? m_basket.LastBuyBar() : m_basket.LastSellBar();
-      if(lastBar == ctx.barTime) return;
-      if(m_exec.BusyOpen(dir)) return;
-      if(!m_gridFilters.Allow(ctx, dir)) return;
+      if(lastBar == ctx.barTime) return false;
+      if(m_exec.BusyOpen(dir)) return false;
+      if(!m_gridFilters.Allow(ctx, dir)) return false;
       PositionInfo last = dcaSide.pos[dcaSide.count - 1];
 
-      // T17.2: MinuteStop là shared Core-add cooldown. Một Pyramid đã Peel
-      // vẫn giữ last-add timestamp từ campaign history, nên DCA không chen
-      // ngay vào sau một Pyramid mutation vừa xảy ra.
       datetime lastCoreAdd = last.openTime;
       if(m_pyramid != NULL)
       {
@@ -127,13 +383,13 @@ private:
          if(pyrTime > lastCoreAdd) lastCoreAdd = pyrTime;
       }
       if(MinuteStop > 0 && lastCoreAdd > 0 &&
-         ctx.now <= lastCoreAdd + MinuteStop * 60) return;
+         ctx.now <= lastCoreAdd + MinuteStop * 60) return false;
 
       int dist = m_dist.DistancePoints(dcaSide.count) * Cfg.PointScale;
       bool hit = (dir == BD_DIR_BUY)
          ? (ctx.ask <= last.openPrice - dist * ctx.point)
          : (ctx.bid >= last.openPrice + dist * ctx.point);
-      if(!hit) return;
+      if(!hit) return false;
 
       double nextLot = m_sizer.NextLot(dcaSide);
       if(RecoveryMode_ == recovery_ACTIVE && RecoveryDcaMarginReserve_)
@@ -143,7 +399,11 @@ private:
          double projectedHedgeLot = 0.0;
          bool futureGenerationAllowed = m_recovery != NULL &&
             m_recovery.T16CanOpenFurtherGeneration(RecoveryDir(dir));
-         if(!Recovery_T165ProjectedDcaReserveAllows(dir, side, nextLot,
+
+         // Count must stay Seed+DCA for Recovery reachability, while economic
+         // Core lots include live Pyramid for projected Hedge margin.
+         dcaSide.totalLots = side.totalLots;
+         if(!Recovery_T165ProjectedDcaReserveAllows(dir, dcaSide, nextLot,
                                                     futureGenerationAllowed,
                                                     reserveWhy,
                                                     requiredMargin,
@@ -152,11 +412,33 @@ private:
             Log_WarnEvery("Recovery", "t165dcareserve" + (string)dir,
                           reserveWhy,
                           Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
-            return;
+            return false;
          }
       }
 
-      if(m_exec.OpenMarket(dir, nextLot, dcaSide.count + 1)) m_basket.Invalidate();
+      // No proactive reserve when PyramidReserveDcaSlots_=0, but if Pyramid
+      // consumed the final slot, a due DCA gets priority by releasing newest P.
+      if(side.count >= maxOrders)
+      {
+         if(m_pyramid != NULL && m_pyramid.HasLegs(side))
+         {
+            string releaseWhy = "";
+            if(m_pyramid.ReleaseNewestForDca(side, dir, releaseWhy))
+            {
+               if(releaseWhy != "") Log_Warn("Pyramid", "dcapriority", releaseWhy);
+               m_basket.Invalidate();
+               return true;
+            }
+         }
+         return false;
+      }
+
+      if(m_exec.OpenMarket(dir, nextLot, dcaSide.count + 1))
+      {
+         m_basket.Invalidate();
+         return true;
+      }
+      return false;
    }
 
    bool ApplyExit(const EAContext &ctx, BasketSide &side, const int dir)
@@ -251,137 +533,6 @@ private:
       if(modified) m_basket.Invalidate();
    }
 
-   bool ApplyGuard(const EAContext &ctx)
-   {
-      if(m_guard == NULL) return false;
-
-      SRecoveryT165GuardMetrics rg;
-      bool recoveryHistoryOk = Recovery_T165ReadGuardMetrics(ctx.now, rg);
-      double buyFloatingEconomic = Recovery_T165EconomicSideProfitPure(m_basket.buy.totalProfit,
-                                                                        rg.recoveryForBuyFloating);
-      double sellFloatingEconomic = Recovery_T165EconomicSideProfitPure(m_basket.sell.totalProfit,
-                                                                         rg.recoveryForSellFloating);
-
-      bool pyrBuyReady = m_pyramid == NULL || m_pyramid.CampaignHistoryReady(BD_DIR_BUY);
-      bool pyrSellReady = m_pyramid == NULL || m_pyramid.CampaignHistoryReady(BD_DIR_SELL);
-      double pyrBuyRealized = (m_pyramid != NULL && pyrBuyReady)
-                              ? m_pyramid.CampaignRealized(BD_DIR_BUY) : 0.0;
-      double pyrSellRealized = (m_pyramid != NULL && pyrSellReady)
-                               ? m_pyramid.CampaignRealized(BD_DIR_SELL) : 0.0;
-      bool economicProfitValid = pyrBuyReady && pyrSellReady;
-
-      double buyEconomic = buyFloatingEconomic + pyrBuyRealized;
-      double sellEconomic = sellFloatingEconomic + pyrSellRealized;
-      double accountEconomic = AccountInfoDouble(ACCOUNT_PROFIT) +
-                               pyrBuyRealized + pyrSellRealized;
-
-      double dayNet = m_basket.DayProfit() + buyFloatingEconomic + sellFloatingEconomic;
-      double economicDayStartBalance = m_basket.DayStartBalance();
-      bool dayNetValid = true;
-      if(RecoveryMode_ == recovery_ACTIVE)
-      {
-         if(recoveryHistoryOk)
-         {
-            dayNet += rg.recoveryRealizedToday;
-            economicDayStartBalance -= rg.recoveryRealizedToday;
-         }
-         else
-         {
-            dayNetValid = false;
-            Log_WarnEvery("Guard", "t165dailyhistory",
-                          "T16.5 không đọc được realized RecoveryMagic trong ngày; chỉ tạm hoãn DAILY guard, account/floating guards vẫn hoạt động",
-                          Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
-         }
-      }
-
-      if(!economicProfitValid)
-         Log_WarnEvery("Guard", "t172pyrhistory",
-                       "T17.2 Pyramid campaign history chưa sẵn sàng; positive MoneyTP/PctDiff tạm hoãn để không chốt hidden realized loss",
-                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
-
-      bool bothCoreOpen = m_basket.buy.count > 0 && m_basket.sell.count > 0;
-      eGuardAction a = m_guard.CheckScopedEconomic(ctx.now,
-                                                   buyEconomic, sellEconomic,
-                                                   bothCoreOpen,
-                                                   dayNet, economicDayStartBalance,
-                                                   dayNetValid,
-                                                   accountEconomic,
-                                                   economicProfitValid);
-      if(a == GUARD_NONE) return false;
-
-      bool coordinated = false;
-      bool legacyMutation = false;
-      bool buyEconomicOpen = m_basket.buy.count > 0 || rg.buyRecoveryOpen;
-      bool sellEconomicOpen = m_basket.sell.count > 0 || rg.sellRecoveryOpen;
-
-      if(a == GUARD_CLOSE_ACCOUNT)
-      {
-         if(RecoveryMode_ == recovery_ACTIVE && m_recoveryExit != NULL)
-         {
-            m_recoveryExit.BeginAccountWideClose(ctx.now);
-            coordinated = true;
-         }
-         else
-         {
-            m_exec.CloseAllAccount();
-            legacyMutation = true;
-         }
-      }
-      else if(a == GUARD_CLOSE_BUY)
-      {
-         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY,
-                                                            recovery_EXIT_REASON_GUARD_SIDE,
-                                                            ctx.now);
-         if(cr == recovery_EXIT_BYPASS)
-         {
-            m_exec.CloseBasket(m_basket.buy);
-            legacyMutation = true;
-         }
-         else coordinated = true;
-      }
-      else if(a == GUARD_CLOSE_SELL)
-      {
-         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL,
-                                                            recovery_EXIT_REASON_GUARD_SIDE,
-                                                            ctx.now);
-         if(cr == recovery_EXIT_BYPASS)
-         {
-            m_exec.CloseBasket(m_basket.sell);
-            legacyMutation = true;
-         }
-         else coordinated = true;
-      }
-      else
-      {
-         eRecoveryExitCoordReason rr = a == GUARD_CLOSE_MAGIC_DAILY ?
-                                       recovery_EXIT_REASON_GUARD_DAILY :
-                                       recovery_EXIT_REASON_GUARD_MAGIC;
-         if(buyEconomicOpen)
-         {
-            eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY, rr, ctx.now);
-            if(cr == recovery_EXIT_BYPASS)
-            {
-               m_exec.CloseBasket(m_basket.buy);
-               legacyMutation = true;
-            }
-            else coordinated = true;
-         }
-         if(sellEconomicOpen)
-         {
-            eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL, rr, ctx.now);
-            if(cr == recovery_EXIT_BYPASS)
-            {
-               m_exec.CloseBasket(m_basket.sell);
-               legacyMutation = true;
-            }
-            else coordinated = true;
-         }
-      }
-      if(coordinated) DriveRecoveryExit(ctx.now);
-      if(legacyMutation) m_basket.Invalidate();
-      return true;
-   }
-
 public:
    void Init(CBasketManager *basket, CExecutionLayer *exec, ILotSizer *sizer,
              CMoneyGuard *guard, CDistancePlan *dist,
@@ -391,11 +542,13 @@ public:
       m_basket       = basket;
       m_exec         = exec;
       m_sizer        = sizer;
-      m_guard        = guard;
+      m_guard         = guard;
       m_dist         = dist;
       m_recovery     = recovery;
       m_recoveryExit = recoveryExit;
       m_pyramid      = pyramid;
+      m_guardLatched = GUARD_NONE;
+      m_guardLatchAt = 0;
       m_newSeriesFilters.Add(new CSpreadFilter());
       m_newSeriesFilters.Add(new CPauseFilter());
       m_newSeriesFilters.Add(new CNewsFilter());
@@ -408,20 +561,12 @@ public:
 
    void OnTick(const EAContext &ctx, CPanel &panel)
    {
-      if(m_pyramid != NULL &&
-         (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
-      {
-         Log_WarnEvery("Pyramid", "strictpending",
-                       "T17 strict Pyramid mutation đang chờ broker/reconcile; tạm khóa mutation Strategy cho tới khi xác định outcome",
-                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
-         return;
-      }
-
       bool panelCloseBuy  = panel.TakeCloseBuy();
       bool panelCloseSell = panel.TakeCloseSell();
       bool panelOpenBuy   = panel.TakeOpenBuy();
       bool panelOpenSell  = panel.TakeOpenSell();
 
+      // Explicit owner close remains allowed to short-circuit everything.
       bool panelClose = false;
       if(panelCloseBuy && m_basket.buy.count > 0)
       {
@@ -459,6 +604,24 @@ public:
          return;
       }
 
+      // P0: absolute floating-money guard is evaluated BEFORE any pending-open
+      // short-circuit, Recovery mutation, Pyramid mutation, Seed or DCA.
+      if(ApplyGuardPriority(ctx))
+      {
+         if(panelOpenBuy || panelOpenSell)
+            Log_Warn("Strategy", "guardclose", "panel open ignored because MoneyGuard close latch owns Strategy");
+         return;
+      }
+
+      if(m_pyramid != NULL &&
+         (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
+      {
+         Log_WarnEvery("Pyramid", "strictpending",
+                       "T17 strict Pyramid mutation đang chờ broker/reconcile; tạm khóa mutation Strategy cho tới khi xác định outcome",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return;
+      }
+
       if(m_exec.HasAnyPendingClose())
       {
          if(panelOpenBuy || panelOpenSell)
@@ -468,10 +631,12 @@ public:
 
       RefreshPyramidCampaigns(ctx);
 
-      if(ApplyGuard(ctx))
+      // Daily/PctDiff are secondary to absolute-money guards but still precede
+      // Recovery/legacy exits and all new risk mutations.
+      if(ApplyGuardSecondary(ctx))
       {
          if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "guardclose", "panel open ignored because a money guard close fired");
+            Log_Warn("Strategy", "guardsecondary", "panel open ignored because secondary MoneyGuard close latch owns Strategy");
          return;
       }
 
@@ -522,8 +687,8 @@ public:
       }
       if(panelMutation) return;
 
-      // Pyramid được xét trước DCA: khi DCA basket hồi dương qua BE+gap,
-      // T17.2 có thể chuyển sang Pyramid mà không cần trở về Seed-only.
+      // Pyramid risk exit/add is evaluated before adverse DCA. ADD cannot hit
+      // on the same adverse geometry; Peel remains urgent and may win the tick.
       if(m_pyramid != NULL)
       {
          string pyrWhy = "";
@@ -541,7 +706,7 @@ public:
                return;
             }
             if(pyrWhy != "")
-               Log_WarnEvery("Pyramid", "t172block0", pyrWhy,
+               Log_WarnEvery("Pyramid", "t173block0", pyrWhy,
                              Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
          }
 
@@ -560,14 +725,16 @@ public:
                return;
             }
             if(pyrWhy != "")
-               Log_WarnEvery("Pyramid", "t172block1", pyrWhy,
+               Log_WarnEvery("Pyramid", "t173block1", pyrWhy,
                              Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
          }
       }
 
       TryOpenSeries(ctx);
-      if(Hedge_AllowsGridAdd(m_basket.buy.count))  TryGridAdd(ctx, m_basket.buy,  BD_DIR_BUY,  MaxOrdersBuy);
-      if(Hedge_AllowsGridAdd(m_basket.sell.count)) TryGridAdd(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell);
+      if(Hedge_AllowsGridAdd(m_basket.buy.count) &&
+         TryGridAdd(ctx, m_basket.buy, BD_DIR_BUY, MaxOrdersBuy)) return;
+      if(Hedge_AllowsGridAdd(m_basket.sell.count) &&
+         TryGridAdd(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell)) return;
 
       ApplyRealLevels(ctx, m_basket.buy,  true);
       ApplyRealLevels(ctx, m_basket.sell, false);
