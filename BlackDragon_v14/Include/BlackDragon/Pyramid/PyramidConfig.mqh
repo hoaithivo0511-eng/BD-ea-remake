@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| PyramidConfig.mqh — T17 nhồi dương Core + Recovery Hedge         |
+//| PyramidConfig.mqh — T17.1 nhồi dương Core + Recovery Hedge      |
 //| 20 input đầy đủ, toàn bộ nhãn/giải thích hiển thị bằng tiếng Việt.|
 //+------------------------------------------------------------------+
 #ifndef BD_PYRAMID_CONFIG_MQH
@@ -33,9 +33,9 @@ input string PyramidDistanceSequence_ = "10x2-15-20"; // Khoảng giá thuận c
 input ePyramidLotMode PyramidLotMode_ = pyramid_LOT_HE_SO; // Cách tính Lot nhồi dương
 input string PyramidLotSequence_ = "0.01-0.01-0.012-0.014"; // Chuỗi Lot nhồi dương; hết chuỗi lặp Lot cuối
 input string PyramidMultiplierSequence_ = "1.0-1.2-1.15-1.1"; // Chuỗi hệ số nhân từ Lot gốc
-input int PyramidMaxAdds_ = 4; // Số lệnh nhồi dương tối đa trong một phía Core
+input int PyramidMaxAdds_ = 4; // Tổng số lần nhồi dương tối đa trong một campaign Core
 input double PyramidMaxTotalLots_ = 1.00; // Tổng Lot Core tối đa sau khi nhồi; 0 = chỉ theo MaxLot/MaxOrders
-input double PyramidRiskBudgetPercent_ = 30.0; // Tối đa % lợi nhuận đang có được phép rủi ro cho lệnh nhồi mới
+input double PyramidRiskBudgetPercent_ = 30.0; // Tối đa % lợi nhuận kinh tế campaign được phép rủi ro cho Pyramid
 input double PyramidMinLockedProfitPips_ = 5.0; // Chỉ nhồi khi rổ đang lời tối thiểu số pip này tính từ hòa vốn
 input int PyramidReserveDcaSlots_ = 3; // Luôn chừa tối thiểu số slot MaxOrders này cho DCA nếu thị trường đảo chiều
 input double PyramidMinRoomToTPPips_ = 5.0; // Không nhồi nếu khoảng còn lại tới TP rổ nhỏ hơn số pip này
@@ -52,7 +52,7 @@ input double HedgePyramidMinRoomToTPPips_ = 5.0; // Không tăng Hedge nếu tar
 input bool HedgePyramidLockBeforeAdd_ = true; // Chỉ tăng bậc khi phần Hedge đang có đã ở phía lợi nhuận ròng
 
 #define BD_PYRAMID_COMMENT_PREFIX "BDP|"
-#define BD_PYRAMID_POLICY_REV 1
+#define BD_PYRAMID_POLICY_REV 2
 #define BD_PYRAMID_MAX_LEVELS 32
 
 bool Pyramid_IsComment(const string comment)
@@ -142,6 +142,7 @@ double Pyramid_RoomToTpPipsPure(const int dir,
    return room / pipSize;
 }
 
+// Legacy one-shot helper remains for compatibility with prior regression tests.
 double Pyramid_RiskCapLotPure(const double positiveFloatingCash,
                               const double budgetPercent,
                               const double riskCashPerLot)
@@ -149,6 +150,63 @@ double Pyramid_RiskCapLotPure(const double positiveFloatingCash,
    if(positiveFloatingCash <= 0.0 || budgetPercent <= 0.0 || riskCashPerLot <= 0.0) return 0.0;
    double pct = budgetPercent > 100.0 ? 100.0 : budgetPercent;
    return positiveFloatingCash * pct / 100.0 / riskCashPerLot;
+}
+
+// T17.1 campaign budget: realized Pyramid cash is part of economic P/L and
+// already-open Pyramid risk consumes budget before another leg may be added.
+double Pyramid_AvailableRiskCashPure(const double floatingCash,
+                                     const double realizedPyramidCash,
+                                     const double openPyramidRiskCash,
+                                     const double budgetPercent)
+{
+   if(budgetPercent <= 0.0) return 0.0;
+   double pct = budgetPercent > 100.0 ? 100.0 : budgetPercent;
+   double economic = floatingCash + realizedPyramidCash;
+   if(economic <= 0.0) return 0.0;
+   double allowed = economic * pct / 100.0;
+   double used = MathMax(openPyramidRiskCash, 0.0);
+   return MathMax(allowed - used, 0.0);
+}
+
+int Pyramid_NextCampaignLevelPure(const int highestHistoricalLevel)
+{
+   return highestHistoricalLevel < 1 ? 1 : highestHistoricalLevel + 1;
+}
+
+bool Pyramid_CumulativeAddAllowedPure(const int cumulativeAdds, const int maxAdds)
+{
+   return maxAdds > 0 && cumulativeAdds >= 0 && cumulativeAdds < maxAdds;
+}
+
+double Pyramid_CampaignEconomicProfitPure(const double floatingCash,
+                                          const double realizedPyramidCash)
+{
+   return floatingCash + realizedPyramidCash;
+}
+
+// Recover only prior realized Pyramid LOSS before the normal basket TP.
+// Positive realized Pyramid cash never pulls TP closer than the configured TP.
+double Pyramid_TpRecoveryShiftPure(const double realizedPyramidCash,
+                                   const double totalLots,
+                                   const double tickValue,
+                                   const double tickSize)
+{
+   if(realizedPyramidCash >= 0.0 || totalLots <= 0.0 || tickValue <= 0.0 || tickSize <= 0.0)
+      return 0.0;
+   return (-realizedPyramidCash) / (tickValue * totalLots) * tickSize;
+}
+
+double Pyramid_AdjustTpLevelPure(const int dir,
+                                 const double baseTp,
+                                 const double realizedPyramidCash,
+                                 const double totalLots,
+                                 const double tickValue,
+                                 const double tickSize)
+{
+   if(baseTp <= 0.0) return baseTp;
+   double shift = Pyramid_TpRecoveryShiftPure(realizedPyramidCash, totalLots,
+                                              tickValue, tickSize);
+   return dir == 0 ? baseTp + shift : baseTp - shift;
 }
 
 double Pyramid_EffectiveCoveragePure(const double stageCoverage,
@@ -193,7 +251,7 @@ bool Pyramid_ValidateConfig(string &why)
       if(!Pyramid_LotModeValid(PyramidLotMode_))
       { why = "Cách tính Lot Pyramid Core không hợp lệ"; return false; }
       if(PyramidMaxAdds_ < 0 || PyramidMaxAdds_ > BD_PYRAMID_MAX_LEVELS)
-      { why = "Số lệnh nhồi dương tối đa phải trong [0,32]"; return false; }
+      { why = "Tổng số lần nhồi dương tối đa phải trong [0,32]"; return false; }
       if(PyramidMaxTotalLots_ < 0.0)
       { why = "Tổng Lot Core tối đa sau nhồi phải >= 0"; return false; }
       if(PyramidRiskBudgetPercent_ <= 0.0 || PyramidRiskBudgetPercent_ > 100.0)

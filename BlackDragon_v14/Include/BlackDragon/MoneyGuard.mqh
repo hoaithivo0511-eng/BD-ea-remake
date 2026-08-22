@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
-//| MoneyGuard.mqh — BlackDragon v14.3.0 / T16.5                     |
-//| Purpose   : FE-401/402 money TP/SL decisions. T16.5 lets caller |
-//|             supply an economically coherent Core+Recovery scope. |
+//| MoneyGuard.mqh — BlackDragon v14.3.0 / T17.1                    |
+//| Purpose   : FE-401/402 money TP/SL decisions. T17.1 lets caller |
+//|             supply realized-aware campaign/account economics.    |
 //| Invariants: READ-ONLY consumer; NEVER sends trade requests.      |
 //+------------------------------------------------------------------+
 #ifndef BD_MONEYGUARD_MQH
@@ -118,15 +118,17 @@ public:
    bool     Halted(const datetime now) const { return m_haltUntil != 0 && now < m_haltUntil; }
    datetime HaltUntil(const datetime now) const { return Halted(now) ? m_haltUntil : 0; }
 
-   // T16.5: buyProfit/sellProfit are economic side values supplied by Strategy
-   // (Core + Recovery Hedge owned by that Core direction). dayNetValid=false
-   // suppresses ONLY the daily rule when Recovery realized-history could not be
-   // read; account-wide and floating guard controls remain available.
-   eGuardAction CheckScoped(const datetime now,
-                            const double buyProfit, const double sellProfit,
-                            const bool bothOpen,
-                            const double dayNet, const double dayStartBalance,
-                            const bool dayNetValid)
+   // T17.1: positive-profit exits may use a caller-supplied economic scope
+   // that includes realized Pyramid cash. If that history is unavailable,
+   // positive TP/PctDiff exits are deferred fail-closed. Negative SL controls
+   // remain active on the fallback values supplied by Strategy.
+   eGuardAction CheckScopedEconomic(const datetime now,
+                                    const double buyProfit, const double sellProfit,
+                                    const bool bothOpen,
+                                    const double dayNet, const double dayStartBalance,
+                                    const bool dayNetValid,
+                                    const double accountEconomicProfit,
+                                    const bool economicProfitValid)
    {
       if(m_haltUntil != 0 && now >= m_haltUntil)
       {
@@ -136,10 +138,11 @@ public:
       }
 
       double magicNet = buyProfit + sellProfit;
-      double accNet   = AccountInfoDouble(ACCOUNT_PROFIT);
+      double accNet   = economicProfitValid ? accountEconomicProfit
+                                            : AccountInfoDouble(ACCOUNT_PROFIT);
 
-      if(MG_MoneyTpHit(accNet, m_tpAccount))
-      { Log_Warn("Guard", "tpacc", "Money TP All account: " + DoubleToString(accNet, 2) + " >= " + DoubleToString(m_tpAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
+      if(economicProfitValid && MG_MoneyTpHit(accNet, m_tpAccount))
+      { Log_Warn("Guard", "tpacc", "Money TP All account ECONOMIC: " + DoubleToString(accNet, 2) + " >= " + DoubleToString(m_tpAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
       if(MG_MoneySlHit(accNet, m_slAccount))
       { Log_Warn("Guard", "slacc", "Money SL All account: " + DoubleToString(accNet, 2) + " <= " + DoubleToString(m_slAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
 
@@ -153,24 +156,24 @@ public:
          return GUARD_CLOSE_MAGIC_DAILY;
       }
 
-      // Preserve existing activation semantic: the special hedged TP is armed
-      // only when BOTH legacy Core baskets are open. Its valuation, however,
-      // is now the economic Core+Recovery net supplied by Strategy.
-      if(bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged))
-      { Log_Warn("Guard", "tphdg", "Money TP All (hedged, both Core sides open): economic net " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpHedged, 2)); return GUARD_CLOSE_MAGIC; }
-      if(MG_MoneyTpHit(magicNet, m_tpAll))
+      // Preserve existing activation semantic: special hedged TP is armed
+      // only when BOTH legacy Core baskets are open. T17.1 changes valuation,
+      // not activation: Pyramid realized P/L is now part of caller economics.
+      if(economicProfitValid && bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged))
+      { Log_Warn("Guard", "tphdg", "Money TP All (hedged): economic net " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpHedged, 2)); return GUARD_CLOSE_MAGIC; }
+      if(economicProfitValid && MG_MoneyTpHit(magicNet, m_tpAll))
       { Log_Warn("Guard", "tpall", "Money TP All: economic net " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpAll, 2)); return GUARD_CLOSE_MAGIC; }
       if(MG_MoneySlHit(magicNet, m_slAll))
       { Log_Warn("Guard", "slall", "Money SL All: economic net " + DoubleToString(magicNet, 2) + " <= " + DoubleToString(m_slAll, 2)); return GUARD_CLOSE_MAGIC; }
 
-      if(bothOpen && MG_PctDiffHit(buyProfit, sellProfit, m_pctDiff))
+      if(economicProfitValid && bothOpen && MG_PctDiffHit(buyProfit, sellProfit, m_pctDiff))
       { Log_Warn("Guard", "pctd", "PctDiff close-all ECONOMIC scope: buy " + DoubleToString(buyProfit, 2) + " / sell " + DoubleToString(sellProfit, 2) + " @ " + DoubleToString(m_pctDiff, 2) + "%"); return GUARD_CLOSE_MAGIC; }
 
-      if(MG_MoneyTpHit(buyProfit, m_tpBuy))
+      if(economicProfitValid && MG_MoneyTpHit(buyProfit, m_tpBuy))
       { Log_Warn("Guard", "tpbuy", "Money TP Buy economic scope: " + DoubleToString(buyProfit, 2)); return GUARD_CLOSE_BUY; }
       if(MG_MoneySlHit(buyProfit, m_slBuy))
       { Log_Warn("Guard", "slbuy", "Money SL Buy economic scope: " + DoubleToString(buyProfit, 2)); return GUARD_CLOSE_BUY; }
-      if(MG_MoneyTpHit(sellProfit, m_tpSell))
+      if(economicProfitValid && MG_MoneyTpHit(sellProfit, m_tpSell))
       { Log_Warn("Guard", "tpsel", "Money TP Sell economic scope: " + DoubleToString(sellProfit, 2)); return GUARD_CLOSE_SELL; }
       if(MG_MoneySlHit(sellProfit, m_slSell))
       { Log_Warn("Guard", "slsel", "Money SL Sell economic scope: " + DoubleToString(sellProfit, 2)); return GUARD_CLOSE_SELL; }
@@ -178,8 +181,19 @@ public:
       return GUARD_NONE;
    }
 
-   // Backward-compatible API for existing model/native tests and non-Recovery
-   // callers. It retains the previous assumption that dayNet is valid.
+   // T16.5-compatible API. Existing callers/tests retain pre-T17.1 semantics
+   // unless they explicitly provide realized-aware account economics.
+   eGuardAction CheckScoped(const datetime now,
+                            const double buyProfit, const double sellProfit,
+                            const bool bothOpen,
+                            const double dayNet, const double dayStartBalance,
+                            const bool dayNetValid)
+   {
+      return CheckScopedEconomic(now, buyProfit, sellProfit, bothOpen,
+                                 dayNet, dayStartBalance, dayNetValid,
+                                 AccountInfoDouble(ACCOUNT_PROFIT), true);
+   }
+
    eGuardAction Check(const datetime now, const double buyProfit, const double sellProfit,
                       const bool bothOpen, const double dayNet, const double dayStartBalance)
    {

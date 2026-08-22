@@ -1,9 +1,10 @@
 //+------------------------------------------------------------------+
-//| RunPyramidT17Tests.mq5 — T17 native pure-policy tests            |
-//| Final exact-head checkpoint also triggers full T16 regression.   |
+//| RunPyramidT17Tests.mq5 — T17.1 native pure-policy tests          |
+//| Campaign churn/realized-P&L regression + T16 exact-head trigger. |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Pyramid/PyramidConfig.mqh>
+#include <BlackDragon/MoneyGuard.mqh>
 #include <BlackDragon/Recovery/RecoveryT16Config.mqh>
 
 int g_pass=0, g_fail=0;
@@ -35,10 +36,10 @@ void OnStart()
    Check("BUY room to TP", Near(Pyramid_RoomToTpPipsPure(0,4002.0,4001.4,4001.5,0.1),5.0));
    Check("SELL room to TP", Near(Pyramid_RoomToTpPipsPure(1,3998.0,3998.5,3998.6,0.1),5.0));
 
-   Check("profit-funded cap", Near(Pyramid_RiskCapLotPure(20.0,30.0,100.0),0.06,1e-12));
-   Check("risk cap percent clamps 100", Near(Pyramid_RiskCapLotPure(20.0,150.0,100.0),0.20,1e-12));
-   Check("risk cap no profit zero", Pyramid_RiskCapLotPure(0.0,30.0,100.0)==0.0);
-   Check("risk cap no budget zero", Pyramid_RiskCapLotPure(20.0,0.0,100.0)==0.0);
+   Check("legacy profit-funded cap", Near(Pyramid_RiskCapLotPure(20.0,30.0,100.0),0.06,1e-12));
+   Check("legacy risk cap percent clamps 100", Near(Pyramid_RiskCapLotPure(20.0,150.0,100.0),0.20,1e-12));
+   Check("legacy risk cap no profit zero", Pyramid_RiskCapLotPure(0.0,30.0,100.0)==0.0);
+   Check("legacy risk cap no budget zero", Pyramid_RiskCapLotPure(20.0,0.0,100.0)==0.0);
 
    Check("coverage master cap", Pyramid_EffectiveCoveragePure(115.0,100.0,115.0)==100.0);
    Check("coverage hard cap", Pyramid_EffectiveCoveragePure(100.0,115.0,80.0)==80.0);
@@ -61,6 +62,26 @@ void OnStart()
    Check("role comment level", Pyramid_LevelFromComment(c)==4);
    Check("non pyramid comment rejected", Pyramid_LevelFromComment("EA Black Dragon|4")==-1);
 
-   PrintFormat("Pyramid T17 tests: %d passed, %d failed",g_pass,g_fail);
-   if(g_fail==0) Print("ALL GREEN — T17 Core/Recovery Pyramid pure policy passed.");
+   // T17.1 owner-runtime FAIL regressions.
+   Check("campaign first level", Pyramid_NextCampaignLevelPure(0)==1);
+   Check("campaign level monotonic after peel", Pyramid_NextCampaignLevelPure(30)==31);
+   Check("cumulative add 29 of 30 allowed", Pyramid_CumulativeAddAllowedPure(29,30));
+   Check("cumulative add 30 of 30 blocked", !Pyramid_CumulativeAddAllowedPure(30,30));
+   Check("campaign economic includes realized loss", Near(Pyramid_CampaignEconomicProfitPure(100.0,-40.0),60.0));
+   Check("campaign economic hidden loss", Near(Pyramid_CampaignEconomicProfitPure(300.0,-500.0),-200.0));
+   Check("available risk subtracts realized loss", Near(Pyramid_AvailableRiskCashPure(100.0,-50.0,0.0,100.0),50.0));
+   Check("available risk subtracts open Pyramid risk", Near(Pyramid_AvailableRiskCashPure(100.0,0.0,20.0,30.0),10.0));
+   Check("available risk exhausted by realized loss", Pyramid_AvailableRiskCashPure(100.0,-100.0,0.0,100.0)==0.0);
+   Check("available risk cannot go negative", Pyramid_AvailableRiskCashPure(100.0,0.0,40.0,30.0)==0.0);
+   Check("TP loss recovery shift", Near(Pyramid_TpRecoveryShiftPure(-50.0,0.10,1.0,0.01),5.0));
+   Check("BUY economic TP shifted away", Near(Pyramid_AdjustTpLevelPure(0,4002.0,-50.0,0.10,1.0,0.01),4007.0));
+   Check("SELL economic TP shifted away", Near(Pyramid_AdjustTpLevelPure(1,3998.0,-50.0,0.10,1.0,0.01),3993.0));
+   Check("positive realized never pulls TP closer", Near(Pyramid_AdjustTpLevelPure(0,4002.0,25.0,0.10,1.0,0.01),4002.0));
+   Check("rearm below new historical extension blocked", !Pyramid_FavorableGapHitPure(0,4002.0,4002.8,4002.9,1.0));
+   Check("rearm only after new historical extension", Pyramid_FavorableGapHitPure(0,4002.0,4002.9,4003.0,1.0));
+   Check("hidden realized loss blocks 300 MoneyTP",
+         !MG_MoneyTpHit(Pyramid_CampaignEconomicProfitPure(300.0,-500.0),300.0));
+
+   PrintFormat("Pyramid T17.1 tests: %d passed, %d failed",g_pass,g_fail);
+   if(g_fail==0) Print("ALL GREEN — T17.1 campaign ledger/re-entry/TP economics + Hedge policy passed.");
 }

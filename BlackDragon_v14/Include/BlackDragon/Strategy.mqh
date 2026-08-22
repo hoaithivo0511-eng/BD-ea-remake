@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| Strategy.mqh — BlackDragon T17 Full Pyramid over T16.6          |
-//| Core Pyramid role-aware; DCA/Recovery semantics remain isolated. |
+//| Strategy.mqh — BlackDragon T17.1 Pyramid runtime hardening      |
+//| Campaign-realized P/L is coordinated with TP/Guard semantics.    |
 //+------------------------------------------------------------------+
 #ifndef BD_STRATEGY_MQH
 #define BD_STRATEGY_MQH
@@ -65,6 +65,17 @@ private:
       m_recoveryExit.Drive(now, why);
       if(why != "")
          Log_WarnEvery("Recovery", "exitcoord", "T8 exit coordination: " + why,
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+   }
+
+   void RefreshPyramidCampaigns(const EAContext &ctx)
+   {
+      if(m_pyramid == NULL) return;
+      bool buyOk = m_pyramid.RefreshCampaignStats(m_basket.buy, BD_DIR_BUY, ctx.now);
+      bool sellOk = m_pyramid.RefreshCampaignStats(m_basket.sell, BD_DIR_SELL, ctx.now);
+      if(!buyOk || !sellOk)
+         Log_WarnEvery("Pyramid", "campaignhistory",
+                       "T17.1 chưa đọc đủ campaign history; tạm hoãn Pyramid ADD và positive TP/PctDiff, Peel/SL vẫn hoạt động",
                        Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
    }
 
@@ -145,6 +156,19 @@ private:
       ExitDecision d = m_exitPolicy.Check(ctx, side, dir);
       if(d.kind == EXIT_NONE) return false;
 
+      // T17.1: virtual TP must recover prior realized Pyramid losses before
+      // closing the remaining basket. SL/trailing remain risk exits and are
+      // never blocked merely to recover Pyramid losses.
+      if(d.kind == EXIT_TP && m_pyramid != NULL)
+      {
+         double economicTp = side.tpLevel;
+         if(!m_pyramid.EconomicTpLevel(side, dir, side.tpLevel, economicTp))
+            return false;
+         bool isBuy = (dir == BD_DIR_BUY);
+         if(!Exit_VirtualTpHit(isBuy, economicTp, ctx.bid, ctx.ask))
+            return false;
+      }
+
       // T17: Legacy Overlap không được dùng newest Pyramid leg như một DCA leg.
       // TP/SL/Trail vẫn đóng toàn economic Core basket như trước.
       if(d.kind == EXIT_OVERLAP && m_pyramid != NULL && m_pyramid.HasLegs(side))
@@ -188,6 +212,20 @@ private:
    {
       double sl, tp;
       if(!m_exitPolicy.RealLevels(ctx, side, isBuy, sl, tp)) return;
+
+      // Real TP is shifted by the same campaign loss recovery as virtual TP.
+      // If history is temporarily unavailable, clear/defer positive TP only;
+      // real SL/trailing remains available.
+      if(TP_Mode == mode_Real && Cfg.TP != 0 && m_pyramid != NULL)
+      {
+         double economicTp = tp;
+         int dir = isBuy ? BD_DIR_BUY : BD_DIR_SELL;
+         if(m_pyramid.EconomicTpLevel(side, dir, tp, economicTp))
+            tp = NormalizeDouble(economicTp, ctx.digits);
+         else
+            tp = 0.0;
+      }
+
       if(sl == 0 && Trail_Mode == mode_Real && !side.trailArmed)
       {
          bool hadStop = false;
@@ -219,11 +257,28 @@ private:
 
       SRecoveryT165GuardMetrics rg;
       bool recoveryHistoryOk = Recovery_T165ReadGuardMetrics(ctx.now, rg);
-      double buyEconomic = Recovery_T165EconomicSideProfitPure(m_basket.buy.totalProfit,
-                                                                rg.recoveryForBuyFloating);
-      double sellEconomic = Recovery_T165EconomicSideProfitPure(m_basket.sell.totalProfit,
-                                                                 rg.recoveryForSellFloating);
-      double dayNet = m_basket.DayProfit() + buyEconomic + sellEconomic;
+      double buyFloatingEconomic = Recovery_T165EconomicSideProfitPure(m_basket.buy.totalProfit,
+                                                                        rg.recoveryForBuyFloating);
+      double sellFloatingEconomic = Recovery_T165EconomicSideProfitPure(m_basket.sell.totalProfit,
+                                                                         rg.recoveryForSellFloating);
+
+      bool pyrBuyReady = m_pyramid == NULL || m_pyramid.CampaignHistoryReady(BD_DIR_BUY);
+      bool pyrSellReady = m_pyramid == NULL || m_pyramid.CampaignHistoryReady(BD_DIR_SELL);
+      double pyrBuyRealized = (m_pyramid != NULL && pyrBuyReady)
+                              ? m_pyramid.CampaignRealized(BD_DIR_BUY) : 0.0;
+      double pyrSellRealized = (m_pyramid != NULL && pyrSellReady)
+                               ? m_pyramid.CampaignRealized(BD_DIR_SELL) : 0.0;
+      bool economicProfitValid = pyrBuyReady && pyrSellReady;
+
+      // Magic/side/Account positive-profit guards include active-campaign
+      // realized Pyramid cash. Daily net deliberately does NOT add it again:
+      // BasketManager::DayProfit already books same-Magic Pyramid deal exits.
+      double buyEconomic = buyFloatingEconomic + pyrBuyRealized;
+      double sellEconomic = sellFloatingEconomic + pyrSellRealized;
+      double accountEconomic = AccountInfoDouble(ACCOUNT_PROFIT) +
+                               pyrBuyRealized + pyrSellRealized;
+
+      double dayNet = m_basket.DayProfit() + buyFloatingEconomic + sellFloatingEconomic;
       double economicDayStartBalance = m_basket.DayStartBalance();
       bool dayNetValid = true;
       if(RecoveryMode_ == recovery_ACTIVE)
@@ -242,12 +297,19 @@ private:
          }
       }
 
+      if(!economicProfitValid)
+         Log_WarnEvery("Guard", "t171pyrhistory",
+                       "T17.1 Pyramid campaign history chưa sẵn sàng; positive MoneyTP/PctDiff tạm hoãn để không chốt hidden realized loss",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+
       bool bothCoreOpen = m_basket.buy.count > 0 && m_basket.sell.count > 0;
-      eGuardAction a = m_guard.CheckScoped(ctx.now,
-                                           buyEconomic, sellEconomic,
-                                           bothCoreOpen,
-                                           dayNet, economicDayStartBalance,
-                                           dayNetValid);
+      eGuardAction a = m_guard.CheckScopedEconomic(ctx.now,
+                                                   buyEconomic, sellEconomic,
+                                                   bothCoreOpen,
+                                                   dayNet, economicDayStartBalance,
+                                                   dayNetValid,
+                                                   accountEconomic,
+                                                   economicProfitValid);
       if(a == GUARD_NONE) return false;
 
       bool coordinated = false;
@@ -351,9 +413,7 @@ public:
    {
       // T17 strict-journal barrier. An accepted/ambiguous Pyramid mutation can
       // still arrive from the broker after this tick. Until its cycle journal
-      // resolves, no competing Panel/Guard/Recovery/Core mutation is safe:
-      // closing the seed first could otherwise leave a late-filled orphan leg.
-      // ExecutionLayer::Watchdog continues on OnTimer and can resolve/reconcile.
+      // resolves, no competing Panel/Guard/Recovery/Core mutation is safe.
       if(m_pyramid != NULL &&
          (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
       {
@@ -411,6 +471,9 @@ public:
             Log_Warn("Strategy", "pendingclose", "panel open ignored while an async close is pending");
          return;
       }
+
+      // One history reconstruction per side/tick feeds Guard, TP and Add.
+      RefreshPyramidCampaigns(ctx);
 
       if(ApplyGuard(ctx))
       {

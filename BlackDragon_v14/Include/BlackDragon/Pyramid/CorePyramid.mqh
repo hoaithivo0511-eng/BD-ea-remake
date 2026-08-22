@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| CorePyramid.mqh — T17 Profit-Funded Core Pyramid + LIFO Peel     |
+//| CorePyramid.mqh — T17.1 campaign-ledger Pyramid + LIFO Peel     |
 //| Pyramid dùng cùng Core Magic nhưng comment role BDP|... riêng.   |
 //+------------------------------------------------------------------+
 #ifndef BD_CORE_PYRAMID_MQH
@@ -19,15 +19,32 @@ struct SPyramidBook
    ulong newestPyramidTicket;
    double newestPyramidOpen;
    datetime newestPyramidTime;
+   double pyramidLots;
    double nonPyramidLots;
    ulong seedTicket;
    datetime seedOpenTime;
+};
+
+struct SPyramidCampaignStats
+{
+   bool ready;
+   int addCount;
+   int exitDeals;
+   int highestLevel;
+   double highestEntryPrice;
+   double realizedCash;
 };
 
 void Pyramid_BookReset(SPyramidBook &b)
 {
    ZeroMemory(b);
    b.highestLevel = 0;
+}
+
+void Pyramid_CampaignReset(SPyramidCampaignStats &s)
+{
+   ZeroMemory(s);
+   s.ready = false;
 }
 
 bool Pyramid_TicketRole(const ulong ticket, bool &isPyramid, int &level)
@@ -52,6 +69,7 @@ void Pyramid_ReadBook(const BasketSide &side, SPyramidBook &book)
       if(isP)
       {
          book.pyramidCount++;
+         book.pyramidLots += side.pos[i].lots;
          if(level > book.highestLevel) book.highestLevel = level;
          if(side.pos[i].openTime > book.newestPyramidTime ||
             (side.pos[i].openTime == book.newestPyramidTime &&
@@ -120,6 +138,80 @@ double Pyramid_NormalizeFloor(double lot)
    return NormalizeDouble(out, 8);
 }
 
+bool Pyramid_UlongContains(const ulong &values[], const ulong value)
+{
+   for(int i = 0; i < ArraySize(values); i++)
+      if(values[i] == value) return true;
+   return false;
+}
+
+// T17.1 source of truth for a Core Pyramid campaign. It reconstructs from
+// broker history so restart cannot forget spent risk, prior Peel losses or
+// levels that have already been used. Position IDs, not deal count, define
+// cumulative adds, so split fills do not inflate PyramidMaxAdds_.
+bool Pyramid_ReadCampaignHistory(const int dir,
+                                 const datetime seedOpenTime,
+                                 const datetime now,
+                                 SPyramidCampaignStats &stats)
+{
+   Pyramid_CampaignReset(stats);
+   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || seedOpenTime <= 0 || now <= 0)
+      return false;
+   if(!HistorySelect(seedOpenTime, now + 1)) return false;
+
+   ulong positionIds[];
+   ArrayResize(positionIds, 0);
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0) continue;
+      if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol ||
+         HistoryDealGetInteger(deal, DEAL_MAGIC) != (long)Magic)
+         continue;
+      long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
+      string c = HistoryDealGetString(deal, DEAL_COMMENT);
+      if(!Pyramid_IsComment(c) || Pyramid_CommentFieldInt(c, "D=") != dir) continue;
+      int level = Pyramid_LevelFromComment(c);
+      if(level <= 0) return false; // role evidence exists but is malformed -> fail closed
+      ulong positionId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+      if(positionId == 0) return false;
+      if(!Pyramid_UlongContains(positionIds, positionId))
+      {
+         int n = ArraySize(positionIds);
+         ArrayResize(positionIds, n + 1);
+         positionIds[n] = positionId;
+         stats.addCount++;
+      }
+      if(level >= stats.highestLevel)
+      {
+         stats.highestLevel = level;
+         stats.highestEntryPrice = HistoryDealGetDouble(deal, DEAL_PRICE);
+      }
+   }
+
+   // Sum every booked cash component for the Pyramid positions, including
+   // entry commission on still-open legs. This is the amount that disappeared
+   // from floating P/L and therefore must remain in campaign economics.
+   for(int i = 0; i < total; i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0) continue;
+      ulong positionId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+      if(positionId == 0 || !Pyramid_UlongContains(positionIds, positionId)) continue;
+      stats.realizedCash += HistoryDealGetDouble(deal, DEAL_PROFIT)
+                          + HistoryDealGetDouble(deal, DEAL_SWAP)
+                          + HistoryDealGetDouble(deal, DEAL_COMMISSION);
+      long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT)
+         stats.exitDeals++;
+   }
+
+   stats.ready = true;
+   return true;
+}
+
 class CCorePyramidEngine
 {
 private:
@@ -127,69 +219,18 @@ private:
    double m_distance[];
    double m_lots[];
    double m_mult[];
-   ulong m_seedTicket[2];
-   bool  m_campaignSeen[2];
+   SPyramidCampaignStats m_stats[2];
+   datetime m_statsAt[2];
+   ulong m_statsSeed[2];
+   int m_statsSideCount[2];
+   double m_statsSideLots[2];
+   ulong m_statsNewestPyramid[2];
 
    int CycleKey(const int dir) const { return 100 + dir; }
 
    double PipSize(const EAContext &ctx) const
    {
       return Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
-   }
-
-   bool HistoryCampaignUsed(const int dir, const datetime seedOpenTime,
-                            bool &historyReady) const
-   {
-      historyReady = false;
-      if(seedOpenTime <= 0) return false;
-      datetime from = seedOpenTime > 2 ? seedOpenTime - 2 : 0;
-      if(!HistorySelect(from, TimeCurrent())) return false;
-      historyReady = true;
-      long wantedType = dir == BD_DIR_BUY ? DEAL_TYPE_BUY : DEAL_TYPE_SELL;
-      for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
-      {
-         ulong deal = HistoryDealGetTicket(i);
-         if(deal == 0) continue;
-         if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol ||
-            HistoryDealGetInteger(deal, DEAL_MAGIC) != (long)Magic ||
-            HistoryDealGetInteger(deal, DEAL_TYPE) != wantedType)
-            continue;
-         long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
-         if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
-         string c = HistoryDealGetString(deal, DEAL_COMMENT);
-         if(!Pyramid_IsComment(c)) continue;
-         int cdir = Pyramid_CommentFieldInt(c, "D=");
-         if(cdir == dir) return true;
-      }
-      return false;
-   }
-
-   void RefreshCampaignState(const int dir, const SPyramidBook &book)
-   {
-      if(dir < 0 || dir > 1) return;
-      if(book.seedTicket == 0)
-      {
-         m_seedTicket[dir] = 0;
-         m_campaignSeen[dir] = false;
-         return;
-      }
-      if(m_seedTicket[dir] != book.seedTicket)
-      {
-         bool historyReady = false;
-         bool used = HistoryCampaignUsed(dir, book.seedOpenTime, historyReady);
-         if(!historyReady)
-         {
-            // CHU_KY_SACH must never interpret "history unavailable" as
-            // "no previous Pyramid". Keep the old seed identity so this path
-            // retries every tick until HistorySelect becomes usable.
-            m_campaignSeen[dir] = (CorePyramidMode_ == pyramid_CHU_KY_SACH) ||
-                                  book.pyramidCount > 0;
-            return;
-         }
-         m_seedTicket[dir] = book.seedTicket;
-         m_campaignSeen[dir] = used;
-      }
-      if(book.pyramidCount > 0) m_campaignSeen[dir] = true;
    }
 
    bool RecoveryAllowsAdd(CRecoveryEngine *recovery, const int dir) const
@@ -248,21 +289,25 @@ private:
          why = "LIFO Peel không gửi được lệnh đóng Pyramid #" + (string)book.newestPyramidTicket;
          return false;
       }
-      why = "T17 LIFO Peel đóng Pyramid mới nhất ticket=" +
+      why = "T17.1 LIFO Peel đóng Pyramid mới nhất ticket=" +
             (string)book.newestPyramidTicket;
       return true;
    }
 
    bool TryAdd(const EAContext &ctx, const BasketSide &side, const int dir,
                const int maxOrders, const SPyramidBook &book,
+               const SPyramidCampaignStats &stats,
                CRecoveryEngine *recovery, string &why)
    {
-      if(CorePyramidMode_ == pyramid_TAT || PyramidMaxAdds_ <= 0) return false;
+      if(CorePyramidMode_ == pyramid_TAT || PyramidMaxAdds_ <= 0 || !stats.ready) return false;
       if(side.count <= 0 || book.nonPyramidCount != 1) return false;
-      if(CorePyramidMode_ == pyramid_CHU_KY_SACH &&
-         m_campaignSeen[dir] && book.pyramidCount == 0)
-         return false;
-      if(book.pyramidCount >= PyramidMaxAdds_) return false;
+
+      // T17.1: MaxAdds is cumulative per seed campaign, not concurrent legs.
+      if(!Pyramid_CumulativeAddAllowedPure(stats.addCount, PyramidMaxAdds_)) return false;
+      // CHU_KY_SACH = one clean build sequence: after the first Pyramid exit,
+      // no new risk is added for this seed campaign. TAI_KICH_HOAT may continue,
+      // but only at a NEW historical level/price extension.
+      if(CorePyramidMode_ == pyramid_CHU_KY_SACH && stats.exitDeals > 0) return false;
       if(side.count >= maxOrders) return false;
       if(PyramidReserveDcaSlots_ > 0 && side.count + 1 + PyramidReserveDcaSlots_ > maxOrders)
          return false;
@@ -280,9 +325,10 @@ private:
                                              ctx.bid, ctx.ask, pip);
       if(room < PyramidMinRoomToTPPips_ - 1e-9) return false;
 
-      int level = book.highestLevel + 1;
-      if(level < 1) level = 1;
-      double anchor = book.pyramidCount > 0 ? book.newestPyramidOpen : side.pos[0].openPrice;
+      int level = Pyramid_NextCampaignLevelPure(stats.highestLevel);
+      if(level > PyramidMaxAdds_ || level > BD_PYRAMID_MAX_LEVELS) return false;
+      double anchor = stats.addCount > 0 ? stats.highestEntryPrice : side.pos[0].openPrice;
+      if(anchor <= 0.0) return false;
       double gapPips = Pyramid_SeqValue(m_distance, level - 1);
       if(!Pyramid_FavorableGapHitPure(dir, anchor, ctx.bid, ctx.ask, gapPips * pip))
          return false;
@@ -291,9 +337,13 @@ private:
       if(candidate <= 0.0) return false;
 
       double riskPerLot = RiskCashPerLot(ctx);
-      double riskCap = Pyramid_RiskCapLotPure(MathMax(side.totalProfit, 0.0),
-                                              PyramidRiskBudgetPercent_,
-                                              riskPerLot);
+      if(riskPerLot <= 0.0) return false;
+      double openRiskCash = book.pyramidLots * riskPerLot;
+      double availableRiskCash = Pyramid_AvailableRiskCashPure(side.totalProfit,
+                                                               stats.realizedCash,
+                                                               openRiskCash,
+                                                               PyramidRiskBudgetPercent_);
+      double riskCap = availableRiskCash / riskPerLot;
       if(riskCap <= 0.0) return false;
       if(candidate > riskCap) candidate = riskCap;
 
@@ -317,9 +367,12 @@ private:
          why = "Không gửi được lệnh nhồi dương Core level=" + (string)level;
          return false;
       }
-      why = "T17 Pyramid Core mở level=" + (string)level +
+      why = "T17.1 Pyramid Core mở campaign level=" + (string)level +
+            "/" + (string)PyramidMaxAdds_ +
             " lot=" + DoubleToString(candidate, 2) +
-            " anchor=" + DoubleToString(anchor, ctx.digits);
+            " anchor lịch sử=" + DoubleToString(anchor, ctx.digits) +
+            " economic=" + DoubleToString(Pyramid_CampaignEconomicProfitPure(side.totalProfit,
+                                                                               stats.realizedCash), 2);
       return true;
    }
 
@@ -327,8 +380,15 @@ public:
    CCorePyramidEngine(void)
    {
       m_exec = NULL;
-      m_seedTicket[0] = m_seedTicket[1] = 0;
-      m_campaignSeen[0] = m_campaignSeen[1] = false;
+      for(int d = 0; d < 2; d++)
+      {
+         Pyramid_CampaignReset(m_stats[d]);
+         m_statsAt[d] = 0;
+         m_statsSeed[d] = 0;
+         m_statsSideCount[d] = -1;
+         m_statsSideLots[d] = -1.0;
+         m_statsNewestPyramid[d] = 0;
+      }
    }
 
    bool Init(CExecutionLayer *exec, string &why)
@@ -368,23 +428,99 @@ public:
       Pyramid_BuildDcaView(source, out);
    }
 
+   bool RefreshCampaignStats(const BasketSide &side, const int dir, const datetime now)
+   {
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL) return false;
+      SPyramidBook book;
+      Pyramid_ReadBook(side, book);
+
+      if(CorePyramidMode_ == pyramid_TAT || side.count <= 0)
+      {
+         Pyramid_CampaignReset(m_stats[dir]);
+         m_stats[dir].ready = true;
+         m_statsAt[dir] = now;
+         m_statsSeed[dir] = 0;
+         m_statsSideCount[dir] = side.count;
+         m_statsSideLots[dir] = side.totalLots;
+         m_statsNewestPyramid[dir] = book.newestPyramidTicket;
+         return true;
+      }
+      if(book.seedTicket == 0 || book.seedOpenTime <= 0)
+      {
+         Pyramid_CampaignReset(m_stats[dir]);
+         m_statsAt[dir] = now;
+         return false;
+      }
+
+      if(m_statsAt[dir] == now &&
+         m_statsSeed[dir] == book.seedTicket &&
+         m_statsSideCount[dir] == side.count &&
+         MathAbs(m_statsSideLots[dir] - side.totalLots) <= 1e-12 &&
+         m_statsNewestPyramid[dir] == book.newestPyramidTicket)
+         return m_stats[dir].ready;
+
+      SPyramidCampaignStats fresh;
+      bool ok = Pyramid_ReadCampaignHistory(dir, book.seedOpenTime, now, fresh);
+      m_stats[dir] = fresh;
+      m_statsAt[dir] = now;
+      m_statsSeed[dir] = book.seedTicket;
+      m_statsSideCount[dir] = side.count;
+      m_statsSideLots[dir] = side.totalLots;
+      m_statsNewestPyramid[dir] = book.newestPyramidTicket;
+      return ok && fresh.ready;
+   }
+
+   bool CampaignHistoryReady(const int dir) const
+   {
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL) return false;
+      return m_stats[dir].ready;
+   }
+
+   double CampaignRealized(const int dir) const
+   {
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || !m_stats[dir].ready) return 0.0;
+      return m_stats[dir].realizedCash;
+   }
+
+   int CampaignAddCount(const int dir) const
+   {
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || !m_stats[dir].ready) return 0;
+      return m_stats[dir].addCount;
+   }
+
+   bool EconomicTpLevel(const BasketSide &side, const int dir,
+                        const double baseTp, double &economicTp) const
+   {
+      economicTp = baseTp;
+      if(CorePyramidMode_ == pyramid_TAT || baseTp <= 0.0 || side.count <= 0)
+         return true;
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || !m_stats[dir].ready)
+      {
+         economicTp = 0.0; // positive TP is deferred fail-closed until history is coherent
+         return false;
+      }
+      double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      if(tickValue <= 0.0 || tickSize <= 0.0 || side.totalLots <= 0.0)
+      {
+         economicTp = 0.0;
+         return false;
+      }
+      economicTp = Pyramid_AdjustTpLevelPure(dir, baseTp, m_stats[dir].realizedCash,
+                                              side.totalLots, tickValue, tickSize);
+      return true;
+   }
+
    bool Drive(const EAContext &ctx, const BasketSide &side, const int dir,
               const int maxOrders, CRecoveryEngine *recovery,
               const bool allowAdd, string &why)
    {
       why = "";
       if(CorePyramidMode_ == pyramid_TAT || side.count <= 0 || m_exec == NULL)
-      {
-         if(side.count <= 0 && dir >= 0 && dir <= 1)
-         {
-            m_seedTicket[dir] = 0;
-            m_campaignSeen[dir] = false;
-         }
          return false;
-      }
+
       SPyramidBook book;
       Pyramid_ReadBook(side, book);
-      RefreshCampaignState(dir, book);
 
       bool recoveryOwns = false;
       if(RecoveryMode_ == recovery_ACTIVE && recovery != NULL && recovery.ActiveReady())
@@ -393,12 +529,11 @@ public:
          recovery.GetCycle(dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL, c);
          recoveryOwns = c.state != recovery_CORE_ONLY;
       }
-      // Risk-reducing LIFO Peel is intentionally evaluated before allowAdd.
-      // News/time/halt/ADX/spread entry filters may block NEW risk, but they
-      // must never block deterministic removal of an already-open Pyramid leg.
+      // Risk-reducing LIFO Peel is intentionally evaluated even if campaign
+      // history is temporarily unavailable. Only NEW risk is fail-closed.
       if(!recoveryOwns && TryPeel(ctx, dir, book, why)) return true;
-      if(recoveryOwns || !allowAdd) return false;
-      return TryAdd(ctx, side, dir, maxOrders, book, recovery, why);
+      if(recoveryOwns || !allowAdd || !CampaignHistoryReady(dir)) return false;
+      return TryAdd(ctx, side, dir, maxOrders, book, m_stats[dir], recovery, why);
    }
 };
 
