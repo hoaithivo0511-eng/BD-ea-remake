@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| CorePyramid.mqh — T17.4 campaign-safe serial re-arm + DCA       |
+//| CorePyramid.mqh — T17.5 durable campaign identity + DCA         |
 //| Campaign economics survive epochs; historical price extreme does|
 //| not. Peel exit creates temporary hysteresis anchor only.         |
 //+------------------------------------------------------------------+
@@ -27,8 +27,6 @@ struct SPyramidBook
    double pyramidLots;
    double pyramidProfit;
    double nonPyramidLots;
-   ulong seedTicket;
-   datetime seedOpenTime;
 };
 
 struct SPyramidCampaignStats
@@ -105,11 +103,6 @@ void Pyramid_ReadBook(const BasketSide &side, SPyramidBook &book)
       {
          book.nonPyramidCount++;
          book.nonPyramidLots += side.pos[i].lots;
-         if(book.seedTicket == 0)
-         {
-            book.seedTicket = side.pos[i].ticket;
-            book.seedOpenTime = side.pos[i].openTime;
-         }
          if(openMsc > book.newestNonPyramidTimeMsc ||
             (openMsc == book.newestNonPyramidTimeMsc &&
              side.pos[i].ticket > book.newestNonPyramidTicket))
@@ -194,17 +187,126 @@ void Pyramid_RecordMutation(SPyramidCampaignStats &stats,
    stats.lastMutationWasExit = isExit;
 }
 
+// Reverse-replay exact Core position identifiers so the active campaign begins
+// at the last broker-observed flat -> non-flat transition. This identity does
+// not rotate when legacy Overlap removes the original seed ticket.
+bool Pyramid_FindActiveCampaignStart(const BasketSide &side,
+                                     const int dir,
+                                     const datetime now,
+                                     datetime &startTime,
+                                     long &startTimeMsc,
+                                     ulong &startDeal)
+{
+   startTime = 0;
+   startTimeMsc = 0;
+   startDeal = 0;
+   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 ||
+      side.totalLots <= 0.0 || now <= 0)
+      return false;
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   long currentUnits = Recovery_VolumeToUnitsFloor(side.totalLots, step);
+   if(step <= 0.0 || currentUnits <= 0 || !HistorySelect(0, now + 1)) return false;
+
+   long openType = dir == BD_DIR_BUY ? DEAL_TYPE_BUY : DEAL_TYPE_SELL;
+   long closeType = dir == BD_DIR_BUY ? DEAL_TYPE_SELL : DEAL_TYPE_BUY;
+   ulong ownedPositionIds[];
+   ArrayResize(ownedPositionIds, 0);
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0 || HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol ||
+         HistoryDealGetInteger(deal, DEAL_MAGIC) != (long)Magic)
+         continue;
+      long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_IN || HistoryDealGetInteger(deal, DEAL_TYPE) != openType)
+         continue;
+      ulong positionId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+      if(positionId == 0) return false;
+      if(!Pyramid_UlongContains(ownedPositionIds, positionId))
+      {
+         int n = ArraySize(ownedPositionIds);
+         ArrayResize(ownedPositionIds, n + 1);
+         ownedPositionIds[n] = positionId;
+      }
+   }
+   if(ArraySize(ownedPositionIds) <= 0) return false;
+
+   long deltas[];
+   ulong deals[];
+   datetime times[];
+   long timesMsc[];
+   ArrayResize(deltas, 0);
+   ArrayResize(deals, 0);
+   ArrayResize(times, 0);
+   ArrayResize(timesMsc, 0);
+   for(int i = 0; i < total; i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0) continue;
+      ulong positionId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+      if(positionId == 0 || !Pyramid_UlongContains(ownedPositionIds, positionId)) continue;
+      long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if(entry == DEAL_ENTRY_INOUT) return false;
+      long type = HistoryDealGetInteger(deal, DEAL_TYPE);
+      long units = Recovery_VolumeToUnitsFloor(HistoryDealGetDouble(deal, DEAL_VOLUME), step);
+      if(units <= 0) return false;
+      long delta = 0;
+      if(entry == DEAL_ENTRY_IN)
+      {
+         if(type != openType) return false;
+         delta = units;
+      }
+      else if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY)
+      {
+         if(type != closeType) return false;
+         delta = -units;
+      }
+      else continue;
+
+      int n = ArraySize(deltas);
+      ArrayResize(deltas, n + 1);
+      ArrayResize(deals, n + 1);
+      ArrayResize(times, n + 1);
+      ArrayResize(timesMsc, n + 1);
+      deltas[n] = delta;
+      deals[n] = deal;
+      times[n] = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
+      timesMsc[n] = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
+      if(timesMsc[n] <= 0) timesMsc[n] = (long)times[n] * 1000;
+   }
+
+   // Bind replay to exact (DEAL_TIME_MSC, deal ticket) chronology. If the
+   // terminal returns a non-monotonic selected-history view, fail closed and
+   // retry instead of silently rebuilding a different campaign.
+   for(int i = 1; i < ArraySize(deltas); i++)
+      if(Pyramid_LaterDeal(timesMsc[i-1], deals[i-1], timesMsc[i], deals[i]))
+         return false;
+
+   int boundary = Pyramid_ActiveCampaignStartIndexPure(deltas, currentUnits);
+   if(boundary < 0 || boundary >= ArraySize(deals)) return false;
+   string boundaryComment = HistoryDealGetString(deals[boundary], DEAL_COMMENT);
+   if(Pyramid_IsComment(boundaryComment)) return false;
+   startTime = times[boundary];
+   startTimeMsc = timesMsc[boundary];
+   startDeal = deals[boundary];
+   return startTime > 0 && startTimeMsc > 0 && startDeal > 0;
+}
+
 // Campaign source of truth: serial identity + realized cash + latest mutation
-// survive restart. T17.4 never uses lastSerialEntryPrice as permanent anchor.
+// survive restart and seed-ticket rotation. T17.5 never uses
+// lastSerialEntryPrice as permanent anchor.
 bool Pyramid_ReadCampaignHistory(const int dir,
-                                 const datetime seedOpenTime,
+                                 const datetime campaignStartTime,
+                                 const long campaignStartTimeMsc,
                                  const datetime now,
                                  SPyramidCampaignStats &stats)
 {
    Pyramid_CampaignReset(stats);
-   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || seedOpenTime <= 0 || now <= 0)
+   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || campaignStartTime <= 0 ||
+      campaignStartTimeMsc <= 0 || now <= 0)
       return false;
-   if(!HistorySelect(seedOpenTime, now + 1)) return false;
+   if(!HistorySelect(campaignStartTime, now + 1)) return false;
 
    ulong positionIds[];
    ArrayResize(positionIds, 0);
@@ -218,6 +320,10 @@ bool Pyramid_ReadCampaignHistory(const int dir,
          continue;
       long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
+      long dealMsc = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
+      datetime dealTime = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
+      if(dealMsc <= 0) dealMsc = (long)dealTime * 1000;
+      if(dealMsc < campaignStartTimeMsc) continue;
       string c = HistoryDealGetString(deal, DEAL_COMMENT);
       if(!Pyramid_IsComment(c) || Pyramid_CommentFieldInt(c, "D=") != dir) continue;
       int level = Pyramid_LevelFromComment(c);
@@ -231,9 +337,6 @@ bool Pyramid_ReadCampaignHistory(const int dir,
          positionIds[n] = positionId;
          stats.addCount++;
       }
-      datetime dealTime = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
-      long dealMsc = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
-      if(dealMsc <= 0) dealMsc = (long)dealTime * 1000;
       if(Pyramid_LaterDeal(dealMsc, deal, stats.lastAddTimeMsc, stats.lastAddDeal))
       {
          stats.lastAddTimeMsc = dealMsc;
@@ -289,7 +392,9 @@ private:
    double m_mult[];
    SPyramidCampaignStats m_stats[2];
    datetime m_statsAt[2];
-   ulong m_statsSeed[2];
+   datetime m_campaignStartTime[2];
+   long m_campaignStartTimeMsc[2];
+   ulong m_campaignStartDeal[2];
    int m_statsSideCount[2];
    double m_statsSideLots[2];
    ulong m_statsNewestPyramid[2];
@@ -563,7 +668,9 @@ public:
       {
          Pyramid_CampaignReset(m_stats[d]);
          m_statsAt[d] = 0;
-         m_statsSeed[d] = 0;
+         m_campaignStartTime[d] = 0;
+         m_campaignStartTimeMsc[d] = 0;
+         m_campaignStartDeal[d] = 0;
          m_statsSideCount[d] = -1;
          m_statsSideLots[d] = -1.0;
          m_statsNewestPyramid[d] = 0;
@@ -634,31 +741,40 @@ public:
          Pyramid_CampaignReset(m_stats[dir]);
          m_stats[dir].ready = true;
          m_statsAt[dir] = now;
-         m_statsSeed[dir] = 0;
+         m_campaignStartTime[dir] = 0;
+         m_campaignStartTimeMsc[dir] = 0;
+         m_campaignStartDeal[dir] = 0;
          m_statsSideCount[dir] = side.count;
          m_statsSideLots[dir] = side.totalLots;
          m_statsNewestPyramid[dir] = book.newestPyramidTicket;
          return true;
       }
-      if(book.seedTicket == 0 || book.seedOpenTime <= 0)
+      if(m_campaignStartTimeMsc[dir] <= 0 || m_campaignStartDeal[dir] == 0)
       {
-         Pyramid_CampaignReset(m_stats[dir]);
-         m_statsAt[dir] = now;
-         return false;
+         if(!Pyramid_FindActiveCampaignStart(side, dir, now,
+                                             m_campaignStartTime[dir],
+                                             m_campaignStartTimeMsc[dir],
+                                             m_campaignStartDeal[dir]))
+         {
+            Pyramid_CampaignReset(m_stats[dir]);
+            m_statsAt[dir] = now;
+            return false;
+         }
       }
 
       if(m_statsAt[dir] == now &&
-         m_statsSeed[dir] == book.seedTicket &&
          m_statsSideCount[dir] == side.count &&
          MathAbs(m_statsSideLots[dir] - side.totalLots) <= 1e-12 &&
          m_statsNewestPyramid[dir] == book.newestPyramidTicket)
          return m_stats[dir].ready;
 
       SPyramidCampaignStats fresh;
-      bool ok = Pyramid_ReadCampaignHistory(dir, book.seedOpenTime, now, fresh);
+      bool ok = Pyramid_ReadCampaignHistory(dir,
+                                            m_campaignStartTime[dir],
+                                            m_campaignStartTimeMsc[dir],
+                                            now, fresh);
       m_stats[dir] = fresh;
       m_statsAt[dir] = now;
-      m_statsSeed[dir] = book.seedTicket;
       m_statsSideCount[dir] = side.count;
       m_statsSideLots[dir] = side.totalLots;
       m_statsNewestPyramid[dir] = book.newestPyramidTicket;

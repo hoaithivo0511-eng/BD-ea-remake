@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryArcsStackT17Pyramid.mqh — T17.2 progressive Hedge       |
+//| RecoveryArcsStackT17Pyramid.mqh — T17.5 progressive Hedge       |
 //| One logical coverage stage/bar + MinuteStop; child bundles exempt.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ARCS_STACK_T17_PYRAMID_MQH
@@ -30,15 +30,6 @@ private:
                     Heartbeat());
    }
 
-   double EffectiveCoverage(const double raw) const
-   {
-      double v = raw;
-      if(HedgeVolumePercent_ > 0.0 && v > HedgeVolumePercent_) v = HedgeVolumePercent_;
-      if(HedgePyramidMaxCoveragePercent_ > 0.0 && v > HedgePyramidMaxCoveragePercent_)
-         v = HedgePyramidMaxCoveragePercent_;
-      return v > 0.0 ? v : 0.0;
-   }
-
    bool BuildEffectiveCoverage(string &why)
    {
       why = "";
@@ -49,24 +40,10 @@ private:
       double raw[];
       if(!Pyramid_ParsePositiveSequence(HedgePyramidCoverageSequence_, raw))
       { why = "không parse được chuỗi coverage Hedge Pyramid"; return false; }
-      double prev = 0.0;
-      for(int i = 0; i < ArraySize(raw); i++)
-      {
-         double v = EffectiveCoverage(raw[i]);
-         if(v <= prev + 1e-9) continue;
-         int n = ArraySize(m_cov);
-         ArrayResize(m_cov, n + 1);
-         m_cov[n] = v;
-         prev = v;
-      }
-      double finalCap = EffectiveCoverage(HedgeVolumePercent_);
-      if(finalCap > prev + 1e-9)
-      {
-         int n = ArraySize(m_cov);
-         ArrayResize(m_cov, n + 1);
-         m_cov[n] = finalCap;
-      }
-      if(ArraySize(m_cov) <= 0)
+      if(Pyramid_NormalizeCoverageTargetsPure(raw,
+                                              HedgeVolumePercent_,
+                                              HedgePyramidMaxCoveragePercent_,
+                                              m_cov) <= 0)
       { why = "Hedge Pyramid không còn coverage hợp lệ sau khi áp trần"; return false; }
 
       if(ArraySize(m_cov) > 1)

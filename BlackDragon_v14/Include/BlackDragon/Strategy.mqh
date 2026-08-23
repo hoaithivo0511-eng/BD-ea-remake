@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| Strategy.mqh — BlackDragon T17.4 runtime                         |
+//| Strategy.mqh — BlackDragon T17.5 runtime                         |
 //| P0 floating MoneyGuard + Pyramid/DCA coexistence + re-arm.       |
 //+------------------------------------------------------------------+
 #ifndef BD_STRATEGY_MQH
@@ -77,7 +77,7 @@ private:
       bool sellOk = m_pyramid.RefreshCampaignStats(m_basket.sell, BD_DIR_SELL, ctx.now);
       if(!buyOk || !sellOk)
          Log_WarnEvery("Pyramid", "campaignhistory",
-                       "T17.4 chưa đọc đủ Pyramid campaign history; tạm hoãn Pyramid ADD/economic basket TP/PctDiff, risk-reducing Peel và absolute floating MoneyGuard vẫn hoạt động",
+                       "T17.5 chưa dựng đủ durable Pyramid campaign history; tạm hoãn Pyramid ADD/economic basket TP/PctDiff, risk-reducing Peel và absolute floating MoneyGuard vẫn hoạt động",
                        Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
    }
 
@@ -277,6 +277,49 @@ private:
                                                 closeRequests,
                                                 tickSize,
                                                 tickValue);
+   }
+
+   double OverlapExecutionBufferCash(const EAContext &ctx,
+                                     const BasketSide &side,
+                                     const ExitDecision &d,
+                                     double &firstProfit,
+                                     double &lastProfit) const
+   {
+      firstProfit = 0.0;
+      lastProfit = 0.0;
+      double firstLots = 0.0;
+      double lastLots = 0.0;
+      bool firstFound = false;
+      bool lastFound = false;
+      for(int i = 0; i < side.count; i++)
+      {
+         if(side.pos[i].ticket == d.pairFirst)
+         {
+            firstFound = true;
+            firstProfit = side.pos[i].profit;
+            firstLots = side.pos[i].lots;
+         }
+         if(side.pos[i].ticket == d.pairLast)
+         {
+            lastFound = true;
+            lastProfit = side.pos[i].profit;
+            lastLots = side.pos[i].lots;
+         }
+      }
+      if(!firstFound || !lastFound || firstLots <= 0.0 || lastLots <= 0.0)
+         return DBL_MAX;
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+      double spreadPrice = MathMax(ctx.ask - ctx.bid, 0.0);
+      double deviationPrice = (double)Exec_Deviation(Slippage_, Cfg.PointScale) * ctx.point;
+      int requests = d.pairFirst == d.pairLast ? 1 : 2;
+      double lots = d.pairFirst == d.pairLast ? firstLots : firstLots + lastLots;
+      return Exit_OverlapExecutionReserveCashPure(spreadPrice,
+                                                  deviationPrice,
+                                                  lots,
+                                                  requests,
+                                                  tickSize,
+                                                  tickValue);
    }
 
    bool ApplyGuardPriority(const EAContext &ctx)
@@ -485,6 +528,21 @@ private:
 
       if(d.kind == EXIT_OVERLAP)
       {
+         double firstProfit = 0.0;
+         double lastProfit = 0.0;
+         double reserve = OverlapExecutionBufferCash(ctx, side, d,
+                                                     firstProfit, lastProfit);
+         if(!Exit_OverlapExecutionSafePure(firstProfit, lastProfit, reserve))
+         {
+            string reserveText = reserve == DBL_MAX ? "UNAVAILABLE"
+                                                     : DoubleToString(reserve, 2);
+            Log_WarnEvery("Strategy", "overlapreserve" + (string)dir,
+                          "T17.5 Overlap WAIT: floating pair=" +
+                          DoubleToString(firstProfit + lastProfit, 2) +
+                          " < execution reserve=" + reserveText,
+                          Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+            return false;
+         }
          eRecoveryExitCoordRequest cr = BeginTicketClose(dir, d.pairLast, d.pairFirst,
                                                           recovery_EXIT_REASON_LEGACY_OVERLAP,
                                                           ctx.now);

@@ -1,0 +1,56 @@
+schema_version: "1.0"
+id: T17.5
+title: Durable Pyramid campaign identity, Overlap execution reserve, and unordered Hedge coverage input
+status: OWNER_APPROVED
+owner_approval: "2026-08-23: Thêm điều chỉnh input coverage tự do; continuation of approved deep-fix task"
+source_parent:
+  head: 85bc75060e5e166715cd113685c1e01b752c181c
+  tree: 8867225ea69724132cf82259c3d54ad6457a848c
+runtime_failure:
+  evidence_sha256: 6d73ac277009e6e550ead9d1aa867f0fd5b890e5a5c0f5d821f787a7ab9f04f6
+  t174_sessions: 9
+  sessions_reaching_requested_end: 0
+  observed_stopouts: 6
+  smoking_gun:
+    pyramid_peel_realized: -5.385
+    pctdiff_buy_floating: 3.26
+    pctdiff_sell_floating: -0.08
+    execution_reserve: 2.40
+    old_reported_campaign_realized: 0.00
+    correct_economic_surplus: -2.205
+    expected: BLOCK
+semantics:
+  campaign_identity:
+    boundary: last_broker_observed_flat_to_nonflat_transition_per_core_direction
+    includes: Seed_DCA_and_Pyramid_Core_positions_owned_by_Core_Magic
+    seed_ticket_rotation: must_not_reset_campaign
+    preserved_until_flat:
+      - serial_high_water_mark
+      - pyramid_realized_cash
+      - last_add_and_exit_mutation
+    restart: reverse_replay_exact_position_ids_and_signed_volume_deltas
+    history_failure: fail_closed_for_Pyramid_ADD_economic_TP_and_PctDiff
+  overlap:
+    legacy_relative_percent_gate: preserved
+    additional_surplus_gate: pair_floating_sum_must_cover_execution_reserve
+    execution_reserve: two_current_spreads_plus_one_configured_deviation_per_close_request
+    invalid_symbol_economics: block_fail_closed
+  hedge_coverage_input:
+    input_name: HedgePyramidCoverageSequence_
+    input_count: 20
+    default: 35-55-75-100
+    accepted_order: arbitrary_positive_sequence
+    runtime_canonicalization: apply_existing_caps_then_sort_ascending_and_deduplicate
+    implicit_final_target: preserve_effective_HedgeVolumePercent_target
+    descending_token_behavior: no_implicit_hedge_reduction
+    gap_mapping: canonical_ascending_stage_transitions
+  unchanged:
+    - MoneyTPAllAccount_raw_ACCOUNT_PROFIT_priority_and_latch
+    - DCA_priority_release
+    - Recovery_T16_6_semantics
+    - fixed_lot_exact_broker_normalized_volume
+    - configured_gap_only_Peel_admission_reserve
+release:
+  strategy_tester_required: true
+  keep_pr_draft: true
+  merge_authorized: false

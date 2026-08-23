@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <vector>
 
 static int pass_count=0, fail_count=0;
 static void check(const std::string& n,bool ok){if(ok)++pass_count;else{++fail_count;std::cout<<"FAIL: "<<n<<"\n";}}
@@ -27,9 +28,19 @@ static double pips_cash(double pips,double lots,double tv,double ts,double pip){
 static bool economic_lock(double f,double r,double minPips,double lots,double tv,double ts,double pip){if(minPips<=0)return true;double need=pips_cash(minPips,lots,tv,ts,pip);return need>0&&econ(f,r)+1e-9>=need;}
 static bool fixed_peel_reserve(double f,double livePyr,double r,double lock,double openRisk,double candidateRisk){if(lock<0||openRisk<0||candidateRisk<=0)return false;return f-livePyr+r+1e-9>=lock+openRisk+candidateRisk;}
 static bool dca_release(bool due,int total,int maxOrders,int pyramids){return due&&maxOrders>0&&total>=maxOrders&&pyramids>0;}
+static int active_campaign_start(const std::vector<long>& deltas,long current){if(current<=0)return-1;long units=current;for(int i=(int)deltas.size()-1;i>=0;--i){long previous=units-deltas[(size_t)i];if(previous<0)return-1;if(deltas[(size_t)i]>0&&previous==0)return i;units=previous;}return-1;}
 static double shift(double r,double lots,double tv,double ts){if(r>=0||lots<=0||tv<=0||ts<=0)return 0;return(-r)/(tv*lots)*ts;}
 static double adjtp(int d,double base,double r,double lots,double tv,double ts){double s=shift(r,lots,tv,ts);return d==0?base+s:base-s;}
 static double cov(double s,double master,double hard){double v=s;if(master>0&&v>master)v=master;if(hard>0&&v>hard)v=hard;return v>0?v:0;}
+static std::vector<double> normalize_cov(std::vector<double> raw,double master,double hard){
+ std::vector<double> out;
+ for(double v:raw){v=cov(v,master,hard);if(v>0)out.push_back(v);}
+ std::sort(out.begin(),out.end());
+ out.erase(std::unique(out.begin(),out.end(),[](double a,double b){return std::fabs(a-b)<=1e-9;}),out.end());
+ double final_cap=cov(master,master,hard);
+ if(final_cap>0&&(out.empty()||final_cap>out.back()+1e-9))out.push_back(final_cap);
+ return out;
+}
 static long pct_units(long core,double p){return core>0&&p>0?(long)std::floor(core*p/100.0+1e-9):0;}
 static long rawgen(int policy,long core,long existing,double p){long d=pct_units(core,p);if(d<=0)return 0;if(policy==1)return d;existing=std::max(existing,0L);return d>existing?d-existing:0;}
 static long clampmin(long x,long m){if(x<=0)return 0;if(m<=0)return x;return x<m?m:x;}
@@ -38,6 +49,7 @@ static bool pctdiff(double buy,double sell,double pct){if(pct<=0)return false;do
 static bool pctdiff_buffered(double buy,double sell,double pct,double buffer){return pctdiff(buy,sell,pct)&&(buy+sell)>=std::max(buffer,0.0);}
 static bool pctdiff_economic_buffered(double buy,double sell,double pct,double realized,bool valid,double buffer){return valid&&pctdiff(buy,sell,pct)&&(buy+sell+realized)>=std::max(buffer,0.0);}
 static double execution_reserve(double spread,double deviation,double lots,int requests,double ts,double tv){if(ts<=0||tv<=0)return 1e300;if(lots<=0)return 0;int n=std::max(requests,1);double move=2.0*std::max(spread,ts)+std::max(deviation,0.0)*n;return move/ts*tv*lots;}
+static bool overlap_safe(double first,double last,double reserve){return reserve<1e299&&first+last+1e-9>=std::max(reserve,0.0);}
 enum GuardAction{NONE=0,ACCOUNT=1,MAGIC=2,BUY=3,SELL=4,DAILY=5};
 static int latch_next(int latched,int triggered,bool flat){if(latched!=NONE)return flat?NONE:latched;return triggered;}
 
@@ -69,20 +81,40 @@ int main(){
  check("DCA priority release when full of Pyramid",dca_release(true,59,59,30));
  check("DCA no release when slot exists",!dca_release(true,58,59,30));
  check("DCA no release when no Pyramid",!dca_release(true,59,59,0));
+ check("campaign boundary survives seed removal",active_campaign_start({1,5,-5,1,-1},1)==0);
+ check("campaign boundary uses latest flat transition",active_campaign_start({2,-2,1,5,-5,1,-1},1)==2);
+ check("campaign boundary missing seed fails closed",active_campaign_start({5,-5,1,-1},1)==-1);
+ check("campaign boundary inconsistent units fails closed",active_campaign_start({5},1)==-1);
  check("TP loss shift",std::fabs(shift(-50,.10,1,.01)-5)<1e-12); check("BUY TP away",std::fabs(adjtp(0,4002,-50,.10,1,.01)-4007)<1e-12); check("positive realized no pull",std::fabs(adjtp(0,4002,25,.10,1,.01)-4002)<1e-12);
- check("coverage hard cap",cov(100,115,80)==80); check("ARCS staged raw",rawgen(1,100,0,35)==35); check("balanced subtract",rawgen(0,100,35,55)==20); check("broker min",clampmin(1,2)==2);
+ check("coverage hard cap",cov(100,115,80)==80);
+ auto unordered=normalize_cov({75,35,100,55},100,100);
+ check("unordered coverage keeps all unique targets",unordered.size()==4);
+ check("unordered coverage sorts ascending",unordered==std::vector<double>({35,55,75,100}));
+ auto capped=normalize_cov({120,55,100,80},115,80);
+ check("capped duplicates collapse",capped.size()==2);
+ check("capped targets sorted",capped==std::vector<double>({55,80}));
+ auto partial=normalize_cov({55,35},100,100);
+ check("final target appended",partial.size()==3);
+ check("final target follows sorted explicit targets",partial==std::vector<double>({35,55,100}));
+ check("ARCS staged raw",rawgen(1,100,0,35)==35); check("balanced subtract",rawgen(0,100,35,55)==20); check("broker min",clampmin(1,2)==2);
  check("raw floating MoneyTP ignores historical loss",money_tp(350,300));
  check("raw floating MoneyTP below target",!money_tp(299.99,300));
  check("PctDiff legacy shape hits tiny surplus",pctdiff(-2.21,2.47,10));
  check("PctDiff safety buffer blocks tiny surplus",!pctdiff_buffered(-2.21,2.47,10,1.0));
  check("PctDiff safety buffer allows realizable surplus",pctdiff_buffered(-10,15,10,3.0));
  check("PctDiff campaign debt blocks floating-only false profit",!pctdiff_economic_buffered(26.71,-9.42,10,-73.23,true,2.64));
+ check("PctDiff debt survives Overlap seed removal",!pctdiff_economic_buffered(3.26,-.08,10,-5.385,true,2.40));
  check("PctDiff recovered campaign permits buffered flatten",pctdiff_economic_buffered(80,-20,10,-50,true,5));
  check("PctDiff history unavailable fails closed",!pctdiff_economic_buffered(80,-20,10,0,false,5));
  check("ticket-aware reserve reproduces XAU audit",std::fabs(execution_reserve(.24,.03,.11,9,.001,.10)-8.25)<1e-9);
  check("ticket-aware reserve keeps two-spread floor",std::fabs(execution_reserve(.24,0,.11,9,.001,.10)-5.28)<1e-9);
  check("ticket-aware reserve invalid metadata fails closed",execution_reserve(.24,.03,.11,9,0,.10)>1e200);
  check("ticket-aware reserve zero lots is zero",execution_reserve(.24,.03,0,9,.001,.10)==0);
+ double overlap_reserve=execution_reserve(.24,.03,.08,2,.001,.10);
+ check("Overlap two-ticket reserve",std::fabs(overlap_reserve-4.32)<1e-9);
+ check("Overlap thin positive pair blocked",!overlap_safe(-8,9,overlap_reserve));
+ check("Overlap robust pair allowed",overlap_safe(-8,15,overlap_reserve));
+ check("Overlap invalid economics fail closed",!overlap_safe(-8,15,execution_reserve(.24,.03,.08,2,0,.10)));
  check("guard latch starts",latch_next(NONE,ACCOUNT,false)==ACCOUNT);
  check("guard latch survives threshold retreat",latch_next(ACCOUNT,NONE,false)==ACCOUNT);
  check("guard latch clears only flat",latch_next(ACCOUNT,NONE,true)==NONE);
@@ -90,7 +122,7 @@ int main(){
  check("post-peel capacity restored",concurrent_allowed(open,3)); check("post-peel serial P4",serial==4); check("P4 fresh gap from Peel exit",favorable(0,a,4049.9,4050,20)); check("P4 old 4035 region rejected",!favorable(0,a,4034.9,4035,20));
  serial=next_serial(serial); a=rearm_anchor(0,3990,140,100,120,4030);
  check("DCA epoch serial continues",serial==5); check("DCA epoch recovery from BE",favorable(0,a,4009.9,4010,20));
- std::cout<<"Pyramid T17.4 model: "<<pass_count<<" passed, "<<fail_count<<" failed\n";
- if(!fail_count) std::cout<<"ALL GREEN — T17.4 campaign economics + execution reserve policy passed.\n";
+ std::cout<<"Pyramid T17.5 model: "<<pass_count<<" passed, "<<fail_count<<" failed\n";
+ if(!fail_count) std::cout<<"ALL GREEN — T17.5 durable campaign + Overlap reserve + unordered Hedge coverage passed.\n";
  return fail_count?1:0;
 }

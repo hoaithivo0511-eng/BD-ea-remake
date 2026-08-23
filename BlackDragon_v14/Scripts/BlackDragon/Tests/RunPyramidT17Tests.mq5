@@ -1,9 +1,10 @@
 //+------------------------------------------------------------------+
-//| RunPyramidT17Tests.mq5 — T17.4 native pure-policy tests          |
+//| RunPyramidT17Tests.mq5 — T17.5 native pure-policy tests          |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Pyramid/PyramidConfig.mqh>
 #include <BlackDragon/MoneyGuard.mqh>
+#include <BlackDragon/ExitEngine.mqh>
 #include <BlackDragon/Recovery/RecoveryT16Config.mqh>
 
 int g_pass=0, g_fail=0;
@@ -33,6 +34,29 @@ void OnStart()
    Check("coverage master cap", Pyramid_EffectiveCoveragePure(115.0,100.0,115.0)==100.0);
    Check("coverage hard cap", Pyramid_EffectiveCoveragePure(100.0,115.0,80.0)==80.0);
    Check("coverage unchanged", Pyramid_EffectiveCoveragePure(55.0,100.0,100.0)==55.0);
+   double unorderedCoverage[] = {75.0,35.0,100.0,55.0};
+   double normalizedCoverage[];
+   int normalizedCount = Pyramid_NormalizeCoverageTargetsPure(unorderedCoverage,100.0,100.0,
+                                                               normalizedCoverage);
+   Check("unordered coverage accepted with all unique targets", normalizedCount==4);
+   Check("unordered coverage canonicalized ascending",
+         normalizedCount==4 && Near(normalizedCoverage[0],35.0) &&
+         Near(normalizedCoverage[1],55.0) && Near(normalizedCoverage[2],75.0) &&
+         Near(normalizedCoverage[3],100.0));
+   double cappedCoverage[] = {120.0,55.0,100.0,80.0};
+   normalizedCount = Pyramid_NormalizeCoverageTargetsPure(cappedCoverage,115.0,80.0,
+                                                           normalizedCoverage);
+   Check("coverage cap duplicates collapse", normalizedCount==2);
+   Check("coverage cap preserves ascending effective targets",
+         normalizedCount==2 && Near(normalizedCoverage[0],55.0) &&
+         Near(normalizedCoverage[1],80.0));
+   double partialCoverage[] = {55.0,35.0};
+   normalizedCount = Pyramid_NormalizeCoverageTargetsPure(partialCoverage,100.0,100.0,
+                                                           normalizedCoverage);
+   Check("configured final coverage remains implicit last target", normalizedCount==3);
+   Check("implicit final target follows unordered explicit targets",
+         normalizedCount==3 && Near(normalizedCoverage[0],35.0) &&
+         Near(normalizedCoverage[1],55.0) && Near(normalizedCoverage[2],100.0));
    Check("ARCS layered raw 35 pct", Recovery_T16NewGenerationRawUnitsPure(ARCS_XEP_LOP,100,0,35.0)==35);
    Check("balanced raw subtract existing", Recovery_T16NewGenerationRawUnitsPure(HEDGE_CAN_BANG,100,35,55.0)==20);
    Check("balanced already covered zero", Recovery_T16NewGenerationRawUnitsPure(HEDGE_CAN_BANG,100,60,55.0)==0);
@@ -121,6 +145,19 @@ void OnStart()
    Check("DCA priority no release before DCA is actually due",
          !Pyramid_DcaPriorityReleaseNeededPure(false,59,59,30));
 
+   long seedRotationDeltas[] = {1,5,-5,1,-1};
+   Check("campaign boundary survives Peel DCA and Overlap seed removal",
+         Pyramid_ActiveCampaignStartIndexPure(seedRotationDeltas,1)==0);
+   long priorFlatDeltas[] = {2,-2,1,5,-5,1,-1};
+   Check("campaign boundary uses latest flat to non-flat transition",
+         Pyramid_ActiveCampaignStartIndexPure(priorFlatDeltas,1)==2);
+   long incompleteHistoryDeltas[] = {5,-5,1,-1};
+   Check("campaign boundary missing seed fails closed",
+         Pyramid_ActiveCampaignStartIndexPure(incompleteHistoryDeltas,1)==-1);
+   long corruptHistoryDeltas[] = {5};
+   Check("campaign boundary inconsistent current units fails closed",
+         Pyramid_ActiveCampaignStartIndexPure(corruptHistoryDeltas,1)==-1);
+
    Check("TP loss recovery shift", Near(Pyramid_TpRecoveryShiftPure(-50.0,0.10,1.0,0.01),5.0));
    Check("BUY economic TP shifted away", Near(Pyramid_AdjustTpLevelPure(0,4002.0,-50.0,0.10,1.0,0.01),4007.0));
    Check("SELL economic TP shifted away", Near(Pyramid_AdjustTpLevelPure(1,3998.0,-50.0,0.10,1.0,0.01),3993.0));
@@ -137,6 +174,8 @@ void OnStart()
          MG_PctDiffHitBuffered(-10.0,15.0,10.0,3.0));
    Check("PctDiff campaign debt blocks floating-only false profit",
          !MG_PctDiffEconomicHitBuffered(26.71,-9.42,10.0,-73.23,true,2.64));
+   Check("PctDiff keeps Peel debt after Overlap removes original seed",
+         !MG_PctDiffEconomicHitBuffered(3.26,-0.08,10.0,-5.385,true,2.40));
    Check("PctDiff recovered campaign permits buffered flatten",
          MG_PctDiffEconomicHitBuffered(80.0,-20.0,10.0,-50.0,true,5.0));
    Check("PctDiff history unavailable fails closed",
@@ -149,6 +188,15 @@ void OnStart()
          MG_PctDiffExecutionReserveCashPure(0.24,0.03,0.11,9,0.0,0.10)==DBL_MAX);
    Check("ticket-aware reserve zero lots is zero",
          MG_PctDiffExecutionReserveCashPure(0.24,0.03,0.0,9,0.001,0.10)==0.0);
+   double overlapReserve = Exit_OverlapExecutionReserveCashPure(0.24,0.03,0.08,2,0.001,0.10);
+   Check("Overlap two-ticket execution reserve", Near(overlapReserve,4.32));
+   Check("Overlap positive but thin floating pair is blocked",
+         !Exit_OverlapExecutionSafePure(-8.0,9.0,overlapReserve));
+   Check("Overlap robust pair covers execution reserve",
+         Exit_OverlapExecutionSafePure(-8.0,15.0,overlapReserve));
+   Check("Overlap invalid symbol economics fail closed",
+         !Exit_OverlapExecutionSafePure(-8.0,15.0,
+            Exit_OverlapExecutionReserveCashPure(0.24,0.03,0.08,2,0.0,0.10)));
    Check("guard latch starts",
          MG_LatchNextPure(GUARD_NONE,GUARD_CLOSE_ACCOUNT,false)==GUARD_CLOSE_ACCOUNT);
    Check("guard latch survives threshold retreat",
@@ -179,6 +227,6 @@ void OnStart()
    else
       Check("broker minimum metadata available", false);
 
-   PrintFormat("Pyramid T17.4 tests: %d passed, %d failed",g_pass,g_fail);
-   if(g_fail==0) Print("ALL GREEN — T17.4 campaign economics + execution reserve + fixed-lot Peel funding passed.");
+   PrintFormat("Pyramid T17.5 tests: %d passed, %d failed",g_pass,g_fail);
+   if(g_fail==0) Print("ALL GREEN — T17.5 durable campaign + Overlap reserve + unordered Hedge coverage passed.");
 }

@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| PyramidConfig.mqh — T17.4 Core/Hedge Pyramid policy              |
+//| PyramidConfig.mqh — T17.5 Core/Hedge Pyramid policy              |
 //| Serial re-arm giữ campaign ledger nhưng không giữ price extreme. |
 //+------------------------------------------------------------------+
 #ifndef BD_PYRAMID_CONFIG_MQH
@@ -44,7 +44,7 @@ input bool PyramidRequireTrend_ = true; // Yêu cầu không có tín hiệu đ�
 
 input group "24 — NHỒI DƯƠNG RECOVERY HEDGE"
 input eHedgePyramidMode HedgePyramidMode_ = hedge_pyramid_TAT; // Chế độ tăng dần khối lượng Hedge khi Hedge đang thắng
-input string HedgePyramidCoverageSequence_ = "35-55-75-100"; // Các bậc tỷ lệ Hedge/Core mục tiêu (%)
+input string HedgePyramidCoverageSequence_ = "35-55-75-100"; // Các bậc tỷ lệ Hedge/Core mục tiêu (%); nhập tự do, EA tự sắp tăng dần
 input string HedgePyramidGapSequence_ = "10-10-15"; // Khoảng thuận chiều của Hedge để lên bậc tiếp theo (pip)
 input double HedgePyramidMaxCoveragePercent_ = 100.0; // Trần coverage tuyệt đối; không bao giờ vượt mức này
 input bool HedgePyramidReserveFullTarget_ = true; // Trước bậc đầu, yêu cầu Free Margin đủ cho target cuối dự kiến
@@ -52,7 +52,7 @@ input double HedgePyramidMinRoomToTPPips_ = 5.0; // Không tăng Hedge nếu tar
 input bool HedgePyramidLockBeforeAdd_ = true; // Chỉ tăng bậc khi phần Hedge đang có đã ở phía lợi nhuận ròng
 
 #define BD_PYRAMID_COMMENT_PREFIX "BDP|"
-#define BD_PYRAMID_POLICY_REV 5
+#define BD_PYRAMID_POLICY_REV 6
 #define BD_PYRAMID_MAX_LEVELS 32
 
 bool Pyramid_IsComment(const string comment)
@@ -310,6 +310,25 @@ bool Pyramid_DcaPriorityReleaseNeededPure(const bool dcaDue,
    return dcaDue && maxOrders > 0 && totalOpenCount >= maxOrders && openPyramidCount > 0;
 }
 
+// Reconstruct the active side campaign by replaying signed Core-volume deltas
+// backwards from the currently-open broker volume. Positive values are opens;
+// negative values are closes. The campaign starts at the latest transition
+// from zero to positive volume. Returning -1 is fail-closed history evidence.
+int Pyramid_ActiveCampaignStartIndexPure(const long &forwardDeltas[],
+                                         const long currentUnits)
+{
+   if(currentUnits <= 0) return -1;
+   long units = currentUnits;
+   for(int i = ArraySize(forwardDeltas) - 1; i >= 0; i--)
+   {
+      long previous = units - forwardDeltas[i];
+      if(previous < 0) return -1;
+      if(forwardDeltas[i] > 0 && previous == 0) return i;
+      units = previous;
+   }
+   return -1;
+}
+
 double Pyramid_TpRecoveryShiftPure(const double realizedPyramidCash,
                                    const double totalLots,
                                    const double tickValue,
@@ -341,6 +360,55 @@ double Pyramid_EffectiveCoveragePure(const double stageCoverage,
    if(hedgeVolumePercent > 0.0 && v > hedgeVolumePercent) v = hedgeVolumePercent;
    if(hardMaxCoverage > 0.0 && v > hardMaxCoverage) v = hardMaxCoverage;
    return v > 0.0 ? v : 0.0;
+}
+
+// T17.5: the user may enter coverage targets in any order. Hedge Pyramid is
+// add-only, so runtime canonicalizes the positive targets into ascending,
+// unique effective coverage levels after applying the existing master/hard
+// caps. This does not introduce an implicit Hedge reduction on a descending
+// input token. The final configured coverage cap remains an implicit last
+// target when it is above every explicit effective target.
+int Pyramid_NormalizeCoverageTargetsPure(const double &raw[],
+                                          const double hedgeVolumePercent,
+                                          const double hardMaxCoverage,
+                                          double &normalized[])
+{
+   ArrayResize(normalized, 0);
+   int count = ArraySize(raw);
+   if(count <= 0) return 0;
+
+   double work[];
+   ArrayResize(work, count);
+   int valid = 0;
+   for(int i = 0; i < count; i++)
+   {
+      double v = Pyramid_EffectiveCoveragePure(raw[i], hedgeVolumePercent,
+                                               hardMaxCoverage);
+      if(v <= 0.0) continue;
+      work[valid++] = v;
+   }
+   if(valid <= 0) return 0;
+   ArrayResize(work, valid);
+   ArraySort(work);
+
+   for(int i = 0; i < valid; i++)
+   {
+      int n = ArraySize(normalized);
+      if(n > 0 && MathAbs(work[i] - normalized[n-1]) <= 1e-9) continue;
+      ArrayResize(normalized, n + 1);
+      normalized[n] = work[i];
+   }
+
+   double finalCap = Pyramid_EffectiveCoveragePure(hedgeVolumePercent,
+                                                    hedgeVolumePercent,
+                                                    hardMaxCoverage);
+   int n = ArraySize(normalized);
+   if(finalCap > 0.0 && (n <= 0 || finalCap > normalized[n-1] + 1e-9))
+   {
+      ArrayResize(normalized, n + 1);
+      normalized[n] = finalCap;
+   }
+   return ArraySize(normalized);
 }
 
 bool Pyramid_CoreModeValid(const eCorePyramidMode mode)
@@ -407,9 +475,6 @@ bool Pyramid_ValidateConfig(string &why)
       { why = "Chuỗi coverage Hedge Pyramid không hợp lệ"; return false; }
       if(ArraySize(cov) > BD_PYRAMID_MAX_LEVELS)
       { why = "Chuỗi coverage Hedge Pyramid vượt 32 bậc"; return false; }
-      for(int i = 1; i < ArraySize(cov); i++)
-         if(cov[i] <= cov[i-1])
-         { why = "Chuỗi coverage Hedge Pyramid phải tăng dần nghiêm ngặt"; return false; }
       if(ArraySize(cov) > 1 && !Pyramid_ParsePositiveSequence(HedgePyramidGapSequence_, gaps))
       { why = "Chuỗi khoảng cách Hedge Pyramid không hợp lệ"; return false; }
    }
