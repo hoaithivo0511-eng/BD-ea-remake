@@ -1,8 +1,9 @@
 //+------------------------------------------------------------------+
-//| RunT176HardeningTests.mq5 — T17.6 Stage-A pure policy locks      |
+//| RunT176HardeningTests.mq5 — T17.6 pure policy locks              |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Recovery/RecoveryT16Config.mqh>
+#include <BlackDragon/Recovery/RecoveryDca.mqh>
 
 int g_pass=0, g_fail=0;
 void Check(const string name,const bool cond)
@@ -54,6 +55,13 @@ void OnStart()
          Recovery_T17CrossInputsValidPure(recovery_ACTIVE,
                                           hedge_pyramid_BAC_COVERAGE,
                                           false,150.0,160.0,90.0));
+
+   string why="";
+   Check("DCA min coverage above 100 is valid when Recovery is enabled",
+         Recovery_ValidateDcaConfig(recovery_ACTIVE,150.0,0.0,why));
+   why="";
+   Check("negative DCA min coverage remains invalid",
+         !Recovery_ValidateDcaConfig(recovery_ACTIVE,-1.0,0.0,why));
 
    Print("T17.6 hardening tests: ",g_pass," passed, ",g_fail," failed");
    if(g_fail==0) Print("ALL GREEN");
