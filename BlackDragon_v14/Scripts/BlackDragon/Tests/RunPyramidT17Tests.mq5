@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RunPyramidT17Tests.mq5 — T17.3 native pure-policy tests          |
+//| RunPyramidT17Tests.mq5 — T17.4 native pure-policy tests          |
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Pyramid/PyramidConfig.mqh>
@@ -101,6 +101,16 @@ void OnStart()
          Pyramid_EconomicMinLockedAllowsPure(100.0,-40.0,5.0,0.10,1.0,0.01,0.1));
    Check("economic min locked zero disables gate",
          Pyramid_EconomicMinLockedAllowsPure(-100.0,-100.0,0.0,0.10,1.0,0.01,0.1));
+   Check("fixed candidate Peel risk blocks underfunded add",
+         !Pyramid_FixedLotPeelReserveAllowsPure(31.99,0.0,0.0,2.0,0.0,30.0));
+   Check("fixed live Pyramid profit is not double-funded",
+         !Pyramid_FixedLotPeelReserveAllowsPure(79.99,30.0,0.0,2.0,18.0,30.0));
+   Check("fixed full residual Peel reserve exact boundary allows",
+         Pyramid_FixedLotPeelReserveAllowsPure(80.0,30.0,0.0,2.0,18.0,30.0));
+   Check("fixed zero min lock still funds Peel risk",
+         !Pyramid_FixedLotPeelReserveAllowsPure(29.99,0.0,0.0,0.0,0.0,30.0));
+   Check("fixed realized Peel debt blocks refill",
+         !Pyramid_FixedLotPeelReserveAllowsPure(50.0,0.0,-25.0,0.0,0.0,30.0));
 
    Check("DCA priority releases Pyramid at full MaxOrders",
          Pyramid_DcaPriorityReleaseNeededPure(true,59,59,30));
@@ -116,7 +126,7 @@ void OnStart()
    Check("SELL economic TP shifted away", Near(Pyramid_AdjustTpLevelPure(1,3998.0,-50.0,0.10,1.0,0.01),3993.0));
    Check("positive realized never pulls TP closer", Near(Pyramid_AdjustTpLevelPure(0,4002.0,25.0,0.10,1.0,0.01),4002.0));
 
-   // T17.3 MoneyGuard: absolute money uses raw current floating, not campaign realized.
+   // T17.4 MoneyGuard: absolute money uses raw current floating, not campaign realized.
    Check("raw floating 350 hits 300 MoneyTP despite historical loss", MG_MoneyTpHit(350.0,300.0));
    Check("raw floating below target does not hit", !MG_MoneyTpHit(299.99,300.0));
    Check("legacy PctDiff tiny positive decision shape hits",
@@ -125,6 +135,20 @@ void OnStart()
          !MG_PctDiffHitBuffered(-2.21,2.47,10.0,1.0));
    Check("PctDiff execution buffer allows robust surplus",
          MG_PctDiffHitBuffered(-10.0,15.0,10.0,3.0));
+   Check("PctDiff campaign debt blocks floating-only false profit",
+         !MG_PctDiffEconomicHitBuffered(26.71,-9.42,10.0,-73.23,true,2.64));
+   Check("PctDiff recovered campaign permits buffered flatten",
+         MG_PctDiffEconomicHitBuffered(80.0,-20.0,10.0,-50.0,true,5.0));
+   Check("PctDiff history unavailable fails closed",
+         !MG_PctDiffEconomicHitBuffered(80.0,-20.0,10.0,0.0,false,5.0));
+   Check("ticket-aware reserve reproduces XAU audit",
+         Near(MG_PctDiffExecutionReserveCashPure(0.24,0.03,0.11,9,0.001,0.10),8.25));
+   Check("ticket-aware reserve keeps two-spread floor",
+         Near(MG_PctDiffExecutionReserveCashPure(0.24,0.0,0.11,9,0.001,0.10),5.28));
+   Check("ticket-aware reserve invalid metadata fails closed",
+         MG_PctDiffExecutionReserveCashPure(0.24,0.03,0.11,9,0.0,0.10)==DBL_MAX);
+   Check("ticket-aware reserve zero lots is zero",
+         MG_PctDiffExecutionReserveCashPure(0.24,0.03,0.0,9,0.001,0.10)==0.0);
    Check("guard latch starts",
          MG_LatchNextPure(GUARD_NONE,GUARD_CLOSE_ACCOUNT,false)==GUARD_CLOSE_ACCOUNT);
    Check("guard latch survives threshold retreat",
@@ -155,6 +179,6 @@ void OnStart()
    else
       Check("broker minimum metadata available", false);
 
-   PrintFormat("Pyramid T17.3 tests: %d passed, %d failed",g_pass,g_fail);
-   if(g_fail==0) Print("ALL GREEN — T17.3 guard-priority + rearm + DCA coexistence + fixed-lot economics passed.");
+   PrintFormat("Pyramid T17.4 tests: %d passed, %d failed",g_pass,g_fail);
+   if(g_fail==0) Print("ALL GREEN — T17.4 campaign economics + execution reserve + fixed-lot Peel funding passed.");
 }

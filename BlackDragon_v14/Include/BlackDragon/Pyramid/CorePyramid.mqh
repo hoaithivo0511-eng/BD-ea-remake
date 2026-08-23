@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| CorePyramid.mqh — T17.3 serial re-arm + DCA coexistence         |
+//| CorePyramid.mqh — T17.4 campaign-safe serial re-arm + DCA       |
 //| Campaign economics survive epochs; historical price extreme does|
 //| not. Peel exit creates temporary hysteresis anchor only.         |
 //+------------------------------------------------------------------+
@@ -25,6 +25,7 @@ struct SPyramidBook
    datetime newestNonPyramidTime;
    long newestNonPyramidTimeMsc;
    double pyramidLots;
+   double pyramidProfit;
    double nonPyramidLots;
    ulong seedTicket;
    datetime seedOpenTime;
@@ -88,6 +89,7 @@ void Pyramid_ReadBook(const BasketSide &side, SPyramidBook &book)
       {
          book.pyramidCount++;
          book.pyramidLots += side.pos[i].lots;
+         book.pyramidProfit += side.pos[i].profit;
          if(level > book.highestLevel) book.highestLevel = level;
          if(openMsc > book.newestPyramidTimeMsc ||
             (openMsc == book.newestPyramidTimeMsc &&
@@ -193,7 +195,7 @@ void Pyramid_RecordMutation(SPyramidCampaignStats &stats,
 }
 
 // Campaign source of truth: serial identity + realized cash + latest mutation
-// survive restart. T17.3 never uses lastSerialEntryPrice as permanent anchor.
+// survive restart. T17.4 never uses lastSerialEntryPrice as permanent anchor.
 bool Pyramid_ReadCampaignHistory(const int dir,
                                  const datetime seedOpenTime,
                                  const datetime now,
@@ -389,7 +391,7 @@ private:
       if(pip <= 0.0) return false;
       if(!Pyramid_PeelHitPure(dir, book.newestPyramidOpen, ctx.bid, ctx.ask,
                               PyramidPeelGapPips_ * pip)) return false;
-      return CloseNewestPyramid(book, dir, "T17.3 LIFO Peel", why);
+      return CloseNewestPyramid(book, dir, "T17.4 LIFO Peel", why);
    }
 
    bool TryAdd(const EAContext &ctx, const BasketSide &side, const int dir,
@@ -466,6 +468,34 @@ private:
          if(PyramidMaxTotalLots_ > 0.0 &&
             side.totalLots + candidate > PyramidMaxTotalLots_ + 1e-9)
          { why = "BLOCK_FIXED_LOT_TOTAL_CAP"; return false; }
+
+         double riskPerLot = RiskCashPerLot(ctx);
+         double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+         double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+         if(riskPerLot <= 0.0 || tickSize <= 0.0 || tickValue <= 0.0)
+         { why = "BLOCK_FIXED_LOT_RISK_METADATA"; return false; }
+         double minLockedCash = Pyramid_PipsCashPure(PyramidMinLockedProfitPips_,
+                                                      side.totalLots,
+                                                      tickValue,
+                                                      tickSize,
+                                                      pip);
+         double openRiskCash = book.pyramidLots * riskPerLot;
+         double candidateRiskCash = candidate * riskPerLot;
+         double fundingCash = side.totalProfit - book.pyramidProfit + stats.realizedCash;
+         double requiredCash = minLockedCash + openRiskCash + candidateRiskCash;
+         if(!Pyramid_FixedLotPeelReserveAllowsPure(side.totalProfit,
+                                                    book.pyramidProfit,
+                                                    stats.realizedCash,
+                                                    minLockedCash,
+                                                    openRiskCash,
+                                                    candidateRiskCash))
+         {
+            why = "BLOCK_FIXED_LOT_PEEL_RESERVE funding=" +
+                  DoubleToString(fundingCash, 2) + " required=" +
+                  DoubleToString(requiredCash, 2) + " livePyramidFloating=" +
+                  DoubleToString(book.pyramidProfit, 2);
+            return false;
+         }
       }
       else
       {
@@ -510,7 +540,7 @@ private:
                           stats.lastExitTimeMsc > stats.lastAddTimeMsc ? "post-exit" :
                           book.pyramidCount > 0 ? "live-Pyramid" : "basket-BE";
       double triggerPrice = dir == BD_DIR_BUY ? ctx.ask : ctx.bid;
-      why = "T17.3 Pyramid Core mở serial=" + (string)level +
+      why = "T17.4 Pyramid Core mở serial=" + (string)level +
             " concurrent=" + (string)(book.pyramidCount + 1) +
             "/" + (string)PyramidMaxAdds_ +
             " lot=" + DoubleToString(candidate, 2) +
@@ -519,7 +549,9 @@ private:
             " trigger=" + DoubleToString(triggerPrice, ctx.digits) +
             " gapPips=" + DoubleToString(gapPips, 2) +
             " economic=" + DoubleToString(Pyramid_CampaignEconomicProfitPure(side.totalProfit,
-                                                                               stats.realizedCash), 2);
+                                                                               stats.realizedCash), 2) +
+            " reserveFunding=" + DoubleToString(side.totalProfit - book.pyramidProfit +
+                                                  stats.realizedCash, 2);
       return true;
    }
 
@@ -588,7 +620,7 @@ public:
       if(m_exec == NULL || dir < BD_DIR_BUY || dir > BD_DIR_SELL) return false;
       SPyramidBook book;
       Pyramid_ReadBook(side, book);
-      return CloseNewestPyramid(book, dir, "T17.3 DCA_PRIORITY_RELEASE", why);
+      return CloseNewestPyramid(book, dir, "T17.4 DCA_PRIORITY_RELEASE", why);
    }
 
    bool RefreshCampaignStats(const BasketSide &side, const int dir, const datetime now)

@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| Strategy.mqh — BlackDragon T17.3 runtime                         |
+//| Strategy.mqh — BlackDragon T17.4 runtime                         |
 //| P0 floating MoneyGuard + Pyramid/DCA coexistence + re-arm.       |
 //+------------------------------------------------------------------+
 #ifndef BD_STRATEGY_MQH
@@ -77,7 +77,7 @@ private:
       bool sellOk = m_pyramid.RefreshCampaignStats(m_basket.sell, BD_DIR_SELL, ctx.now);
       if(!buyOk || !sellOk)
          Log_WarnEvery("Pyramid", "campaignhistory",
-                       "T17.3 chưa đọc đủ Pyramid campaign history; tạm hoãn Pyramid ADD/economic basket TP, risk-reducing Peel và floating MoneyGuard vẫn hoạt động",
+                       "T17.4 chưa đọc đủ Pyramid campaign history; tạm hoãn Pyramid ADD/economic basket TP/PctDiff, risk-reducing Peel và absolute floating MoneyGuard vẫn hoạt động",
                        Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
    }
 
@@ -123,7 +123,7 @@ private:
       if(m_guardLatched == GUARD_NONE && next != GUARD_NONE)
       {
          m_guardLatchAt = now;
-         Log_Warn("Guard", "latch", "T17.3 MoneyGuard CLOSE LATCHED scope=" +
+         Log_Warn("Guard", "latch", "T17.4 MoneyGuard CLOSE LATCHED scope=" +
                   GuardActionName(next) + "; no new Seed/DCA/Pyramid/Recovery ADD until flat");
       }
       m_guardLatched = next;
@@ -142,7 +142,7 @@ private:
 
       if(flat && !pendingOpen && !pendingClose && !recoveryBusy)
       {
-         Log_Info("Guard", "T17.3 MoneyGuard close-to-flat COMPLETE scope=" +
+         Log_Info("Guard", "T17.4 MoneyGuard close-to-flat COMPLETE scope=" +
                   GuardActionName(m_guardLatched) + " latchedAt=" +
                   TimeToString(m_guardLatchAt, TIME_DATE | TIME_SECONDS));
          m_guardLatched = MG_LatchNextPure(m_guardLatched, GUARD_NONE, true);
@@ -254,6 +254,7 @@ private:
       if(tickSize <= 0.0 || tickValue <= 0.0) return DBL_MAX;
 
       double lots = m_basket.buy.totalLots + m_basket.sell.totalLots;
+      int closeRequests = m_basket.buy.count + m_basket.sell.count;
       if(RecoveryMode_ == recovery_ACTIVE && RecoveryMagic_ > 0)
       {
          for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -264,11 +265,18 @@ private:
                PositionGetInteger(POSITION_MAGIC) != (long)RecoveryMagic_)
                continue;
             lots += PositionGetDouble(POSITION_VOLUME);
+            closeRequests++;
          }
       }
       if(lots <= 0.0) return 0.0;
-      double executionMove = MathMax(MathMax(ctx.ask - ctx.bid, 0.0), tickSize);
-      return executionMove / tickSize * tickValue * lots;
+      double spreadPrice = MathMax(ctx.ask - ctx.bid, 0.0);
+      double deviationPrice = (double)Exec_Deviation(Slippage_, Cfg.PointScale) * ctx.point;
+      return MG_PctDiffExecutionReserveCashPure(spreadPrice,
+                                                deviationPrice,
+                                                lots,
+                                                closeRequests,
+                                                tickSize,
+                                                tickValue);
    }
 
    bool ApplyGuardPriority(const EAContext &ctx)
@@ -326,6 +334,20 @@ private:
 
       bool bothCoreOpen = m_basket.buy.count > 0 && m_basket.sell.count > 0;
       double pctBuffer = PctDiffExecutionBufferCash(ctx);
+      double pyramidCampaignRealized = 0.0;
+      bool pctCampaignHistoryValid = true;
+      if(CorePyramidMode_ != pyramid_TAT && m_pyramid != NULL && bothCoreOpen)
+      {
+         pctCampaignHistoryValid = m_pyramid.CampaignHistoryReady(BD_DIR_BUY) &&
+                                   m_pyramid.CampaignHistoryReady(BD_DIR_SELL);
+         if(pctCampaignHistoryValid)
+            pyramidCampaignRealized = m_pyramid.CampaignRealized(BD_DIR_BUY) +
+                                      m_pyramid.CampaignRealized(BD_DIR_SELL);
+         else if(PctDiffClose > 0.0)
+            Log_WarnEvery("Guard", "t174pcthistory",
+                          "T17.4 PctDiff deferred: active Pyramid campaign history is not ready",
+                          Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+      }
       eGuardAction action = m_guard.CheckSecondaryFloating(ctx.now,
                                                            buyFloating,
                                                            sellFloating,
@@ -333,6 +355,8 @@ private:
                                                            dayNet,
                                                            dayStartBalance,
                                                            dayNetValid,
+                                                           pyramidCampaignRealized,
+                                                           pctCampaignHistoryValid,
                                                            pctBuffer);
       if(action == GUARD_NONE) return false;
       LatchGuard(action, ctx.now);
@@ -364,7 +388,7 @@ private:
    {
       if(side.count <= 0 || maxOrders <= 0) return false;
 
-      // T17.3: DCA evaluates only Seed+DCA positions even while Pyramid is live.
+      // T17.4: DCA evaluates only Seed+DCA positions even while Pyramid is live.
       BasketSide dcaSide;
       if(m_pyramid != NULL) m_pyramid.BuildDcaView(side, dcaSide);
       else dcaSide = side;
@@ -706,7 +730,7 @@ public:
                return;
             }
             if(pyrWhy != "")
-               Log_WarnEvery("Pyramid", "t173block0", pyrWhy,
+               Log_WarnEvery("Pyramid", "t174block0", pyrWhy,
                              Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
          }
 
@@ -725,7 +749,7 @@ public:
                return;
             }
             if(pyrWhy != "")
-               Log_WarnEvery("Pyramid", "t173block1", pyrWhy,
+               Log_WarnEvery("Pyramid", "t174block1", pyrWhy,
                              Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
          }
       }

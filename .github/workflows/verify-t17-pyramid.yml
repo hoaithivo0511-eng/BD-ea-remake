@@ -24,7 +24,7 @@ env:
   SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
-  t173-model:
+  t174-model:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,17 +32,17 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
 
-      - name: Run T17.3 pure model oracle
+      - name: Run T17.4 pure model oracle
         shell: bash
         run: |
           set -euo pipefail
           SRC='BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t17_model.cpp'
-          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t173
-          /tmp/t173 | tee /tmp/t173.out
-          grep -q 'Pyramid T17.3 model: 58 passed, 0 failed' /tmp/t173.out
-          grep -q 'ALL GREEN' /tmp/t173.out
+          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t174
+          /tmp/t174 | tee /tmp/t174.out
+          grep -q 'Pyramid T17.4 model: 70 passed, 0 failed' /tmp/t174.out
+          grep -q 'ALL GREEN' /tmp/t174.out
 
-      - name: Verify T17.3 source invariants
+      - name: Verify T17.4 source invariants
         shell: python
         run: |
           import re
@@ -57,10 +57,11 @@ jobs:
 
           inputs=re.findall(r'^input\s+(?!group\b)[^\n]+', cfg, flags=re.M)
           assert len(inputs)==20, f'expected exactly 20 T17 inputs, got {len(inputs)}'
-          assert '#define BD_PYRAMID_POLICY_REV 4' in cfg
+          assert '#define BD_PYRAMID_POLICY_REV 5' in cfg
           for token in ['Pyramid_NextSerialLevelPure','Pyramid_ConcurrentAddAllowedPure',
                         'Pyramid_T173RearmAnchorPure','Pyramid_T173AddAfterMutationAllowsPure',
-                        'Pyramid_EconomicMinLockedAllowsPure','Pyramid_DcaPriorityReleaseNeededPure',
+                        'Pyramid_EconomicMinLockedAllowsPure','Pyramid_FixedLotPeelReserveAllowsPure',
+                        'Pyramid_DcaPriorityReleaseNeededPure',
                         'Pyramid_RiskBudgetAppliesPure','Pyramid_RiskModeReadyPure',
                         'Pyramid_CampaignEconomicProfitPure','Pyramid_AdjustTpLevelPure']:
               assert token in cfg
@@ -87,6 +88,11 @@ jobs:
           assert 'PyramidLotMode_ == pyramid_LOT_CHUOI' in core
           assert 'candidate = Grid_NormalizeVolume(candidate)' in core
           assert 'BLOCK_FIXED_LOT_TOTAL_CAP' in core
+          assert 'BLOCK_FIXED_LOT_PEEL_RESERVE' in core
+          assert 'book.pyramidProfit += side.pos[i].profit' in core
+          assert 'book.pyramidProfit' in core
+          assert 'book.pyramidLots * riskPerLot' in core
+          assert 'candidate * riskPerLot' in core
           assert 'Pyramid_RiskBudgetAppliesPure(PyramidLotMode_, PyramidRiskBudgetPercent_)' in core
           assert 'Pyramid_CumulativeAddAllowedPure(stats.addCount, PyramidMaxAdds_)' not in core
           assert 'stats.highestEntryPrice' not in core
@@ -112,16 +118,19 @@ jobs:
           strict=strategy.index('strict Pyramid mutation', on_tick)
           recovery=strategy.index('m_recovery.DriveActive', on_tick)
           assert on_tick < priority < strict < recovery
-          assert 'buyFloatingEconomic + pyrBuyRealized' not in strategy
-          assert 'sellFloatingEconomic + pyrSellRealized' not in strategy
-          assert 'CampaignRealized(BD_DIR_BUY)' not in strategy
-          assert 'CampaignRealized(BD_DIR_SELL)' not in strategy
+          assert 'CampaignRealized(BD_DIR_BUY)' in strategy
+          assert 'CampaignRealized(BD_DIR_SELL)' in strategy
+          assert 'pctCampaignHistoryValid' in strategy
+          assert 'MG_PctDiffExecutionReserveCashPure' in strategy
+          assert 'Exec_Deviation(Slippage_, Cfg.PointScale)' in strategy
           assert 'EconomicTpLevel(side, dir, side.tpLevel, economicTp)' in strategy
           assert 'EconomicTpLevel(side, dir, tp, economicTp)' in strategy
 
           assert 'CheckFloatingPriority' in guard
           assert 'CheckSecondaryFloating' in guard
           assert 'MG_PctDiffHitBuffered' in guard
+          assert 'MG_PctDiffEconomicHitBuffered' in guard
+          assert 'MG_PctDiffExecutionReserveCashPure' in guard
           assert 'MG_LatchNextPure' in guard
           assert 'Money TP All account FLOATING' in guard
           assert 'Money TP All account ECONOMIC' not in guard
@@ -137,7 +146,7 @@ jobs:
           assert 'TpPriorityRequiresActivation' in hedge
           assert 'ProjectedRoomAllows' in hedge
           assert 'generationCount++' not in hedge
-          print('T17.3 source invariants PASS')
+          print('T17.4 source invariants PASS')
 
       - name: Record exact source identity
         shell: bash
@@ -146,7 +155,7 @@ jobs:
           echo "HEAD=$(git rev-parse HEAD)"
           echo "TREE=$(git show -s --format=%T HEAD)"
 
-  t173-metaeditor-native:
+  t174-metaeditor-native:
     runs-on: windows-latest
     timeout-minutes: 40
     env:
@@ -191,10 +200,10 @@ jobs:
             }
           }
 
-      - name: Compile exact T17.3 targets
+      - name: Compile exact T17.4 targets
         shell: pwsh
         run: |
-          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t173"
+          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t174"
           New-Item -ItemType Directory -Force -Path $build | Out-Null
           $targets=@(
             @{N='RunPyramidT17Tests';S="$mql5\Scripts\BlackDragon\Tests\RunPyramidT17Tests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunPyramidT17Tests.ex5"},
@@ -215,13 +224,13 @@ jobs:
           if($head -ne $env:SOURCE_SHA){throw 'provenance HEAD mismatch'}
           $eaHash=(Get-FileHash (Join-Path $build 'BlackDragon.ex5') -Algorithm SHA256).Hash.ToLowerInvariant()
           "HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$eaHash`n" | Out-File "$build\PROVENANCE.txt" -Encoding utf8
-          Write-Host "T17.3 MetaEditor PASS: 0 errors / 0 warnings"
+          Write-Host "T17.4 MetaEditor PASS: 0 errors / 0 warnings"
           Write-Host "HEAD=$head TREE=$tree BlackDragon.ex5 SHA256=$eaHash"
 
-      - name: Execute native T17.3 policy script
+      - name: Execute native T17.4 policy script
         shell: pwsh
         run: |
-          $build="$env:GITHUB_WORKSPACE\build-t173"
+          $build="$env:GITHUB_WORKSPACE\build-t174"
           Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
           $logDir="$env:MT5_DIR\MQL5\Logs"
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -232,32 +241,32 @@ jobs:
           $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru
           $deadline=(Get-Date).AddMinutes(4)
           while(-not $p.HasExited -and (Get-Date)-lt $deadline){Start-Sleep 2;$p.Refresh()}
-          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'T17.3 native timeout'}
+          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'T17.4 native timeout'}
           $logs=Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
-          if(-not $logs){throw 'T17.3 native log missing'}
+          if(-not $logs){throw 'T17.4 native log missing'}
           $latest=$logs[-1]
           Copy-Item $latest.FullName (Join-Path $build 'RunPyramidT17Tests-native.log') -Force
           $raw=Get-Content $latest.FullName -Raw; Write-Host $raw
-          $m=[regex]::Match($raw,'Pyramid T17\.3 tests:\s*(\d+) passed,\s*(\d+) failed')
-          if(-not $m.Success){throw 'T17.3 summary missing'}
-          if([int]$m.Groups[1].Value -ne 89 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
-          { throw 'T17.3 expected 89/0' }
-          Write-Host 'T17.3 native PASS 89/0'
+          $m=[regex]::Match($raw,'Pyramid T17\.4 tests:\s*(\d+) passed,\s*(\d+) failed')
+          if(-not $m.Success){throw 'T17.4 summary missing'}
+          if([int]$m.Groups[1].Value -ne 101 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
+          { throw 'T17.4 expected 101/0' }
+          Write-Host 'T17.4 native PASS 101/0'
 
-      - name: Package exact T17.3 evidence
+      - name: Package exact T17.4 evidence
         shell: pwsh
         run: |
-          $build="$env:GITHUB_WORKSPACE\build-t173"
-          Compress-Archive "$build\*" "$env:GITHUB_WORKSPACE\BlackDragon-T17.3-evidence.zip" -Force
-          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T17.3-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $build="$env:GITHUB_WORKSPACE\build-t174"
+          Compress-Archive "$build\*" "$env:GITHUB_WORKSPACE\BlackDragon-T17.4-evidence.zip" -Force
+          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T17.4-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           "PACKAGE_SHA256=$h" | Add-Content "$build\PROVENANCE.txt"
           Write-Host "PACKAGE_SHA256=$h"
 
-      - name: Upload exact T17.3 evidence
+      - name: Upload exact T17.4 evidence
         uses: actions/upload-artifact@v4
         with:
-          name: blackdragon-t173-exact-tree
+          name: blackdragon-t174-exact-tree
           path: |
-            build-t173/
-            BlackDragon-T17.3-evidence.zip
+            build-t174/
+            BlackDragon-T17.4-evidence.zip
           if-no-files-found: error

@@ -25,6 +25,7 @@ static bool risk_mode_ready(int mode,double pct){return mode!=2||pct>0;}
 static double econ(double f,double r){return f+r;}
 static double pips_cash(double pips,double lots,double tv,double ts,double pip){if(pips<=0||lots<=0||tv<=0||ts<=0||pip<=0)return 0;return pips*pip/ts*tv*lots;}
 static bool economic_lock(double f,double r,double minPips,double lots,double tv,double ts,double pip){if(minPips<=0)return true;double need=pips_cash(minPips,lots,tv,ts,pip);return need>0&&econ(f,r)+1e-9>=need;}
+static bool fixed_peel_reserve(double f,double livePyr,double r,double lock,double openRisk,double candidateRisk){if(lock<0||openRisk<0||candidateRisk<=0)return false;return f-livePyr+r+1e-9>=lock+openRisk+candidateRisk;}
 static bool dca_release(bool due,int total,int maxOrders,int pyramids){return due&&maxOrders>0&&total>=maxOrders&&pyramids>0;}
 static double shift(double r,double lots,double tv,double ts){if(r>=0||lots<=0||tv<=0||ts<=0)return 0;return(-r)/(tv*lots)*ts;}
 static double adjtp(int d,double base,double r,double lots,double tv,double ts){double s=shift(r,lots,tv,ts);return d==0?base+s:base-s;}
@@ -35,6 +36,8 @@ static long clampmin(long x,long m){if(x<=0)return 0;if(m<=0)return x;return x<m
 static bool money_tp(double p,double tp){return tp>0&&p>=tp;}
 static bool pctdiff(double buy,double sell,double pct){if(pct<=0)return false;double win=std::max(buy,sell),lose=std::min(buy,sell);if(lose>=0)return false;return win+lose*(1.0+pct/100.0)>=0;}
 static bool pctdiff_buffered(double buy,double sell,double pct,double buffer){return pctdiff(buy,sell,pct)&&(buy+sell)>=std::max(buffer,0.0);}
+static bool pctdiff_economic_buffered(double buy,double sell,double pct,double realized,bool valid,double buffer){return valid&&pctdiff(buy,sell,pct)&&(buy+sell+realized)>=std::max(buffer,0.0);}
+static double execution_reserve(double spread,double deviation,double lots,int requests,double ts,double tv){if(ts<=0||tv<=0)return 1e300;if(lots<=0)return 0;int n=std::max(requests,1);double move=2.0*std::max(spread,ts)+std::max(deviation,0.0)*n;return move/ts*tv*lots;}
 enum GuardAction{NONE=0,ACCOUNT=1,MAGIC=2,BUY=3,SELL=4,DAILY=5};
 static int latch_next(int latched,int triggered,bool flat){if(latched!=NONE)return flat?NONE:latched;return triggered;}
 
@@ -58,6 +61,11 @@ int main(){
  check("economic min lock blocks hidden loss",!economic_lock(20,-80,5,.10,1,.01,.1));
  check("economic min lock allows funded campaign",economic_lock(100,-40,5,.10,1,.01,.1));
  check("zero min lock disabled",economic_lock(-100,-100,0,.10,1,.01,.1));
+ check("fixed candidate Peel risk blocks underfunded add",!fixed_peel_reserve(31.99,0,0,2,0,30));
+ check("fixed live Pyramid profit is not double-funded",!fixed_peel_reserve(79.99,30,0,2,18,30));
+ check("fixed full residual Peel reserve exact boundary allows",fixed_peel_reserve(80,30,0,2,18,30));
+ check("fixed zero min lock still funds Peel risk",!fixed_peel_reserve(29.99,0,0,0,0,30));
+ check("fixed realized Peel debt blocks refill",!fixed_peel_reserve(50,0,-25,0,0,30));
  check("DCA priority release when full of Pyramid",dca_release(true,59,59,30));
  check("DCA no release when slot exists",!dca_release(true,58,59,30));
  check("DCA no release when no Pyramid",!dca_release(true,59,59,0));
@@ -68,6 +76,13 @@ int main(){
  check("PctDiff legacy shape hits tiny surplus",pctdiff(-2.21,2.47,10));
  check("PctDiff safety buffer blocks tiny surplus",!pctdiff_buffered(-2.21,2.47,10,1.0));
  check("PctDiff safety buffer allows realizable surplus",pctdiff_buffered(-10,15,10,3.0));
+ check("PctDiff campaign debt blocks floating-only false profit",!pctdiff_economic_buffered(26.71,-9.42,10,-73.23,true,2.64));
+ check("PctDiff recovered campaign permits buffered flatten",pctdiff_economic_buffered(80,-20,10,-50,true,5));
+ check("PctDiff history unavailable fails closed",!pctdiff_economic_buffered(80,-20,10,0,false,5));
+ check("ticket-aware reserve reproduces XAU audit",std::fabs(execution_reserve(.24,.03,.11,9,.001,.10)-8.25)<1e-9);
+ check("ticket-aware reserve keeps two-spread floor",std::fabs(execution_reserve(.24,0,.11,9,.001,.10)-5.28)<1e-9);
+ check("ticket-aware reserve invalid metadata fails closed",execution_reserve(.24,.03,.11,9,0,.10)>1e200);
+ check("ticket-aware reserve zero lots is zero",execution_reserve(.24,.03,0,9,.001,.10)==0);
  check("guard latch starts",latch_next(NONE,ACCOUNT,false)==ACCOUNT);
  check("guard latch survives threshold retreat",latch_next(ACCOUNT,NONE,false)==ACCOUNT);
  check("guard latch clears only flat",latch_next(ACCOUNT,NONE,true)==NONE);
@@ -75,7 +90,7 @@ int main(){
  check("post-peel capacity restored",concurrent_allowed(open,3)); check("post-peel serial P4",serial==4); check("P4 fresh gap from Peel exit",favorable(0,a,4049.9,4050,20)); check("P4 old 4035 region rejected",!favorable(0,a,4034.9,4035,20));
  serial=next_serial(serial); a=rearm_anchor(0,3990,140,100,120,4030);
  check("DCA epoch serial continues",serial==5); check("DCA epoch recovery from BE",favorable(0,a,4009.9,4010,20));
- std::cout<<"Pyramid T17.3 model: "<<pass_count<<" passed, "<<fail_count<<" failed\n";
- if(!fail_count) std::cout<<"ALL GREEN — T17.3 guard-priority + rearm + DCA coexistence policy passed.\n";
+ std::cout<<"Pyramid T17.4 model: "<<pass_count<<" passed, "<<fail_count<<" failed\n";
+ if(!fail_count) std::cout<<"ALL GREEN — T17.4 campaign economics + execution reserve policy passed.\n";
  return fail_count?1:0;
 }

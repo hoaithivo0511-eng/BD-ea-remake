@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| PyramidConfig.mqh — T17.3 Core/Hedge Pyramid policy              |
+//| PyramidConfig.mqh — T17.4 Core/Hedge Pyramid policy              |
 //| Serial re-arm giữ campaign ledger nhưng không giữ price extreme. |
 //+------------------------------------------------------------------+
 #ifndef BD_PYRAMID_CONFIG_MQH
@@ -52,7 +52,7 @@ input double HedgePyramidMinRoomToTPPips_ = 5.0; // Không tăng Hedge nếu tar
 input bool HedgePyramidLockBeforeAdd_ = true; // Chỉ tăng bậc khi phần Hedge đang có đã ở phía lợi nhuận ròng
 
 #define BD_PYRAMID_COMMENT_PREFIX "BDP|"
-#define BD_PYRAMID_POLICY_REV 4
+#define BD_PYRAMID_POLICY_REV 5
 #define BD_PYRAMID_MAX_LEVELS 32
 
 bool Pyramid_IsComment(const string comment)
@@ -281,6 +281,25 @@ bool Pyramid_EconomicMinLockedAllowsPure(const double floatingCash,
                                       tickValue, tickSize, pipSize);
    if(need <= 0.0) return false;
    return Pyramid_CampaignEconomicProfitPure(floatingCash, realizedPyramidCash) + 1e-9 >= need;
+}
+
+// T17.4: fixed LOT_CHUOI remains deterministic and is never resized. The ADD
+// is blocked unless non-Pyramid floating plus campaign realized cash funds
+// the residual lock plus every live and candidate Pyramid Peel liability.
+// Live Pyramid floating is excluded because it is consumed on the path from
+// the current price to those legs' Peel exits.
+bool Pyramid_FixedLotPeelReserveAllowsPure(const double floatingCash,
+                                           const double livePyramidFloatingCash,
+                                           const double realizedPyramidCash,
+                                           const double minLockedCash,
+                                           const double openPyramidRiskCash,
+                                           const double candidateRiskCash)
+{
+   if(minLockedCash < 0.0 || openPyramidRiskCash < 0.0 || candidateRiskCash <= 0.0)
+      return false;
+   double required = minLockedCash + openPyramidRiskCash + candidateRiskCash;
+   double fundingCash = floatingCash - livePyramidFloatingCash + realizedPyramidCash;
+   return fundingCash + 1e-9 >= required;
 }
 
 bool Pyramid_DcaPriorityReleaseNeededPure(const bool dcaDue,

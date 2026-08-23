@@ -1,0 +1,18 @@
+schema_version: "1.0"
+project: BlackDragon Adaptive Recovery / Full Pyramid
+active_task: T17.4
+release_level: DRAFT
+source:
+  branch: feat/t17-full-pyramid
+  parent_head: da921da42fec4d06235745f5d184b359b5ed651d
+  parent_tree: d3cd6b82eeb8cc8fda5b9a6e467ff8f0bb07f1cb
+artifacts:
+  spec: T17_4_EA-SPEC.yaml
+  decisions: T17_4_DECISIONS.yaml
+  contract: T17_4_AI-BUILD-CONTRACT.json
+  task_record: T17_4_RUNTIME_ECONOMIC_SAFETY.md
+runtime_evidence:
+  owner_log_sha256: f558c25794b46ca6441e6eca909210aaf271ed6c9ddc24cf50cc075980d90b1a
+  strategy_tester_status: FAIL_INCOMPLETE
+  forward_status: NOT_ELIGIBLE
+  live_status: NOT_ELIGIBLE

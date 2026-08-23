@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| MoneyGuard.mqh — BlackDragon T17.3                              |
+//| MoneyGuard.mqh — BlackDragon T17.4                              |
 //| Purpose   : FE-401/402 money TP/SL decisions. Absolute-money     |
 //|             guards use CURRENT floating P/L and outrank strategy.|
 //| Invariants: READ-ONLY consumer; NEVER sends trade requests.      |
@@ -34,14 +34,45 @@ bool MG_PctDiffHit(const double buyProfit, const double sellProfit, const double
    return win + lose * (1.0 + pct / 100.0) >= 0;
 }
 
-// T17.3: PctDiff is a secondary guard. The ratio must hit AND the current
-// combined floating surplus must cover a caller-derived execution buffer.
+// T17.4: the PctDiff ratio remains a current-floating signal. Its secondary
+// close-to-flat surplus gate must additionally repay active Pyramid campaign
+// realized debt. Missing campaign history defers only PctDiff fail-closed.
+bool MG_PctDiffEconomicHitBuffered(const double buyProfit,
+                                   const double sellProfit,
+                                   const double pct,
+                                   const double pyramidCampaignRealizedCash,
+                                   const bool campaignHistoryValid,
+                                   const double executionBufferCash)
+{
+   if(!campaignHistoryValid || !MG_PctDiffHit(buyProfit, sellProfit, pct)) return false;
+   double buffer = MathMax(executionBufferCash, 0.0);
+   return buyProfit + sellProfit + pyramidCampaignRealizedCash + 1e-9 >= buffer;
+}
+
+// Compatibility wrapper for callers/tests that have no active campaign debt.
 bool MG_PctDiffHitBuffered(const double buyProfit, const double sellProfit,
                            const double pct, const double executionBufferCash)
 {
-   if(!MG_PctDiffHit(buyProfit, sellProfit, pct)) return false;
-   double buffer = MathMax(executionBufferCash, 0.0);
-   return buyProfit + sellProfit + 1e-9 >= buffer;
+   return MG_PctDiffEconomicHitBuffered(buyProfit, sellProfit, pct, 0.0, true,
+                                        executionBufferCash);
+}
+
+// Conservative synchronous close reserve: two current spreads provide the
+// execution/cost floor, then one configured deviation is reserved for every
+// sequential close request. Invalid symbol economics fail closed.
+double MG_PctDiffExecutionReserveCashPure(const double spreadPrice,
+                                          const double deviationPrice,
+                                          const double totalLots,
+                                          const int closeRequestCount,
+                                          const double tickSize,
+                                          const double tickValue)
+{
+   if(tickSize <= 0.0 || tickValue <= 0.0) return DBL_MAX;
+   if(totalLots <= 0.0) return 0.0;
+   int requests = closeRequestCount > 0 ? closeRequestCount : 1;
+   double spread = MathMax(spreadPrice, tickSize);
+   double move = 2.0 * spread + MathMax(deviationPrice, 0.0) * requests;
+   return move / tickSize * tickValue * totalLots;
 }
 
 // Pure latch transition used by Strategy: once a close is armed, a later
@@ -130,7 +161,7 @@ public:
       bool any = m_pctDiff > 0 || m_tpAccount > 0 || m_slAccount < 0 || m_tpAll > 0 || m_slAll < 0 ||
                  m_tpHedged > 0 || m_tpBuy > 0 || m_slBuy < 0 || m_tpSell > 0 || m_slSell < 0 ||
                  m_dailyTpM > 0 || m_dailySlM < 0 || m_dailyTpP > 0 || m_dailySlP < 0;
-      if(any) Log_Info("Guard", "MoneyGuard active (FE-401/402) — T17.3 floating-money priority armed");
+      if(any) Log_Info("Guard", "MoneyGuard active (FE-401/402) — T17.4 floating-money priority armed");
       if(Halted(TimeCurrent()))
          Log_Info("Guard", "daily halt RESTORED from state file — trading stays halted until " +
                   TimeToString(m_haltUntil, TIME_DATE | TIME_MINUTES));
@@ -139,7 +170,7 @@ public:
    bool     Halted(const datetime now) const { return m_haltUntil != 0 && now < m_haltUntil; }
    datetime HaltUntil(const datetime now) const { return Halted(now) ? m_haltUntil : 0; }
 
-   // P0 T17.3: absolute-money rules operate only on CURRENT floating P/L.
+   // P0 T17.4: absolute-money rules operate only on CURRENT floating P/L.
    // No realized Pyramid/Recovery history is accepted here, so a previously
    // realized Peel loss can never postpone a configured floating-money exit.
    eGuardAction CheckFloatingPriority(const datetime now,
@@ -189,6 +220,8 @@ public:
                                        const double dayNet,
                                        const double dayStartBalance,
                                        const bool dayNetValid,
+                                       const double pyramidCampaignRealizedCash,
+                                       const bool pctCampaignHistoryValid,
                                        const double pctDiffExecutionBufferCash)
    {
       if(dayNetValid && !Halted(now) &&
@@ -201,13 +234,18 @@ public:
          return GUARD_CLOSE_MAGIC_DAILY;
       }
 
-      if(bothOpen && MG_PctDiffHitBuffered(buyFloating, sellFloating,
-                                           m_pctDiff, pctDiffExecutionBufferCash))
+      if(bothOpen && MG_PctDiffEconomicHitBuffered(buyFloating, sellFloating,
+                                                   m_pctDiff,
+                                                   pyramidCampaignRealizedCash,
+                                                   pctCampaignHistoryValid,
+                                                   pctDiffExecutionBufferCash))
       {
          Log_Warn("Guard", "pctd", "PctDiff close-all FLOATING: buy " +
                   DoubleToString(buyFloating, 2) + " / sell " +
                   DoubleToString(sellFloating, 2) + " @ " +
-                  DoubleToString(m_pctDiff, 2) + "%; execution buffer=" +
+                  DoubleToString(m_pctDiff, 2) + "%; Pyramid campaign realized=" +
+                  DoubleToString(pyramidCampaignRealizedCash, 2) +
+                  "; execution reserve=" +
                   DoubleToString(MathMax(pctDiffExecutionBufferCash, 0.0), 2));
          return GUARD_CLOSE_MAGIC;
       }
