@@ -73,6 +73,14 @@ int OnInit()
       Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
       return INIT_PARAMETERS_INCORRECT;
    }
+   // T17.6: this gate is deliberately top-level. Recovery OFF bypasses the
+   // T16 engine validator, but a staged Hedge Pyramid with Recovery OFF is a
+   // silent no-op and must fail configuration instead of misleading the user.
+   if(!Recovery_T17ValidateCrossInputs(recoveryWhy))
+   {
+      Log_Error("Init", "Recovery/Pyramid cross-input config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
 
    Config_ApplyPointScale(Sym_PointScale());
    if(Sym_IsGold())

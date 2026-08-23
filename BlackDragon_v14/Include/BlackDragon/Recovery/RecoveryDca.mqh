@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryDca.mqh — T7 Continue-DCA + corridor/coverage gate       |
+//| RecoveryDca.mqh — T17.6 Continue-DCA + corridor/coverage gate    |
 //| Invariants: filter-only integration; legacy TryGridAdd remains   |
 //|             the sole Core DCA order-generation mechanism.        |
 //+------------------------------------------------------------------+
@@ -17,9 +17,9 @@ bool Recovery_ValidateDcaConfig(const eRecoveryMode mode,
 {
    why = "";
    if(mode == recovery_OFF) return true; // exact legacy-init parity when Recovery is disabled
-   if(minCoveragePercent < 0.0 || minCoveragePercent > 100.0)
+   if(minCoveragePercent < 0.0)
    {
-      why = "MinHedgeCoveragePercent_ must be in [0,100]";
+      why = "MinHedgeCoveragePercent_ must be >= 0";
       return false;
    }
    if(targetCorridorPips < 0.0)
@@ -37,23 +37,15 @@ bool Recovery_DcaPostHedgeStableState(const eRecoveryState state)
           state == recovery_REHEDGE_PENDING;
 }
 
-// OFF and SHADOW never alter legacy DCA. In ACTIVE, CORE_ONLY/ARMED remain
-// eligible because Recovery has not yet established an active hedge. Once a
-// hedge exists, only the explicitly stable states may continue DCA and only
-// when the owner enabled ContinueDcaAfterHedge_. Mutation/pause/reconcile
-// states are fail-closed.
 bool Recovery_DcaStateAllows(const eRecoveryMode mode,
                              const bool continueAfterHedge,
                              const eRecoveryState state)
 {
    if(mode != recovery_ACTIVE) return true;
-
    if(state == recovery_CORE_ONLY || state == recovery_ARMED)
       return true;
-
    if(Recovery_DcaPostHedgeStableState(state))
       return continueAfterHedge;
-
    return false;
 }
 
@@ -76,8 +68,6 @@ double Recovery_CorridorPipsPure(const eRecoveryCoreDirection dir,
    return Recovery_CorridorPrice(dir, coreNetBE, hedgeNetBE) / pipSize;
 }
 
-// Target means "stop adding Core DCA once the desired positive corridor has
-// already been reached". Negative/zero corridor therefore does not block DCA.
 bool Recovery_DcaCorridorAllows(const double targetCorridorPips,
                                 const eRecoveryCoreDirection dir,
                                 const double coreNetBE,
@@ -104,10 +94,7 @@ bool Recovery_DcaGateAllows(const eRecoveryMode mode,
 {
    if(!Recovery_DcaStateAllows(mode, continueAfterHedge, state)) return false;
    if(mode != recovery_ACTIVE) return true;
-
-   // Pre-hedge states retain legacy DCA even when ContinueDcaAfterHedge_=false.
    if(!Recovery_DcaPostHedgeStableState(state)) return true;
-
    if(!Recovery_DcaCoverageAllows(minCoveragePercent, currentCoreLots, activeHedgeLots))
       return false;
    if(!Recovery_DcaCorridorAllows(targetCorridorPips, dir, coreNetBE, hedgeNetBE, pipSize))
@@ -115,13 +102,9 @@ bool Recovery_DcaGateAllows(const eRecoveryMode mode,
    return true;
 }
 
-// Read current broker-observable Recovery hedge exposure for T7 gates.
-// Registry metrics remain useful for telemetry, but DCA permission must not
-// depend on a cached value that may lag the HEDGE_BUILDING -> HEDGE_ACTIVE
-// transition. Entry costs are read only when the corridor gate is enabled.
 double Recovery_DcaPositionEntryCosts(const ulong positionIdentifier,
                                       const string symbol,
-                                      const long recoveryMagic)
+                                      const long ownerMagic)
 {
    if(positionIdentifier == 0 || !HistorySelectByPosition(positionIdentifier)) return 0.0;
    double costs = 0.0;
@@ -130,7 +113,7 @@ double Recovery_DcaPositionEntryCosts(const ulong positionIdentifier,
       ulong deal = HistoryDealGetTicket(i);
       if(deal == 0) continue;
       if(HistoryDealGetString(deal, DEAL_SYMBOL) != symbol ||
-         HistoryDealGetInteger(deal, DEAL_MAGIC) != recoveryMagic)
+         HistoryDealGetInteger(deal, DEAL_MAGIC) != ownerMagic)
          continue;
       long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
@@ -138,6 +121,52 @@ double Recovery_DcaPositionEntryCosts(const ulong positionIdentifier,
              + HistoryDealGetDouble(deal, DEAL_FEE);
    }
    return costs;
+}
+
+// T17.6 exact Core-Magic metrics. BasketManager may intentionally include
+// managed magic-0 positions for panel/legacy basket behavior, but Recovery
+// sizing, coverage and corridor ownership remain exact Core Magic only.
+bool Recovery_ReadDcaCoreMetrics(const string symbol,
+                                 const long coreMagic,
+                                 const eRecoveryCoreDirection dir,
+                                 const bool needNetBE,
+                                 double &coreLots,
+                                 double &netBE)
+{
+   coreLots = 0.0;
+   netBE = 0.0;
+   long wantedType = dir == recovery_CORE_BUY ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   double weighted = 0.0;
+   double signedCosts = 0.0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != symbol ||
+         PositionGetInteger(POSITION_MAGIC) != coreMagic ||
+         PositionGetInteger(POSITION_TYPE) != wantedType)
+         continue;
+      double lots = PositionGetDouble(POSITION_VOLUME);
+      if(lots <= 0.0) continue;
+      coreLots += lots;
+      if(!needNetBE) continue;
+      weighted += PositionGetDouble(POSITION_PRICE_OPEN) * lots;
+      signedCosts += PositionGetDouble(POSITION_SWAP);
+      ulong identifier = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      signedCosts += Recovery_DcaPositionEntryCosts(identifier, symbol, coreMagic);
+   }
+   if(coreLots <= 0.0) return false;
+   if(!needNetBE) return true;
+   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+   if(tickSize <= 0.0 || tickValue <= 0.0) return false;
+   netBE = Recovery_NetBreakevenFromCosts(weighted / coreLots,
+                                           coreLots,
+                                           signedCosts,
+                                           tickValue,
+                                           tickSize,
+                                           wantedType == POSITION_TYPE_BUY);
+   return netBE > 0.0;
 }
 
 bool Recovery_ReadDcaHedgeMetrics(const string symbol,
@@ -189,11 +218,6 @@ bool Recovery_ReadDcaHedgeMetrics(const string symbol,
    return netBE > 0.0;
 }
 
-// RETRO-A2: a Strategy Tester pass that reaches an entry/DCA gate while
-// Recovery ACTIVE is still not ready has no valid behavioral evidence to
-// collect. Stop that pass instead of emitting the same warning for months of
-// modelled time. Live/forward runtime remains fail-closed and keeps running so
-// higher-scope risk/exit handling is still available.
 void Recovery_StopTesterOnStartupBlock(const string scope)
 {
    if(!MQLInfoInteger(MQL_TESTER)) return;
@@ -201,9 +225,6 @@ void Recovery_StopTesterOnStartupBlock(const string scope)
    TesterStop();
 }
 
-// ACTIVE startup gate for automated NEW SERIES. OFF/SHADOW are exact no-ops.
-// T11: a fail-closed readiness block must be visible in Journal rather than
-// silently consuming an otherwise valid signal.
 class CRecoveryStartupFilter : public IEntryFilter
 {
 private:
@@ -231,9 +252,6 @@ public:
    }
 };
 
-// Adapter into the existing Strategy grid-filter chain. It never opens a
-// hedge or a Core order and never mutates Recovery state. Recovery children
-// remain outside CBasketManager because they use RecoveryMagic_.
 class CRecoveryDcaFilter : public IEntryFilter
 {
 private:
@@ -249,7 +267,6 @@ public:
 
    bool Allow(const EAContext &ctx, const int dir)
    {
-      // Mandatory parity: SHADOW observes only and OFF is a no-op.
       if(RecoveryMode_ != recovery_ACTIVE) return true;
       if(m_recovery == NULL || m_basket == NULL)
       {
@@ -271,7 +288,6 @@ public:
       SRecoveryCycle cycle;
       m_recovery.GetCycle(recoveryDir, cycle);
 
-      // State/owner switch can decide most calls without broker scans.
       if(!Recovery_DcaStateAllows(RecoveryMode_, ContinueDcaAfterHedge_, cycle.state))
       {
          Log_Warn("Recovery", "dcastate" + (string)dir,
@@ -282,16 +298,23 @@ public:
       if(!Recovery_DcaPostHedgeStableState(cycle.state))
          return true;
 
-      double coreLots = dir == BD_DIR_BUY ? m_basket.buy.totalLots : m_basket.sell.totalLots;
-      double coreBE   = dir == BD_DIR_BUY ? m_basket.buy.breakeven : m_basket.sell.breakeven;
+      // T17.6: the denominator and net BE use exact Core Magic, matching ARCS.
+      double coreLots = cycle.coreLots;
+      double coreBE   = 0.0;
       double pipSize  = Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
-
       double hedgeLots = cycle.activeHedgeLots;
       double hedgeBE   = cycle.hedgeNetBE;
       bool needCoverage = MinHedgeCoveragePercent_ > 0.0;
       bool needCorridor = TargetRecoveryCorridorPips_ > 0.0;
       if(needCoverage || needCorridor)
       {
+         if(!Recovery_ReadDcaCoreMetrics(_Symbol, (long)Magic, recoveryDir,
+                                         needCorridor, coreLots, coreBE))
+         {
+            Log_Warn("Recovery", "dcacoremetric" + (string)dir,
+                     "Core DCA blocked: exact Core-Magic metrics are unavailable");
+            return false;
+         }
          if(!Recovery_ReadDcaHedgeMetrics(_Symbol, RecoveryMagic_, recoveryDir,
                                           needCorridor, hedgeLots, hedgeBE))
          {

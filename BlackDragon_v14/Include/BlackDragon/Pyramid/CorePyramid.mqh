@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| CorePyramid.mqh — T17.5 durable campaign identity + DCA         |
+//| CorePyramid.mqh — T17.6 durable campaign identity + DCA         |
 //| Campaign economics survive epochs; historical price extreme does|
 //| not. Peel exit creates temporary hysteresis anchor only.         |
 //+------------------------------------------------------------------+
@@ -200,11 +200,25 @@ bool Pyramid_FindActiveCampaignStart(const BasketSide &side,
    startTime = 0;
    startTimeMsc = 0;
    startDeal = 0;
-   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 ||
-      side.totalLots <= 0.0 || now <= 0)
+   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 || now <= 0)
       return false;
    double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   long currentUnits = Recovery_VolumeToUnitsFloor(side.totalLots, step);
+   long wantedPositionType = dir == BD_DIR_BUY ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   long currentUnits = 0;
+   if(step > 0.0)
+      for(int p = PositionsTotal() - 1; p >= 0; p--)
+      {
+         ulong ticket = PositionGetTicket(p);
+         if(ticket == 0) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
+            PositionGetInteger(POSITION_MAGIC) != (long)Magic ||
+            PositionGetInteger(POSITION_TYPE) != wantedPositionType)
+            continue;
+         currentUnits += Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME), step);
+      }
+   // T17.6: campaign identity is exact Core Magic. BasketSide may include
+   // managed manual magic-0 positions when flag_Hand_Ord=true; those positions
+   // must not inflate the replay units against exact-Magic history.
    if(step <= 0.0 || currentUnits <= 0 || !HistorySelect(0, now + 1)) return false;
 
    long openType = dir == BD_DIR_BUY ? DEAL_TYPE_BUY : DEAL_TYPE_SELL;
@@ -276,9 +290,6 @@ bool Pyramid_FindActiveCampaignStart(const BasketSide &side,
       if(timesMsc[n] <= 0) timesMsc[n] = (long)times[n] * 1000;
    }
 
-   // Bind replay to exact (DEAL_TIME_MSC, deal ticket) chronology. If the
-   // terminal returns a non-monotonic selected-history view, fail closed and
-   // retry instead of silently rebuilding a different campaign.
    for(int i = 1; i < ArraySize(deltas); i++)
       if(Pyramid_LaterDeal(timesMsc[i-1], deals[i-1], timesMsc[i], deals[i]))
          return false;
@@ -293,9 +304,6 @@ bool Pyramid_FindActiveCampaignStart(const BasketSide &side,
    return startTime > 0 && startTimeMsc > 0 && startDeal > 0;
 }
 
-// Campaign source of truth: serial identity + realized cash + latest mutation
-// survive restart and seed-ticket rotation. T17.5 never uses
-// lastSerialEntryPrice as permanent anchor.
 bool Pyramid_ReadCampaignHistory(const int dir,
                                  const datetime campaignStartTime,
                                  const long campaignStartTimeMsc,
@@ -719,8 +727,6 @@ public:
       return LatestCoreAddTimeInternal(side, dir);
    }
 
-   // DCA priority path used only after every normal DCA gate has already hit
-   // and broker slot capacity is full because Pyramid occupies the side.
    bool ReleaseNewestForDca(const BasketSide &side, const int dir, string &why)
    {
       why = "";
@@ -840,7 +846,6 @@ public:
          recovery.GetCycle(dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL, c);
          recoveryOwns = c.state != recovery_CORE_ONLY;
       }
-      // Risk-reducing Peel remains allowed before ADD-history readiness.
       if(!recoveryOwns && TryPeel(ctx, dir, book, why)) return true;
       if(recoveryOwns || !allowAdd || !CampaignHistoryReady(dir)) return false;
       return TryAdd(ctx, side, dir, maxOrders, lastBar, book, m_stats[dir], recovery, why);
