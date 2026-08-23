@@ -1,251 +1,288 @@
-name: T17.6 Stage B Atomic Carrier
+name: Verify T17 Full Pyramid
 
 on:
   push:
     branches: [ feat/t17-full-pyramid ]
     paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/**'
       - '.github/workflows/verify-t17-pyramid.yml'
+  pull_request:
+    branches: [ feat/recovery-t16-arcs-stacked ]
+    paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/**'
+      - '.github/workflows/verify-t17-pyramid.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
 jobs:
-  apply-stage-b:
-    permissions:
-      contents: write
+  t175-model:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feat/t17-full-pyramid
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
 
-      - name: Assert carrier source and apply exact-Magic patch
-        shell: python
-        run: |
-          import os, subprocess
-          from pathlib import Path
-
-          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
-          if head != os.environ['GITHUB_SHA']:
-              raise SystemExit(f'carrier checkout drift: {head} != {os.environ["GITHUB_SHA"]}')
-
-          def replace_once(path, old, new):
-              p=Path(path); s=p.read_text(encoding='utf-8')
-              n=s.count(old)
-              if n != 1: raise SystemExit(f'{path}: locked context count={n}')
-              p.write_text(s.replace(old,new,1),encoding='utf-8')
-
-          replace_once('BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh',
-          '''   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 ||
-      side.totalLots <= 0.0 || now <= 0)
-      return false;
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   long currentUnits = Recovery_VolumeToUnitsFloor(side.totalLots, step);
-   if(step <= 0.0 || currentUnits <= 0 || !HistorySelect(0, now + 1)) return false;
-''',
-          '''   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 || now <= 0)
-      return false;
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   long wantedPositionType = dir == BD_DIR_BUY ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
-   long currentUnits = 0;
-   if(step > 0.0)
-      for(int p = PositionsTotal() - 1; p >= 0; p--)
-      {
-         ulong ticket = PositionGetTicket(p);
-         if(ticket == 0) continue;
-         if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
-            PositionGetInteger(POSITION_MAGIC) != (long)Magic ||
-            PositionGetInteger(POSITION_TYPE) != wantedPositionType)
-            continue;
-         currentUnits += Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME), step);
-      }
-   // T17.6: campaign identity is exact Core Magic. BasketSide may include
-   // managed manual magic-0 positions when flag_Hand_Ord=true; those positions
-   // must not inflate current replay units against exact-Magic history.
-   if(step <= 0.0 || currentUnits <= 0 || !HistorySelect(0, now + 1)) return false;
-''')
-
-          replace_once('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh',
-          '''   if(minCoveragePercent < 0.0 || minCoveragePercent > 100.0)
-   {
-      why = "MinHedgeCoveragePercent_ must be in [0,100]";
-      return false;
-   }
-''',
-          '''   if(minCoveragePercent < 0.0)
-   {
-      why = "MinHedgeCoveragePercent_ must be >= 0";
-      return false;
-   }
-''')
-
-          replace_once('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh',
-          '''bool Recovery_ReadDcaHedgeMetrics(const string symbol,
-''',
-          '''bool Recovery_ReadDcaCoreMetrics(const string symbol,
-                                 const long coreMagic,
-                                 const eRecoveryCoreDirection dir,
-                                 const bool needNetBE,
-                                 double &coreLots,
-                                 double &netBE)
-{
-   coreLots = 0.0;
-   netBE = 0.0;
-   long wantedType = dir == recovery_CORE_BUY ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
-   double weighted = 0.0;
-   double signedCosts = 0.0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) != symbol ||
-         PositionGetInteger(POSITION_MAGIC) != coreMagic ||
-         PositionGetInteger(POSITION_TYPE) != wantedType)
-         continue;
-      double lots = PositionGetDouble(POSITION_VOLUME);
-      if(lots <= 0.0) continue;
-      coreLots += lots;
-      if(!needNetBE) continue;
-      weighted += PositionGetDouble(POSITION_PRICE_OPEN) * lots;
-      signedCosts += PositionGetDouble(POSITION_SWAP);
-      ulong identifier = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
-      signedCosts += Recovery_DcaPositionEntryCosts(identifier, symbol, coreMagic);
-   }
-   if(coreLots <= 0.0) return false;
-   if(!needNetBE) return true;
-   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
-   double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
-   if(tickSize <= 0.0 || tickValue <= 0.0) return false;
-   netBE = Recovery_NetBreakevenFromCosts(weighted / coreLots, coreLots,
-                                           signedCosts, tickValue, tickSize,
-                                           wantedType == POSITION_TYPE_BUY);
-   return netBE > 0.0;
-}
-
-bool Recovery_ReadDcaHedgeMetrics(const string symbol,
-''')
-
-          replace_once('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh',
-          '''      double coreLots = dir == BD_DIR_BUY ? m_basket.buy.totalLots : m_basket.sell.totalLots;
-      double coreBE   = dir == BD_DIR_BUY ? m_basket.buy.breakeven : m_basket.sell.breakeven;
-      double pipSize  = Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
-
-      double hedgeLots = cycle.activeHedgeLots;
-      double hedgeBE   = cycle.hedgeNetBE;
-      bool needCoverage = MinHedgeCoveragePercent_ > 0.0;
-      bool needCorridor = TargetRecoveryCorridorPips_ > 0.0;
-      if(needCoverage || needCorridor)
-      {
-         if(!Recovery_ReadDcaHedgeMetrics(_Symbol, RecoveryMagic_, recoveryDir,
-                                          needCorridor, hedgeLots, hedgeBE))
-''',
-          '''      // T17.6: Recovery DCA uses the same exact Core-Magic exposure
-      // as ARCS; managed manual magic-0 positions never inflate its denominator.
-      double coreLots = cycle.coreLots;
-      double coreBE   = 0.0;
-      double pipSize  = Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
-
-      double hedgeLots = cycle.activeHedgeLots;
-      double hedgeBE   = cycle.hedgeNetBE;
-      bool needCoverage = MinHedgeCoveragePercent_ > 0.0;
-      bool needCorridor = TargetRecoveryCorridorPips_ > 0.0;
-      if(needCoverage || needCorridor)
-      {
-         if(!Recovery_ReadDcaCoreMetrics(_Symbol, (long)Magic, recoveryDir,
-                                         needCorridor, coreLots, coreBE))
-         {
-            Log_Warn("Recovery", "dcacoremetric" + (string)dir,
-                     "Core DCA blocked: exact Core-Magic metrics are unavailable");
-            return false;
-         }
-         if(!Recovery_ReadDcaHedgeMetrics(_Symbol, RecoveryMagic_, recoveryDir,
-                                          needCorridor, hedgeLots, hedgeBE))
-''')
-
-          replace_once('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh',
-          '''   if(coreDir != BD_DIR_BUY && coreDir != BD_DIR_SELL) return false;
-   if(side.count <= 0 || proposedCoreLot <= 0.0) return true;
-
-   int postCount = side.count + 1;
-   if(!Recovery_DcaThresholdReached(postCount, RecoveryStartAfterDca_))
-      return true;
-
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   if(step <= 0.0)
-   {
-      why = "T16.5 margin reserve: broker volume step unavailable";
-      return false;
-   }
-
-   double normalizedCoreLot = Grid_NormalizeVolume(proposedCoreLot);
-''',
-          '''   if(coreDir != BD_DIR_BUY && coreDir != BD_DIR_SELL) return false;
-   if(proposedCoreLot <= 0.0) return true;
-
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   if(step <= 0.0)
-   {
-      why = "T16.5 margin reserve: broker volume step unavailable";
-      return false;
-   }
-   eRecoveryCoreDirection rdir = coreDir == BD_DIR_BUY ?
-                                  recovery_CORE_BUY : recovery_CORE_SELL;
-   SArcsPosition exactTriggerCore[];
-   int currentCoreCount = Recovery_ArcsBuildCore(rdir, step, exactTriggerCore);
-   if(currentCoreCount <= 0) return true;
-   int postCount = currentCoreCount + 1;
-   if(!Recovery_DcaThresholdReached(postCount, RecoveryStartAfterDca_))
-      return true;
-
-   double normalizedCoreLot = Grid_NormalizeVolume(proposedCoreLot);
-''')
-
-          replace_once('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh',
-          '''   eRecoveryCoreDirection rdir = coreDir == BD_DIR_BUY ?
-                                  recovery_CORE_BUY : recovery_CORE_SELL;
-   long currentCoreUnits = Recovery_VolumeToUnitsFloor(side.totalLots, step);
-''',
-          '''   // T17.6 projected Recovery exposure uses exact Core Magic.
-   long currentCoreUnits = Recovery_ArcsCoreUnits(rdir, step);
-''')
-
-          replace_once('BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5',
-          '''   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
-                                  TargetRecoveryCorridorPips_, recoveryWhy))
-   {
-      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   Config_ApplyPointScale(Sym_PointScale());
-''',
-          '''   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
-                                  TargetRecoveryCorridorPips_, recoveryWhy))
-   {
-      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   if(!Recovery_T17ValidateCrossInputs(recoveryWhy))
-   {
-      Log_Error("Init", "Recovery/Pyramid cross-input config invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   Config_ApplyPointScale(Sym_PointScale());
-''')
-
-      - name: Commit exact Stage B patch
+      - name: Run T17.5 pure model oracle
         shell: bash
         run: |
           set -euo pipefail
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh \
-                  BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh \
-                  BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh \
-                  BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
-          test -n "$(git status --porcelain)"
-          git commit -m 'fix(t17.6): align recovery ownership to exact Core magic'
-          git push origin HEAD:feat/t17-full-pyramid
+          SRC='BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t17_model.cpp'
+          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t175
+          /tmp/t175 | tee /tmp/t175.out
+          grep -q 'Pyramid T17.5 model: 85 passed, 0 failed' /tmp/t175.out
+          grep -q 'ALL GREEN' /tmp/t175.out
+
+      - name: Verify T17.5 source invariants
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+          cfg=Path('BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh').read_text(encoding='utf-8')
+          core=Path('BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh').read_text(encoding='utf-8')
+          guard=Path('BlackDragon_v14/Include/BlackDragon/MoneyGuard.mqh').read_text(encoding='utf-8')
+          exitp=Path('BlackDragon_v14/Include/BlackDragon/ExitEngine.mqh').read_text(encoding='utf-8')
+          strategy=Path('BlackDragon_v14/Include/BlackDragon/Strategy.mqh').read_text(encoding='utf-8')
+          book=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsBook.mqh').read_text(encoding='utf-8')
+          t16=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16Config.mqh').read_text(encoding='utf-8')
+          hedge=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT17Pyramid.mqh').read_text(encoding='utf-8')
+
+          inputs=re.findall(r'^input\s+(?!group\b)[^\n]+', cfg, flags=re.M)
+          assert len(inputs)==20, f'expected exactly 20 T17 inputs, got {len(inputs)}'
+          assert '#define BD_PYRAMID_POLICY_REV 6' in cfg
+          for token in ['Pyramid_NextSerialLevelPure','Pyramid_ConcurrentAddAllowedPure',
+                        'Pyramid_T173RearmAnchorPure','Pyramid_T173AddAfterMutationAllowsPure',
+                        'Pyramid_EconomicMinLockedAllowsPure','Pyramid_FixedLotPeelReserveAllowsPure',
+                        'Pyramid_DcaPriorityReleaseNeededPure',
+                        'Pyramid_RiskBudgetAppliesPure','Pyramid_RiskModeReadyPure',
+                        'Pyramid_CampaignEconomicProfitPure','Pyramid_AdjustTpLevelPure',
+                        'Pyramid_NormalizeCoverageTargetsPure',
+                        'Pyramid_ActiveCampaignStartIndexPure']:
+              assert token in cfg
+          assert 'PyramidRiskBudgetPercent_ < 0.0 || PyramidRiskBudgetPercent_ > 100.0' in cfg
+          assert 'PyramidRiskBudgetPercent_ <= 0.0 ||' not in cfg
+          assert 'PyramidMaxAdds_ < 0)' in cfg
+          assert 'PyramidMaxAdds_ > BD_PYRAMID_MAX_LEVELS' not in cfg
+          assert 'Chuỗi coverage Hedge Pyramid phải tăng dần nghiêm ngặt' not in cfg
+
+          for token in ['newestNonPyramidTimeMsc','lastAddTimeMsc','lastExitTimeMsc',
+                        'lastExitPrice','lastMutationTime','lastMutationTimeMsc']:
+              assert token in core
+          assert 'DEAL_POSITION_ID' in core
+          assert 'DEAL_TIME_MSC' in core
+          assert 'DEAL_FEE' in core
+          assert 'stats.realizedCash +=' in core
+          assert 'book.nonPyramidCount < 1' in core
+          assert 'Pyramid_ConcurrentAddAllowedPure(book.pyramidCount, PyramidMaxAdds_)' in core
+          assert 'Pyramid_NextSerialLevelPure(stats.highestLevel)' in core
+          assert 'Pyramid_T173RearmAnchorPure(' in core
+          assert 'Pyramid_T173AddAfterMutationAllowsPure(' in core
+          assert 'BLOCK_MIN_PROFIT_ECONOMIC' in core
+          assert 'Pyramid_EconomicMinLockedAllowsPure(' in core
+          assert 'ReleaseNewestForDca' in core and 'DCA_PRIORITY_RELEASE' in core
+          assert 'PyramidLotMode_ == pyramid_LOT_CHUOI' in core
+          assert 'candidate = Grid_NormalizeVolume(candidate)' in core
+          assert 'BLOCK_FIXED_LOT_TOTAL_CAP' in core
+          assert 'BLOCK_FIXED_LOT_PEEL_RESERVE' in core
+          assert 'book.pyramidProfit += side.pos[i].profit' in core
+          assert 'book.pyramidProfit' in core
+          assert 'book.pyramidLots * riskPerLot' in core
+          assert 'candidate * riskPerLot' in core
+          assert 'Pyramid_RiskBudgetAppliesPure(PyramidLotMode_, PyramidRiskBudgetPercent_)' in core
+          assert 'Pyramid_CumulativeAddAllowedPure(stats.addCount, PyramidMaxAdds_)' not in core
+          assert 'stats.highestEntryPrice' not in core
+          assert 'Pyramid_FindActiveCampaignStart' in core
+          assert 'm_campaignStartTimeMsc' in core
+          assert 'HistorySelect(0, now + 1)' in core
+          assert 'Pyramid_ReadCampaignHistory(dir,' in core
+          assert 'campaignStartTimeMsc' in core
+          assert 'seedOpenTime' not in core and 'm_statsSeed' not in core
+          drive=core.index('bool Drive(')
+          peel=core.index('TryPeel(ctx', drive)
+          history=core.index('CampaignHistoryReady(dir)', drive)
+          assert drive < peel < history
+
+          assert 'DCA vẫn chờ Pyramid live được Peel hết' not in strategy
+          assert 'if(m_pyramid != NULL && m_pyramid.HasLegs(side)) return' not in strategy
+          assert 'm_pyramid.BuildDcaView(side, dcaSide)' in strategy
+          assert 'm_pyramid.ReleaseNewestForDca(side, dir, releaseWhy)' in strategy
+          assert 'dcaSide.totalLots = side.totalLots' in strategy
+          assert 'TryGridAdd(ctx, m_basket.buy' in strategy and 'TryGridAdd(ctx, m_basket.sell' in strategy
+          assert 'LatestCoreAddTime(side, dir)' in strategy
+
+          assert 'm_guardLatched' in strategy and 'DriveGuardLatch' in strategy
+          assert 'CheckFloatingPriority' in strategy
+          assert 'CheckSecondaryFloating' in strategy
+          assert 'AccountInfoDouble(ACCOUNT_PROFIT)' in strategy
+          on_tick=strategy.index('void OnTick(')
+          priority=strategy.index('ApplyGuardPriority(ctx)', on_tick)
+          strict=strategy.index('strict Pyramid mutation', on_tick)
+          recovery=strategy.index('m_recovery.DriveActive', on_tick)
+          assert on_tick < priority < strict < recovery
+          assert 'CampaignRealized(BD_DIR_BUY)' in strategy
+          assert 'CampaignRealized(BD_DIR_SELL)' in strategy
+          assert 'pctCampaignHistoryValid' in strategy
+          assert 'MG_PctDiffExecutionReserveCashPure' in strategy
+          assert 'Exec_Deviation(Slippage_, Cfg.PointScale)' in strategy
+          assert 'EconomicTpLevel(side, dir, side.tpLevel, economicTp)' in strategy
+          assert 'EconomicTpLevel(side, dir, tp, economicTp)' in strategy
+          assert 'OverlapExecutionBufferCash' in strategy
+          assert 'Exit_OverlapExecutionSafePure' in strategy
+
+          assert 'Exit_OverlapExecutionReserveCashPure' in exitp
+          assert 'Exit_OverlapExecutionSafePure' in exitp
+
+          assert 'CheckFloatingPriority' in guard
+          assert 'CheckSecondaryFloating' in guard
+          assert 'MG_PctDiffHitBuffered' in guard
+          assert 'MG_PctDiffEconomicHitBuffered' in guard
+          assert 'MG_PctDiffExecutionReserveCashPure' in guard
+          assert 'MG_LatchNextPure' in guard
+          assert 'Money TP All account FLOATING' in guard
+          assert 'Money TP All account ECONOMIC' not in guard
+
+          assert 'Pyramid_IsComment(PositionGetString(POSITION_COMMENT))' in book
+          assert 'Recovery_ArcsBuildEconomicCore' in book
+          assert 'Pyramid_SemanticText()' in t16
+          assert 'class CRecoveryArcsStackT17' in hedge
+          assert 'continuingPartialStage' in hedge
+          assert 'Pyramid_AddTimingAllowsPure(lastStageOpen, lastStageBar' in hedge
+          assert 'chờ nến mới/MinuteStop trước bậc coverage mới' in hedge
+          assert 'FullMarginReserveAllows' in hedge
+          assert 'TpPriorityRequiresActivation' in hedge
+          assert 'ProjectedRoomAllows' in hedge
+          assert 'Pyramid_NormalizeCoverageTargetsPure(raw,' in hedge
+          assert 'generationCount++' not in hedge
+          print('T17.5 source invariants PASS')
+
+      - name: Record exact source identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git show -s --format=%T HEAD)"
+
+  t175-metaeditor-native:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not (Test-Path "$env:MT5_DIR\metaeditor64.exe")) { throw 'metaeditor64.exe not found' }
+          if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'terminal64.exe not found' }
+
+      - name: Warm terminal and mirror exact tree
+        shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "checkout mismatch actual=$actual expected=$env:SOURCE_SHA" }
+          $t=Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
+          Start-Sleep -Seconds 40
+          $t | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          $mql5="$env:MT5_DIR\MQL5"
+          foreach($d in @('Experts','Include','Scripts')) {
+            New-Item -ItemType Directory -Force -Path "$mql5\$d" | Out-Null
+            Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force
+          }
+          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")) {
+            if(Test-Path $r) {
+              Get-ChildItem $r -Recurse -File | Where-Object {$_.Extension -in '.mq5','.mqh'} | ForEach-Object {
+                $txt=Get-Content $_.FullName -Raw -Encoding UTF8
+                [System.IO.File]::WriteAllText($_.FullName,$txt,$enc)
+              }
+            }
+          }
+
+      - name: Compile exact T17.5 targets
+        shell: pwsh
+        run: |
+          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t175"
+          New-Item -ItemType Directory -Force -Path $build | Out-Null
+          $targets=@(
+            @{N='RunPyramidT17Tests';S="$mql5\Scripts\BlackDragon\Tests\RunPyramidT17Tests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunPyramidT17Tests.ex5"},
+            @{N='BlackDragon';S="$mql5\Experts\BlackDragon\BlackDragon.mq5";O="$mql5\Experts\BlackDragon\BlackDragon.ex5"}
+          )
+          foreach($t in $targets) {
+            $log="$build\$($t.N).log"
+            Start-Process $editor -ArgumentList "/compile:`"$($t.S)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow
+            if(-not(Test-Path $log)){throw "$($t.N): no compile log"}
+            $text=Get-Content $log -Encoding Unicode -Raw; Write-Host $text
+            $err=@(($text -split "`r?`n")|Where-Object{$_ -match ' : error '})
+            $warn=@(($text -split "`r?`n")|Where-Object{$_ -match ' : warning '})
+            if(-not(Test-Path $t.O)){throw "$($t.N): EX5 missing"}
+            if($err.Count -or $warn.Count){throw "$($t.N): $($err.Count) errors / $($warn.Count) warnings"}
+            Copy-Item $t.O $build -Force
+          }
+          $head=(git rev-parse HEAD).Trim(); $tree=(git show -s --format=%T HEAD).Trim()
+          if($head -ne $env:SOURCE_SHA){throw 'provenance HEAD mismatch'}
+          $eaHash=(Get-FileHash (Join-Path $build 'BlackDragon.ex5') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$eaHash`n" | Out-File "$build\PROVENANCE.txt" -Encoding utf8
+          Write-Host "T17.5 MetaEditor PASS: 0 errors / 0 warnings"
+          Write-Host "HEAD=$head TREE=$tree BlackDragon.ex5 SHA256=$eaHash"
+
+      - name: Execute native T17.5 policy script
+        shell: pwsh
+        run: |
+          $build="$env:GITHUB_WORKSPACE\build-t175"
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          $logDir="$env:MT5_DIR\MQL5\Logs"
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          $cfg=Join-Path $build 'RunPyramidT17Tests.ini'
+          $cfgText="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\RunPyramidT17Tests`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n"
+          [IO.File]::WriteAllText($cfg,$cfgText,[Text.Encoding]::Unicode)
+          $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru
+          $deadline=(Get-Date).AddMinutes(4)
+          while(-not $p.HasExited -and (Get-Date)-lt $deadline){Start-Sleep 2;$p.Refresh()}
+          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'T17.5 native timeout'}
+          $logs=Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
+          if(-not $logs){throw 'T17.5 native log missing'}
+          $latest=$logs[-1]
+          Copy-Item $latest.FullName (Join-Path $build 'RunPyramidT17Tests-native.log') -Force
+          $raw=Get-Content $latest.FullName -Raw; Write-Host $raw
+          $m=[regex]::Match($raw,'Pyramid T17\.5 tests:\s*(\d+) passed,\s*(\d+) failed')
+          if(-not $m.Success){throw 'T17.5 summary missing'}
+          if([int]$m.Groups[1].Value -ne 116 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
+          { throw 'T17.5 expected 116/0' }
+          Write-Host 'T17.5 native PASS 116/0'
+
+      - name: Package exact T17.5 evidence
+        shell: pwsh
+        run: |
+          $build="$env:GITHUB_WORKSPACE\build-t175"
+          Compress-Archive "$build\*" "$env:GITHUB_WORKSPACE\BlackDragon-T17.5-evidence.zip" -Force
+          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T17.5-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "PACKAGE_SHA256=$h" | Add-Content "$build\PROVENANCE.txt"
+          Write-Host "PACKAGE_SHA256=$h"
+
+      - name: Upload exact T17.5 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackdragon-t175-exact-tree
+          path: |
+            build-t175/
+            BlackDragon-T17.5-evidence.zip
+          if-no-files-found: error
