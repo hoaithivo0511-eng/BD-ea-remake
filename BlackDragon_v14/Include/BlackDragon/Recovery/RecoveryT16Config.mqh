@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryT16Config.mqh — T17 over T16.6 ARCS configuration       |
+//| RecoveryT16Config.mqh — T17.6 over T16.6 ARCS configuration     |
 //| Vietnamese-facing inputs + sizing / broker-min policy helpers.   |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T16_CONFIG_MQH
@@ -11,6 +11,7 @@
 
 #define BD_ARCS_MAX_LAYERS 64
 #define BD_ARCS_MIN_VOLUME_POLICY_REV 1
+#define BD_T176_HEDGE_POLICY_REV 1
 
 enum eRecoverySizingPolicy
 {
@@ -127,13 +128,19 @@ double Recovery_T17RuntimeHedgePercent(const double requestedPercent)
                                               HedgePyramidMaxCoveragePercent_);
 }
 
+// T17.6: when staged Hedge Pyramid is enabled, coverage means TOTAL live
+// Recovery Hedge/current exact-Magic Core. Retained prior generations therefore
+// count toward every stage/final target even when the base ARCS sizing policy is
+// ARCS_XEP_LOP. Plain ARCS (Hedge Pyramid OFF) preserves legacy stacking.
 long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
                                         const long coreUnits,
                                         const long existingHedgeUnits,
                                         const double hedgePercent)
 {
    double runtimePercent = Recovery_T17RuntimeHedgePercent(hedgePercent);
-   long raw = Recovery_T16NewGenerationRawUnitsPure(policy,
+   eRecoverySizingPolicy effectivePolicy =
+      HedgePyramidMode_ == hedge_pyramid_TAT ? policy : HEDGE_CAN_BANG;
+   long raw = Recovery_T16NewGenerationRawUnitsPure(effectivePolicy,
                                                     coreUnits,
                                                     existingHedgeUnits,
                                                     runtimePercent);
@@ -157,6 +164,72 @@ long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
       }
    }
    return planned;
+}
+
+// A BUILDING target may legitimately change when Core volume or retained prior
+// generations change. Hedge Pyramid is add-only, so a lower recomputed target
+// never forces an automatic close of already-live generation volume.
+long Recovery_T176RebasedGenerationTargetPure(const long liveGenerationUnits,
+                                              const long computedTargetUnits)
+{
+   long live = liveGenerationUnits > 0 ? liveGenerationUnits : 0;
+   long computed = computedTargetUnits > 0 ? computedTargetUnits : 0;
+   return live > computed ? live : computed;
+}
+
+double Recovery_T17AttainableCoveragePercentPure(const eHedgePyramidMode hedgePyramidMode,
+                                                  const double hedgeVolumePercent,
+                                                  const double hardMaxCoverage)
+{
+   if(hedgeVolumePercent <= 0.0) return 0.0;
+   if(hedgePyramidMode == hedge_pyramid_TAT || hardMaxCoverage <= 0.0)
+      return hedgeVolumePercent;
+   return MathMin(hedgeVolumePercent, hardMaxCoverage);
+}
+
+bool Recovery_T17CrossInputsValidPure(const eRecoveryMode recoveryMode,
+                                      const eHedgePyramidMode hedgePyramidMode,
+                                      const bool continueDcaAfterHedge,
+                                      const double minHedgeCoveragePercent,
+                                      const double hedgeVolumePercent,
+                                      const double hardMaxCoverage)
+{
+   if(hedgePyramidMode != hedge_pyramid_TAT && recoveryMode == recovery_OFF)
+      return false;
+   if(recoveryMode == recovery_ACTIVE && continueDcaAfterHedge &&
+      minHedgeCoveragePercent > 0.0 && hedgePyramidMode != hedge_pyramid_TAT)
+   {
+      double attainable = Recovery_T17AttainableCoveragePercentPure(hedgePyramidMode,
+                                                                     hedgeVolumePercent,
+                                                                     hardMaxCoverage);
+      if(minHedgeCoveragePercent > attainable + 1e-9) return false;
+   }
+   return true;
+}
+
+bool Recovery_T17ValidateCrossInputs(string &why)
+{
+   why = "";
+   if(!Recovery_T17CrossInputsValidPure(RecoveryMode_,
+                                        HedgePyramidMode_,
+                                        ContinueDcaAfterHedge_,
+                                        MinHedgeCoveragePercent_,
+                                        HedgeVolumePercent_,
+                                        HedgePyramidMaxCoveragePercent_))
+   {
+      if(HedgePyramidMode_ != hedge_pyramid_TAT && RecoveryMode_ == recovery_OFF)
+         why = "Bật Hedge Pyramid yêu cầu RecoveryMode_ khác OFF";
+      else
+      {
+         double attainable = Recovery_T17AttainableCoveragePercentPure(HedgePyramidMode_,
+                                                                        HedgeVolumePercent_,
+                                                                        HedgePyramidMaxCoveragePercent_);
+         why = "MinHedgeCoveragePercent_ vượt coverage tối đa có thể đạt=" +
+               DoubleToString(attainable, 2) + "%";
+      }
+      return false;
+   }
+   return true;
 }
 
 bool Recovery_T16VirtualSlHitPure(const eRecoveryCoreDirection coreDir,
@@ -228,6 +301,11 @@ uint Recovery_T16SemanticFingerprint()
       "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
    if(CorePyramidMode_ != pyramid_TAT || HedgePyramidMode_ != hedge_pyramid_TAT)
       canonical += "|" + Pyramid_SemanticText();
+   // T17.6 staged-Hedge semantics must never silently reinterpret a T17.5
+   // persisted BUILDING target. Only configurations that enable Hedge Pyramid
+   // receive this new semantic revision; plain T16.6/ARCS parity is untouched.
+   if(HedgePyramidMode_ != hedge_pyramid_TAT)
+      canonical += "|t176HedgePolicyRev=" + (string)BD_T176_HEDGE_POLICY_REV;
    return Recovery_Fnv1aTextPure(canonical);
 }
 
@@ -260,6 +338,8 @@ bool Recovery_T16ValidateConfig(string &why)
       why = "Chu kỳ heartbeat log Recovery phải trong [0,86400] giây";
       return false;
    }
+   if(!Recovery_T17ValidateCrossInputs(why))
+      return false;
 
    if(!Recovery_T164ValidateReachability(RecoveryMode_,
                                          Flag_Trade_Buy_, Flag_Trade_Sell_,
