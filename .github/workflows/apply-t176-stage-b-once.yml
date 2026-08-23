@@ -1,3 +1,4 @@
+# trigger-existing-workflow: 1
 name: Apply T17.6 Stage B Once
 
 on:
@@ -31,8 +32,6 @@ jobs:
                   raise SystemExit(f'{path}: expected exactly one locked context, got {count}')
               p.write_text(s.replace(old, new, 1), encoding='utf-8')
 
-          # Core Pyramid campaign replay: current broker units must match the
-          # exact-Magic history identity even when BasketSide includes magic-0.
           replace_once(
               'BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh',
               '''   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 ||
@@ -64,9 +63,6 @@ jobs:
    if(step <= 0.0 || currentUnits <= 0 || !HistorySelect(0, now + 1)) return false;
 ''')
 
-          # DCA coverage is allowed above 100 because Recovery explicitly
-          # supports over-hedge; staged hard-cap reachability is validated
-          # independently by Recovery_T17ValidateCrossInputs().
           replace_once(
               'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh',
               '''   if(minCoveragePercent < 0.0 || minCoveragePercent > 100.0)
@@ -172,8 +168,6 @@ bool Recovery_ReadDcaHedgeMetrics(const string symbol,
                                           needCorridor, hedgeLots, hedgeBE))
 ''')
 
-          # DCA reserve threshold count and projected Core volume both use the
-          # exact-Magic ARCS Core book, not the panel/basket ownership view.
           replace_once(
               'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh',
               '''   if(coreDir != BD_DIR_BUY && coreDir != BD_DIR_SELL) return false;
@@ -224,8 +218,6 @@ bool Recovery_ReadDcaHedgeMetrics(const string symbol,
    long currentCoreUnits = Recovery_ArcsCoreUnits(rdir, step);
 ''')
 
-          # Cross-input validator must run even when RecoveryMode_=OFF, because
-          # the Recovery engine intentionally bypasses T16 validation in OFF.
           replace_once(
               'BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5',
               '''   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
