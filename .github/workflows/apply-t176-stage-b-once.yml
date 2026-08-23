@@ -1,0 +1,272 @@
+name: Apply T17.6 Stage B Once
+
+on:
+  push:
+    branches: [ feat/t17-full-pyramid ]
+    paths:
+      - '.github/workflows/apply-t176-stage-b-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-stage-b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/t17-full-pyramid
+          fetch-depth: 0
+
+      - name: Apply exact-Magic ownership patch with locked context
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one locked context, got {count}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          # Core Pyramid campaign replay: current broker units must match the
+          # exact-Magic history identity even when BasketSide includes magic-0.
+          replace_once(
+              'BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh',
+              '''   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 ||
+      side.totalLots <= 0.0 || now <= 0)
+      return false;
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   long currentUnits = Recovery_VolumeToUnitsFloor(side.totalLots, step);
+   if(step <= 0.0 || currentUnits <= 0 || !HistorySelect(0, now + 1)) return false;
+''',
+              '''   if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || side.count <= 0 || now <= 0)
+      return false;
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   long wantedPositionType = dir == BD_DIR_BUY ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   long currentUnits = 0;
+   if(step > 0.0)
+      for(int p = PositionsTotal() - 1; p >= 0; p--)
+      {
+         ulong ticket = PositionGetTicket(p);
+         if(ticket == 0) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
+            PositionGetInteger(POSITION_MAGIC) != (long)Magic ||
+            PositionGetInteger(POSITION_TYPE) != wantedPositionType)
+            continue;
+         currentUnits += Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME), step);
+      }
+   // T17.6: campaign identity is exact Core Magic. BasketSide may include
+   // managed manual magic-0 positions when flag_Hand_Ord=true; those positions
+   // must not inflate current replay units against exact-Magic history.
+   if(step <= 0.0 || currentUnits <= 0 || !HistorySelect(0, now + 1)) return false;
+''')
+
+          # DCA coverage is allowed above 100 because Recovery explicitly
+          # supports over-hedge; staged hard-cap reachability is validated
+          # independently by Recovery_T17ValidateCrossInputs().
+          replace_once(
+              'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh',
+              '''   if(minCoveragePercent < 0.0 || minCoveragePercent > 100.0)
+   {
+      why = "MinHedgeCoveragePercent_ must be in [0,100]";
+      return false;
+   }
+''',
+              '''   if(minCoveragePercent < 0.0)
+   {
+      why = "MinHedgeCoveragePercent_ must be >= 0";
+      return false;
+   }
+''')
+
+          replace_once(
+              'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh',
+              '''bool Recovery_ReadDcaHedgeMetrics(const string symbol,
+''',
+              '''bool Recovery_ReadDcaCoreMetrics(const string symbol,
+                                 const long coreMagic,
+                                 const eRecoveryCoreDirection dir,
+                                 const bool needNetBE,
+                                 double &coreLots,
+                                 double &netBE)
+{
+   coreLots = 0.0;
+   netBE = 0.0;
+   long wantedType = dir == recovery_CORE_BUY ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   double weighted = 0.0;
+   double signedCosts = 0.0;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != symbol ||
+         PositionGetInteger(POSITION_MAGIC) != coreMagic ||
+         PositionGetInteger(POSITION_TYPE) != wantedType)
+         continue;
+      double lots = PositionGetDouble(POSITION_VOLUME);
+      if(lots <= 0.0) continue;
+      coreLots += lots;
+      if(!needNetBE) continue;
+      weighted += PositionGetDouble(POSITION_PRICE_OPEN) * lots;
+      signedCosts += PositionGetDouble(POSITION_SWAP);
+      ulong identifier = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      signedCosts += Recovery_DcaPositionEntryCosts(identifier, symbol, coreMagic);
+   }
+
+   if(coreLots <= 0.0) return false;
+   if(!needNetBE) return true;
+   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+   if(tickSize <= 0.0 || tickValue <= 0.0) return false;
+   netBE = Recovery_NetBreakevenFromCosts(weighted / coreLots,
+                                           coreLots,
+                                           signedCosts,
+                                           tickValue,
+                                           tickSize,
+                                           wantedType == POSITION_TYPE_BUY);
+   return netBE > 0.0;
+}
+
+bool Recovery_ReadDcaHedgeMetrics(const string symbol,
+''')
+
+          replace_once(
+              'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh',
+              '''      double coreLots = dir == BD_DIR_BUY ? m_basket.buy.totalLots : m_basket.sell.totalLots;
+      double coreBE   = dir == BD_DIR_BUY ? m_basket.buy.breakeven : m_basket.sell.breakeven;
+      double pipSize  = Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
+
+      double hedgeLots = cycle.activeHedgeLots;
+      double hedgeBE   = cycle.hedgeNetBE;
+      bool needCoverage = MinHedgeCoveragePercent_ > 0.0;
+      bool needCorridor = TargetRecoveryCorridorPips_ > 0.0;
+      if(needCoverage || needCorridor)
+      {
+         if(!Recovery_ReadDcaHedgeMetrics(_Symbol, RecoveryMagic_, recoveryDir,
+                                          needCorridor, hedgeLots, hedgeBE))
+''',
+              '''      // T17.6: cycle.coreLots is exact Core Magic; never seed Recovery
+      // coverage from BasketSide.totalLots because flag_Hand_Ord may add magic-0.
+      double coreLots = cycle.coreLots;
+      double coreBE   = 0.0;
+      double pipSize  = Recovery_PipSizePure(Sym_IsGold(), ctx.point, ctx.digits);
+
+      double hedgeLots = cycle.activeHedgeLots;
+      double hedgeBE   = cycle.hedgeNetBE;
+      bool needCoverage = MinHedgeCoveragePercent_ > 0.0;
+      bool needCorridor = TargetRecoveryCorridorPips_ > 0.0;
+      if(needCoverage || needCorridor)
+      {
+         if(!Recovery_ReadDcaCoreMetrics(_Symbol, (long)Magic, recoveryDir,
+                                         needCorridor, coreLots, coreBE))
+         {
+            Log_Warn("Recovery", "dcacoremetric" + (string)dir,
+                     "Core DCA blocked: exact Core-Magic metrics are unavailable");
+            return false;
+         }
+         if(!Recovery_ReadDcaHedgeMetrics(_Symbol, RecoveryMagic_, recoveryDir,
+                                          needCorridor, hedgeLots, hedgeBE))
+''')
+
+          # DCA reserve threshold count and projected Core volume both use the
+          # exact-Magic ARCS Core book, not the panel/basket ownership view.
+          replace_once(
+              'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh',
+              '''   if(coreDir != BD_DIR_BUY && coreDir != BD_DIR_SELL) return false;
+   if(side.count <= 0 || proposedCoreLot <= 0.0) return true;
+
+   int postCount = side.count + 1;
+   if(!Recovery_DcaThresholdReached(postCount, RecoveryStartAfterDca_))
+      return true;
+
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   if(step <= 0.0)
+   {
+      why = "T16.5 margin reserve: broker volume step unavailable";
+      return false;
+   }
+
+   double normalizedCoreLot = Grid_NormalizeVolume(proposedCoreLot);
+''',
+              '''   if(coreDir != BD_DIR_BUY && coreDir != BD_DIR_SELL) return false;
+   if(proposedCoreLot <= 0.0) return true;
+
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   if(step <= 0.0)
+   {
+      why = "T16.5 margin reserve: broker volume step unavailable";
+      return false;
+   }
+   eRecoveryCoreDirection rdir = coreDir == BD_DIR_BUY ?
+                                  recovery_CORE_BUY : recovery_CORE_SELL;
+   SArcsPosition exactTriggerCore[];
+   int currentCoreCount = Recovery_ArcsBuildCore(rdir, step, exactTriggerCore);
+   if(currentCoreCount <= 0) return true;
+   int postCount = currentCoreCount + 1;
+   if(!Recovery_DcaThresholdReached(postCount, RecoveryStartAfterDca_))
+      return true;
+
+   double normalizedCoreLot = Grid_NormalizeVolume(proposedCoreLot);
+''')
+
+          replace_once(
+              'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh',
+              '''   eRecoveryCoreDirection rdir = coreDir == BD_DIR_BUY ?
+                                  recovery_CORE_BUY : recovery_CORE_SELL;
+   long currentCoreUnits = Recovery_VolumeToUnitsFloor(side.totalLots, step);
+''',
+              '''   // T17.6: projected Recovery exposure uses exact Core Magic,
+   // never an aggregate BasketSide that may contain managed magic-0 positions.
+   long currentCoreUnits = Recovery_ArcsCoreUnits(rdir, step);
+''')
+
+          # Cross-input validator must run even when RecoveryMode_=OFF, because
+          # the Recovery engine intentionally bypasses T16 validation in OFF.
+          replace_once(
+              'BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5',
+              '''   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
+                                  TargetRecoveryCorridorPips_, recoveryWhy))
+   {
+      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   Config_ApplyPointScale(Sym_PointScale());
+''',
+              '''   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
+                                  TargetRecoveryCorridorPips_, recoveryWhy))
+   {
+      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(!Recovery_T17ValidateCrossInputs(recoveryWhy))
+   {
+      Log_Error("Init", "Recovery/Pyramid cross-input config invalid: " + recoveryWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   Config_ApplyPointScale(Sym_PointScale());
+''')
+
+      - name: Verify diff and commit Stage B atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff -- BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh \
+                       BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh \
+                       BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh \
+                       BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh \
+                  BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh \
+                  BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh \
+                  BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
+          test -n "$(git status --porcelain)"
+          git commit -m 'fix(t17.6): align recovery ownership to exact Core magic'
+          git push origin HEAD:feat/t17-full-pyramid
