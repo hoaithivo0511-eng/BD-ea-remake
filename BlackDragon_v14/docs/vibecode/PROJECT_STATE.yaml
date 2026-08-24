@@ -1,18 +1,47 @@
 schema_version: "1.0"
 project: BlackDragon Adaptive Recovery / Full Pyramid
-active_task: T17.5
+active_task: T17.7
 release_level: DRAFT
 source:
   branch: feat/t17-full-pyramid
-  parent_head: 85bc75060e5e166715cd113685c1e01b752c181c
-  parent_tree: 8867225ea69724132cf82259c3d54ad6457a848c
+  baseline_head: 904dad4d92e31ebed56c75a54d8bd0537b0012a1
+  baseline_tree: 3cf49aed71288e5dfd0b1651c712763e7e55fbef
 artifacts:
-  spec: T17_5_EA-SPEC.yaml
-  decisions: T17_5_DECISIONS.yaml
-  contract: T17_5_AI-BUILD-CONTRACT.json
-  task_record: T17_5_DURABLE_CAMPAIGN_OVERLAP_COVERAGE.md
+  spec: T17_7_EA-SPEC.yaml
+  decisions: T17_7_DECISIONS.yaml
+  contract: T17_7_AI-BUILD-CONTRACT.json
+  task_record: T17_7_MASTER_PLAN.md
+  migration_map: T17_7_INPUT_MIGRATION.md
+owner_approval:
+  first_core_cumulative: APPROVED
+  side_aware_recovery_scheduler: APPROVED
+  overlap_post_leg1_durable_wait: APPROVED
+  versioned_input_migration: APPROVED
+  vietnamese_human_readable_journal: APPROVED_MANDATORY
 runtime_evidence:
-  owner_log_sha256: 6d73ac277009e6e550ead9d1aa867f0fd5b890e5a5c0f5d821f787a7ab9f04f6
-  strategy_tester_status: FAIL_INCOMPLETE
+  owner_log: 20260824.log
+  owner_log_sha256: 35cd9f019a71fdfca0d5a68e87353ff024d334eaa3a298c07c4de5c207d8125f
+  strategy_tester_status: FAIL_REQUIRES_T17_7
+  findings:
+    - "P1: Overlap vẫn có pair gross âm sau sequential close dưới 150ms execution delay."
+    - "P1: Recovery Hedge Pyramid WAIT có thể chiếm Strategy tick và làm Core Pyramid side đối diện bị chậm/starve."
+    - "P2: coverage raw 81/82 có thể map cùng broker volume nhưng observability chưa canonicalize theo executable stage."
+    - "Input consolidation/fingerprint migration brainstorm chưa được implement ở T17.6."
   forward_status: NOT_ELIGIBLE
   live_status: NOT_ELIGIBLE
+build_plan:
+  current_stage: C0
+  stages:
+    C0: IN_PROGRESS
+    C1: PENDING
+    C2: PENDING
+    C3: PENDING
+    C4: PENDING
+    C5: PENDING
+    C6: PENDING
+    C7: PENDING
+release_gate:
+  pr: 28
+  keep_draft: true
+  merge_authorized: false
+  strategy_tester_required: true
