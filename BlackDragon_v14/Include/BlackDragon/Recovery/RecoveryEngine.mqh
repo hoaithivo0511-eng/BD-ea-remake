@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T17 Pyramid over T16.6 ARCS                |
+//| RecoveryEngine.mqh — T17.7 scheduler over T17.6 Pyramid         |
 //| Exact T13/T14 engine remains available for the legacy contract.  |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
@@ -82,7 +82,7 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
 #undef Recovery_PendingVolumeEffectConfirmed
 #undef CRecoveryEngine
 
-#include "RecoveryArcsStackT17Pyramid.mqh"
+#include "RecoveryArcsStackT177Scheduler.mqh"
 
 class CRecoveryEngine : public CRecoveryEngineT15Base
 {

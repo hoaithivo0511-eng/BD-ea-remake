@@ -7,6 +7,8 @@ source:
   baseline_head: 904dad4d92e31ebed56c75a54d8bd0537b0012a1
   baseline_tree: 3cf49aed71288e5dfd0b1651c712763e7e55fbef
   contract_commit: 6ea2bab0b1dae0369db47185960ad320079cd7fa
+  c1_parent_head: a2ced551a8f3c4699fcb6aa702a8c20e080d6c40
+  c1_parent_tree: 88ca646c9975fb0ce6e1a00ae04aee8de9a68cbf
 artifacts:
   spec: T17_7_EA-SPEC.yaml
   decisions: T17_7_DECISIONS.yaml
@@ -34,7 +36,7 @@ build_plan:
   current_stage: C1
   stages:
     C0: COMPLETE
-    C1: READY
+    C1: VERIFYING
     C2: PENDING
     C3: PENDING
     C4: PENDING
