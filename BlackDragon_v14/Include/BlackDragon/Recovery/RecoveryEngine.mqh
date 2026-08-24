@@ -83,11 +83,12 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
 #undef CRecoveryEngine
 
 #include "RecoveryArcsStackT177Scheduler.mqh"
+#include "RecoveryArcsStackT177HedgeLadder.mqh"
 
 class CRecoveryEngine : public CRecoveryEngineT15Base
 {
 private:
-   CRecoveryArcsStackT17 m_arcs;
+   CRecoveryArcsStackT177C4 m_arcs;
 
    bool UseT16() const
    {
