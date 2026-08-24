@@ -75,14 +75,12 @@ jobs:
           newgen=cfg[cfg.index('long Recovery_T177NewGenerationUnitsC5'):cfg.index('long Recovery_T177PostOverlapGenerationUnitsC5')]
           assert 'raw < minUnits' in newgen and 'return 0;' in newgen
 
-          # Legacy .set inputs are still physically present for this compatibility release.
           for token in ['input double HedgeVolumePercent_',
                         'input bool   EnableGlobalHedgeSL_',
                         'input bool OverlapAfterHedge_']:
               assert token in cfgbase
           assert 'ReHedgeGapPips_' in (root/'Recovery/RecoveryTypes.mqh').read_text(encoding='utf-8')
 
-          # Legacy ARCS state may migrate only at a non-active boundary.
           assert 'Recovery_T177LegacySemanticFingerprintC5()' in persist
           assert 'Recovery_T177CanAcceptLegacyPersistenceC5()' in persist
           assert 'ARCS_BUILDING' in persist and 'ARCS_ACTIVE' in persist
@@ -90,8 +88,6 @@ jobs:
           assert 'CRecoveryArcsPersistenceT177C4Base::Load' in persist
           assert 'BD_ARCS_PERSIST_VERSION 4' in persistbase
 
-          # Consolidated Overlap policy is checked before arming a new pair;
-          # the C3 durable base remains intact for already-persisted obligations.
           assert 'OVERLAP_OFF' in coord
           assert 'OVERLAP_CORE_ONLY' in coord
           assert 'Recovery_T177OverlapCoreOnlyBlockedPure' in coord
@@ -100,12 +96,10 @@ jobs:
           assert 'ReadLeg1Realized' in coordbase
           assert 'SaveAll(persistWhy)' in coordbase
 
-          # C4 still drives executable-unit de-dup; C5 feeds it effective aliases.
           assert 'BuildExecutablePlan' in c4
-          assert 'Recovery_T177BuildExecutableHedgePlanPure' in c4
+          assert 'Recovery_T177BuildExecutableHedgeLadderPure' in c4
           assert 'C5 fingerprint revision rotates default semantic' in native
 
-          # Base blobs are exact copies of the pre-C5 exact-head files.
           def blob(path):
               return subprocess.check_output(['git','hash-object',str(path)],text=True).strip()
           assert blob(root/'Recovery/RecoveryT16ConfigT177C4Base.mqh') == 'bdf5771bd36712120ef47d90971d63f61e653f6c'
