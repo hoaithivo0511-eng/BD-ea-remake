@@ -39,18 +39,20 @@ void OnStart()
    Check("cumulative L5 repeats last = 174",
          Near(Pyramid_T177CumulativeDistancePure(d,5),174.0));
 
+   // Pure helpers deliberately use the stable direction contract: 0=BUY,
+   // 1=SELL. Keep this standalone script independent of Strategy-only aliases.
    Check("BUY first-core trigger symmetric",
-         Near(Pyramid_T177FirstCoreTriggerPricePure(BD_DIR_BUY,2000.0,98.0),2098.0));
+         Near(Pyramid_T177FirstCoreTriggerPricePure(0,2000.0,98.0),2098.0));
    Check("SELL first-core trigger symmetric",
-         Near(Pyramid_T177FirstCoreTriggerPricePure(BD_DIR_SELL,2000.0,98.0),1902.0));
+         Near(Pyramid_T177FirstCoreTriggerPricePure(1,2000.0,98.0),1902.0));
    Check("BUY equality hits cumulative target",
-         Pyramid_T177FirstCoreGapHitPure(BD_DIR_BUY,2000.0,2097.9,2098.0,98.0));
+         Pyramid_T177FirstCoreGapHitPure(0,2000.0,2097.9,2098.0,98.0));
    Check("BUY below cumulative target waits",
-         !Pyramid_T177FirstCoreGapHitPure(BD_DIR_BUY,2000.0,2097.8,2097.9,98.0));
+         !Pyramid_T177FirstCoreGapHitPure(0,2000.0,2097.8,2097.9,98.0));
    Check("SELL equality hits cumulative target",
-         Pyramid_T177FirstCoreGapHitPure(BD_DIR_SELL,2000.0,1902.0,1902.1,98.0));
+         Pyramid_T177FirstCoreGapHitPure(1,2000.0,1902.0,1902.1,98.0));
    Check("SELL above cumulative target waits",
-         !Pyramid_T177FirstCoreGapHitPure(BD_DIR_SELL,2000.0,1902.1,1902.2,98.0));
+         !Pyramid_T177FirstCoreGapHitPure(1,2000.0,1902.1,1902.2,98.0));
 
    Print("T17.7 C2 anchor tests: ",g_pass," passed, ",g_fail," failed");
    if(g_fail==0) Print("ALL GREEN");
