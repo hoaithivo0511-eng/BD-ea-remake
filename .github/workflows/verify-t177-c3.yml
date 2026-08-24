@@ -42,7 +42,8 @@ jobs:
           from pathlib import Path
 
           policy=Path('BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Policy.mqh').read_text(encoding='utf-8')
-          coord=Path('BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh').read_text(encoding='utf-8')
+          coord=(Path('BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh').read_text(encoding='utf-8') + '\n' +
+                 Path('BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177CoordinatorT177C3Base.mqh').read_text(encoding='utf-8'))
           strategy=Path('BlackDragon_v14/Include/BlackDragon/Strategy.mqh').read_text(encoding='utf-8')
           base=Path('BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh').read_text(encoding='utf-8')
           execp=Path('BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh').read_text(encoding='utf-8')
