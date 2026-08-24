@@ -7,6 +7,7 @@
 #define BD_CORE_PYRAMID_T177_ANCHOR_MQH
 
 #include "PyramidAnchorT177.mqh"
+#include <BlackDragon/EntryFilters.mqh> // canonical BD_DIR_BUY/SELL definitions
 #include <BlackDragon/BasketManager.mqh>
 #include <BlackDragon/ExecutionLayer.mqh>
 #include <BlackDragon/Recovery/RecoveryEngine.mqh>
