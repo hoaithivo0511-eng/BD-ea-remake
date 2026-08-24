@@ -5,6 +5,10 @@
 #ifndef BD_RECOVERY_ARCS_PERSISTENCE_T177_C5_FACADE_MQH
 #define BD_RECOVERY_ARCS_PERSISTENCE_T177_C5_FACADE_MQH
 
+// The ARCS persistence base reuses Recovery_SafeFileToken().  Full EA builds
+// already see that helper through RecoveryEngine -> RecoveryPersistence, but
+// this public header must also compile standalone for migration/native tests.
+#include "RecoveryPersistence.mqh"
 #include "RecoveryArcsPersistenceT177C5Impl.mqh"
 
 // Regression/source anchors for source scanners that intentionally inspect the
