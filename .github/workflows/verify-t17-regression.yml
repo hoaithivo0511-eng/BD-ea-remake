@@ -66,7 +66,10 @@ jobs:
           reserve=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh').read_text(encoding='utf-8')
           arcs=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh').read_text(encoding='utf-8')
           final=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh').read_text(encoding='utf-8')
-          strategy=Path('BlackDragon_v14/Include/BlackDragon/Strategy.mqh').read_text(encoding='utf-8')
+          # C3 composes the verified pre-C3 Strategy as a base. Safety wiring may
+          # live in either executable layer, so validate the real composition.
+          strategy=(Path('BlackDragon_v14/Include/BlackDragon/Strategy.mqh').read_text(encoding='utf-8') + '\n' +
+                    Path('BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh').read_text(encoding='utf-8'))
           assert 'RecoveryDcaMarginReserve_' in cfg and 'RecoveryWaitLogSeconds_' in cfg
           assert 'BD_ARCS_MIN_VOLUME_POLICY_REV 1' in cfg
           assert 'Recovery_T16NewGenerationRawUnitsPure' in cfg

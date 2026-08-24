@@ -70,11 +70,11 @@ jobs:
           assert '#include "RecoveryArcsStackT177Scheduler.mqh"' in engine
           assert '#include "RecoveryArcsStackT17Pyramid.mqh"' not in engine
 
-          # Strategy ordering remains unchanged: Recovery is evaluated before
-          # Pyramid, but only the new scheduler's consuming dispositions can
-          # make DriveActive return true and short-circuit the tick.
+          # Assert executable ordering directly instead of depending on a
+          # historical comment marker. C3 may wrap Strategy, but Recovery WAIT
+          # must still yield before the first Core Pyramid mutation attempt.
           recovery_pos=strategy.index('m_recovery.DriveActive(*m_exec, ctx, recoveryWhy)')
-          pyramid_pos=strategy.index('// Pyramid risk exit/add is evaluated before adverse DCA.')
+          pyramid_pos=strategy.index('m_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY')
           assert recovery_pos < pyramid_pos
           assert 'm_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY' in strategy
           assert 'm_pyramid.Drive(ctx, m_basket.sell, BD_DIR_SELL' in strategy
