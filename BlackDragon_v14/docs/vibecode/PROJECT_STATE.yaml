@@ -9,6 +9,8 @@ source:
   contract_commit: 6ea2bab0b1dae0369db47185960ad320079cd7fa
   c1_parent_head: a2ced551a8f3c4699fcb6aa702a8c20e080d6c40
   c1_parent_tree: 88ca646c9975fb0ce6e1a00ae04aee8de9a68cbf
+  c1_head: b428a4cc0dfcedd0f0f76b2f77caa65ea75f0dc4
+  c1_tree: bfc082af39a17070e35ffa72e87fc7514d3d0907
 artifacts:
   spec: T17_7_EA-SPEC.yaml
   decisions: T17_7_DECISIONS.yaml
@@ -32,12 +34,24 @@ runtime_evidence:
     - "Input consolidation/fingerprint migration brainstorm chưa được implement ở T17.6."
   forward_status: NOT_ELIGIBLE
   live_status: NOT_ELIGIBLE
+stage_evidence:
+  C1:
+    status: COMPLETE
+    head: b428a4cc0dfcedd0f0f76b2f77caa65ea75f0dc4
+    tree: bfc082af39a17070e35ffa72e87fc7514d3d0907
+    workflows:
+      t177_c1: SUCCESS
+      t176_ownership: SUCCESS
+      t17_full_pyramid: SUCCESS
+      t1_t16_regression: SUCCESS
+    native_c1: "11 passed / 0 failed"
+    metaeditor: "0 errors / 0 warnings"
 build_plan:
-  current_stage: C1
+  current_stage: C2
   stages:
     C0: COMPLETE
-    C1: VERIFYING
-    C2: PENDING
+    C1: COMPLETE
+    C2: VERIFYING
     C3: PENDING
     C4: PENDING
     C5: PENDING

@@ -7,7 +7,16 @@
 
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Recovery/RecoveryTypes.mqh>
+#include <BlackDragon/Pyramid/PyramidAnchorT177.mqh>
+// C2 compatibility: while RecoveryT16Config is parsed, route Pyramid semantic
+// text through the T17.7 wrapper. DYNAMIC returns the exact legacy string;
+// FIRST_CORE adds its explicit semantic revision to persistence identity.
+#define Pyramid_SemanticText Pyramid_T177ExtendedSemanticText
 #include <BlackDragon/Recovery/RecoveryEngine.mqh>
+#undef Pyramid_SemanticText
+// Load the T17.7 Core wrapper before Strategy. It includes/renames the verified
+// T17.6 CorePyramid base, so Strategy's later CorePyramid include is guard-skipped.
+#include <BlackDragon/Pyramid/CorePyramidT177Anchor.mqh>
 #include <BlackDragon/Recovery/RecoveryDca.mqh>
 #include <BlackDragon/Recovery/RecoveryExitCoordinator.mqh>
 #include <BlackDragon/Types.mqh>
@@ -201,6 +210,7 @@ int OnInit()
    Log_Info("Init", "EA Black Dragon T17 Pyramid test build started. ExecMode=" +
             (ExecMode == exec_Async ? "Async" : "Sync") +
             "; CorePyramid=" + (string)(int)CorePyramidMode_ +
+            "; CoreAnchor=" + Pyramid_T177AnchorModeName(CorePyramidAnchorMode_) +
             "; HedgePyramid=" + (string)(int)HedgePyramidMode_);
    return INIT_SUCCEEDED;
 }
