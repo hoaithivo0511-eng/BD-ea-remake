@@ -1,23 +1,47 @@
 //+------------------------------------------------------------------+
-//| RecoveryT16Config.mqh — T17.7 C5 compatibility facade           |
+//| RecoveryT16Config.mqh — T17.7 C5/C6 compatibility facade        |
 //| Executable C5 implementation is pinned in the included impl blob.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_T16_CONFIG_T177_C5_FACADE_MQH
 #define BD_RECOVERY_T16_CONFIG_T177_C5_FACADE_MQH
 
 #include "RecoveryT16ConfigT177C5Impl.mqh"
+#include <BlackDragon/JournalT177.mqh>
 
-// Preserve Recovery-OFF parity at the top-level cross-input gate. Recovery
-// settings that cannot execute while both Recovery and Hedge Pyramid are OFF
-// must not reject an otherwise valid legacy .set.
+string Recovery_T177OverlapPolicyNameViFacade(const eOverlapPolicyT177 policy)
+{
+   if(policy==OVERLAP_OFF) return "TẮT";
+   if(policy==OVERLAP_CORE_ONLY) return "CHỈ CORE";
+   if(policy==OVERLAP_ALLOW_DURING_RECOVERY) return "CHO PHÉP KHI RECOVERY";
+   return "TƯƠNG THÍCH CŨ";
+}
+
+void Recovery_T177PrintMigrationSummaryC6()
+{
+   eOverlapPolicyT177 op=Recovery_T177EffectiveOverlapPolicyC5();
+   double target=Recovery_T177EffectiveHedgeTargetCoveragePercent();
+   double cap=Recovery_T177EffectiveHedgeAbsoluteMaxCoveragePercent();
+   int globalAfter=Recovery_T177EffectiveGlobalSlAfterGenerations();
+   string capText=cap>0.0?DoubleToString(cap,2)+"%":"TẮT";
+   string source=OverlapPolicy_==OVERLAP_LEGACY_AUTO?"đọc từ input cũ":"input T17.7";
+   Print("[BD:Cấu hình] THÔNG TIN | T17.7 migration | Overlap=",
+         Recovery_T177OverlapPolicyNameViFacade(op)," (",source,") | target Hedge=",
+         DoubleToString(target,2),"% hardCap=",capText,
+         " | Global SL=",globalAfter>0?"sau G"+(string)globalAfter:"TẮT (N=0)");
+   Print("[BD:Cấu hình] CẢNH BÁO | ReHedgeGapPips_ không còn dùng trong ARCS | giữ input chỉ để tương thích file .set");
+}
+
 bool Recovery_T177ValidateCrossInputsFacade(string &why)
 {
    if(RecoveryMode_ == recovery_OFF && HedgePyramidMode_ == hedge_pyramid_TAT)
    {
       why = "";
+      Recovery_T177PrintMigrationSummaryC6();
       return true;
    }
-   return Recovery_T177ValidateCrossInputsC5(why);
+   bool ok=Recovery_T177ValidateCrossInputsC5(why);
+   if(ok) Recovery_T177PrintMigrationSummaryC6();
+   return ok;
 }
 #undef Recovery_T17ValidateCrossInputs
 #define Recovery_T17ValidateCrossInputs Recovery_T177ValidateCrossInputsFacade
