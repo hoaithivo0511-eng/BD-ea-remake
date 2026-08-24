@@ -6,7 +6,7 @@ source:
   branch: feat/t17-full-pyramid
   baseline_head: 904dad4d92e31ebed56c75a54d8bd0537b0012a1
   baseline_tree: 3cf49aed71288e5dfd0b1651c712763e7e55fbef
-  current_head: 6ea2bab0b1dae0369db47185960ad320079cd7fa
+  contract_commit: 6ea2bab0b1dae0369db47185960ad320079cd7fa
 artifacts:
   spec: T17_7_EA-SPEC.yaml
   decisions: T17_7_DECISIONS.yaml
