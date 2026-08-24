@@ -1,0 +1,218 @@
+name: Verify T17.7 C3 Durable Overlap
+
+on:
+  pull_request:
+    branches: [ feat/recovery-t16-arcs-stacked ]
+    paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/RunT177OverlapTests.mq5'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t177_overlap_model.cpp'
+      - '.github/workflows/verify-t177-c3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  t177-c3-model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Run T17.7 C3 independent Overlap model
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t177_overlap_model.cpp'
+          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t177c3
+          /tmp/t177c3 | tee /tmp/t177c3.out
+          grep -q 'T17.7 C3 Overlap model: 26 passed, 0 failed' /tmp/t177c3.out
+          grep -q 'ALL GREEN' /tmp/t177c3.out
+
+      - name: Verify C3 source contract
+        shell: python
+        run: |
+          from pathlib import Path
+
+          policy=Path('BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Policy.mqh').read_text(encoding='utf-8')
+          coord=Path('BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh').read_text(encoding='utf-8')
+          strategy=Path('BlackDragon_v14/Include/BlackDragon/Strategy.mqh').read_text(encoding='utf-8')
+          base=Path('BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh').read_text(encoding='utf-8')
+          execp=Path('BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh').read_text(encoding='utf-8')
+          rex=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT13Base.mqh').read_text(encoding='utf-8')
+          native=Path('BlackDragon_v14/Scripts/BlackDragon/Tests/RunT177OverlapTests.mq5').read_text(encoding='utf-8')
+
+          for token in ['overlap_T177_PAIR_ARMED','overlap_T177_LEG1_SUBMITTED',
+                        'overlap_T177_LEG1_CONFIRMED','overlap_T177_LEG2_RECHECK',
+                        'overlap_T177_LEG2_WAIT_SAFE','overlap_T177_LEG2_SUBMITTED',
+                        'overlap_T177_COMPLETE','overlap_T177_RECONCILE',
+                        'Overlap_T177Leg2SafePure','Overlap_T177SubmittedObservationPure']:
+              assert token in policy
+          assert 'leg1RealizedCash + leg2FloatingCash' in policy
+          assert 'if(loadedFromDisk) return overlap_T177_OBS_RECONCILE;' in policy
+
+          for token in ['BD_OVERLAP_T177_PERSIST_MAGIC','BD_OVERLAP_T177_PERSIST_VERSION',
+                        'FileMove(m_temp, 0, m_file, FILE_REWRITE)',
+                        'leg1BaselineCash','leg1RealizedCash','ReadLeg1Realized',
+                        'ClosePositionVolumeOwned','EXEC_RECONCILE_FAIL_CLOSED',
+                        'BeginTicketClose','overlap_T177_LEG2_WAIT_SAFE']:
+              assert token in coord
+          persist=coord.index('if(!SaveAll(persistWhy))')
+          directclose=coord.index('ClosePositionVolumeOwned', persist)
+          assert persist < directclose
+          assert 'Lệnh 1 đã đóng, lệnh 2 chưa an toàn' in coord
+          assert 'restart giữa request Recovery' in coord
+          assert 'kết quả gửi close trực tiếp mơ hồ' in coord
+
+          assert '#define CStrategy CStrategyT176Base' in strategy
+          assert '#include "StrategyT176Base.mqh"' in strategy
+          assert 'COverlapT177Coordinator m_overlap;' in strategy
+          assert 'm_exec.ClosePosition(d.pairLast);' not in strategy
+          assert 'm_exec.ClosePosition(d.pairFirst);' not in strategy
+          assert 'm_overlap.Arm(dir, d.pairFirst, d.pairLast' in strategy
+          assert 'm_overlap.BlocksSide(BD_DIR_BUY)' in strategy
+          assert 'm_overlap.BlocksSide(BD_DIR_SELL)' in strategy
+          on_tick=strategy.index('void OnTick(')
+          p0=strategy.index('ApplyGuardPriority(ctx)', on_tick)
+          urgent=strategy.index('DriveOverlapUrgent(ctx)', on_tick)
+          recovery=strategy.index('m_recovery.DriveActive(*m_exec, ctx, recoveryWhy)', on_tick)
+          assert on_tick < p0 < urgent < recovery
+          assert 'eOverlapT177DriveDisposition overlapDrive' in strategy
+          assert 'Overlap_T177ConsumesStrategyTickPure(overlapDrive)' in strategy
+
+          assert 'm_exec.ClosePosition(d.pairLast);' in base
+          assert 'm_exec.ClosePosition(d.pairFirst);' in base
+          assert 'Exec_IsFailClosed(meta.reconcilePolicy)' in execp
+          assert 'Exec_AmbiguousRetcode(res.retcode)' in execp
+          assert 'BeginTicketClose' in rex
+          assert 'T17.7 C3 Overlap tests:' in native
+          print('T17.7 C3 durable Overlap source contract PASS')
+
+      - name: Record exact source identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git show -s --format=%T HEAD)"
+
+  t177-c3-native:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not (Test-Path "$env:MT5_DIR\metaeditor64.exe")) { throw 'metaeditor64.exe not found' }
+          if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'terminal64.exe not found' }
+
+      - name: Warm terminal and mirror exact tree
+        shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "checkout mismatch actual=$actual expected=$env:SOURCE_SHA" }
+          $t=Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
+          Start-Sleep -Seconds 40
+          $t | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          $mql5="$env:MT5_DIR\MQL5"
+          foreach($d in @('Experts','Include','Scripts')) {
+            New-Item -ItemType Directory -Force -Path "$mql5\$d" | Out-Null
+            Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force
+          }
+          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")) {
+            if(Test-Path $r) {
+              Get-ChildItem $r -Recurse -File | Where-Object {$_.Extension -in '.mq5','.mqh'} | ForEach-Object {
+                $txt=Get-Content $_.FullName -Raw -Encoding UTF8
+                [System.IO.File]::WriteAllText($_.FullName,$txt,$enc)
+              }
+            }
+          }
+
+      - name: Compile exact C3 targets
+        shell: pwsh
+        run: |
+          $editor="$env:MT5_DIR\metaeditor64.exe"; $mql5="$env:MT5_DIR\MQL5"; $build="$env:GITHUB_WORKSPACE\build-t177c3"
+          New-Item -ItemType Directory -Force -Path $build | Out-Null
+          $targets=@(
+            @{N='RunT177OverlapTests';S="$mql5\Scripts\BlackDragon\Tests\RunT177OverlapTests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunT177OverlapTests.ex5"},
+            @{N='BlackDragon';S="$mql5\Experts\BlackDragon\BlackDragon.mq5";O="$mql5\Experts\BlackDragon\BlackDragon.ex5"}
+          )
+          foreach($t in $targets) {
+            $log="$build\$($t.N).log"
+            Start-Process $editor -ArgumentList "/compile:`"$($t.S)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow
+            if(-not(Test-Path $log)){throw "$($t.N): no compile log"}
+            $text=Get-Content $log -Encoding Unicode -Raw; Write-Host $text
+            $err=@(($text -split "`r?`n")|Where-Object{$_ -match ' : error '})
+            $warn=@(($text -split "`r?`n")|Where-Object{$_ -match ' : warning '})
+            if(-not(Test-Path $t.O)){throw "$($t.N): EX5 missing"}
+            if($err.Count -or $warn.Count){throw "$($t.N): $($err.Count) errors / $($warn.Count) warnings"}
+            Copy-Item $t.O $build -Force
+          }
+          $head=(git rev-parse HEAD).Trim(); $tree=(git show -s --format=%T HEAD).Trim()
+          if($head -ne $env:SOURCE_SHA){throw 'provenance HEAD mismatch'}
+          $eaHash=(Get-FileHash (Join-Path $build 'BlackDragon.ex5') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$eaHash`n" | Out-File "$build\PROVENANCE.txt" -Encoding utf8
+          Write-Host "T17.7 C3 MetaEditor PASS: 0 errors / 0 warnings"
+          Write-Host "HEAD=$head TREE=$tree BlackDragon.ex5 SHA256=$eaHash"
+
+      - name: Execute native C3 Overlap script
+        shell: pwsh
+        run: |
+          $build="$env:GITHUB_WORKSPACE\build-t177c3"; $logDir="$env:MT5_DIR\MQL5\Logs"
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          $cfg=Join-Path $build 'RunT177OverlapTests.ini'
+          $cfgText="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\RunT177OverlapTests`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n"
+          [IO.File]::WriteAllText($cfg,$cfgText,[Text.Encoding]::Unicode)
+          $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru
+          $deadline=(Get-Date).AddMinutes(4)
+          while(-not $p.HasExited -and (Get-Date)-lt $deadline){Start-Sleep 2;$p.Refresh()}
+          if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'T17.7 C3 native timeout'}
+          $logs=Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
+          if(-not $logs){throw 'T17.7 C3 native log missing'}
+          $latest=$logs[-1]
+          Copy-Item $latest.FullName (Join-Path $build 'RunT177OverlapTests-native.log') -Force
+          $raw=Get-Content $latest.FullName -Raw; Write-Host $raw
+          $m=[regex]::Match($raw,'T17\.7 C3 Overlap tests:\s*(\d+) passed,\s*(\d+) failed')
+          if(-not $m.Success){throw 'T17.7 C3 summary missing'}
+          if([int]$m.Groups[1].Value -ne 26 -or [int]$m.Groups[2].Value -ne 0 -or $raw -notmatch 'ALL GREEN')
+          { throw 'T17.7 C3 expected 26/0' }
+          Write-Host 'T17.7 C3 native PASS 26/0'
+
+      - name: Package exact C3 evidence
+        shell: pwsh
+        run: |
+          $build="$env:GITHUB_WORKSPACE\build-t177c3"
+          Compress-Archive "$build\*" "$env:GITHUB_WORKSPACE\BlackDragon-T17.7-C3-evidence.zip" -Force
+          $h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T17.7-C3-evidence.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "PACKAGE_SHA256=$h" | Add-Content "$build\PROVENANCE.txt"
+          Write-Host "PACKAGE_SHA256=$h"
+
+      - name: Upload exact C3 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackdragon-t177-c3-exact-tree
+          path: |
+            build-t177c3/
+            BlackDragon-T17.7-C3-evidence.zip
+          if-no-files-found: error

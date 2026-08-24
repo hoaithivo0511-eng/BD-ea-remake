@@ -7,10 +7,11 @@ source:
   baseline_head: 904dad4d92e31ebed56c75a54d8bd0537b0012a1
   baseline_tree: 3cf49aed71288e5dfd0b1651c712763e7e55fbef
   contract_commit: 6ea2bab0b1dae0369db47185960ad320079cd7fa
-  c1_parent_head: a2ced551a8f3c4699fcb6aa702a8c20e080d6c40
-  c1_parent_tree: 88ca646c9975fb0ce6e1a00ae04aee8de9a68cbf
   c1_head: b428a4cc0dfcedd0f0f76b2f77caa65ea75f0dc4
   c1_tree: bfc082af39a17070e35ffa72e87fc7514d3d0907
+  c2_head: 1b60f770c3e15897132463902dea762b65a3e926
+  c2_tree: 19db57547a2995a60a8b48d015c1d123f6646595
+  c3_parent_head: 1b60f770c3e15897132463902dea762b65a3e926
 artifacts:
   spec: T17_7_EA-SPEC.yaml
   decisions: T17_7_DECISIONS.yaml
@@ -46,13 +47,39 @@ stage_evidence:
       t1_t16_regression: SUCCESS
     native_c1: "11 passed / 0 failed"
     metaeditor: "0 errors / 0 warnings"
+  C2:
+    status: COMPLETE
+    head: 1b60f770c3e15897132463902dea762b65a3e926
+    tree: 19db57547a2995a60a8b48d015c1d123f6646595
+    workflows:
+      t177_c2: SUCCESS
+      t177_c1: SUCCESS
+      t176_ownership: SUCCESS
+      t17_full_pyramid: SUCCESS
+      t1_t16_regression: SUCCESS
+    native_c2: "14 passed / 0 failed"
+    metaeditor: "0 errors / 0 warnings"
+    blackdragon_ex5_sha256: 994a36d3aacda54cfdfca9264632d6eefbca33924006ac3b7835f3856f47cdfa
+    evidence_artifact_id: 9529695276
+    evidence_package_sha256: 739af668a42624cfd66c060fcef665ae57823eed7b664f40fe0c3f01c17d7222
+  C3:
+    status: VERIFYING
+    parent_head: 1b60f770c3e15897132463902dea762b65a3e926
+    pure_model_precommit: "26 passed / 0 failed"
+    scope:
+      - "Durable Overlap pair lifecycle."
+      - "Persist-before-leg1."
+      - "Broker-confirmed leg1 then refresh/recheck leg2 economics."
+      - "Unsafe leg2 => durable WAIT, no forced close."
+      - "Ambiguous outcome => RECONCILE, no blind retry."
+      - "Vietnamese short state logs for C3 transitions/waits/errors."
 build_plan:
-  current_stage: C2
+  current_stage: C3
   stages:
     C0: COMPLETE
     C1: COMPLETE
-    C2: VERIFYING
-    C3: PENDING
+    C2: COMPLETE
+    C3: VERIFYING
     C4: PENDING
     C5: PENDING
     C6: PENDING
