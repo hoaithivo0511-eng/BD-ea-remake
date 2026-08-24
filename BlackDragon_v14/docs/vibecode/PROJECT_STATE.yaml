@@ -1,104 +1,59 @@
-schema_version: "1.0"
-project: BlackDragon Adaptive Recovery / Full Pyramid
-active_task: T17.7
-release_level: DRAFT
-source:
-  branch: feat/t17-full-pyramid
-  baseline_head: 904dad4d92e31ebed56c75a54d8bd0537b0012a1
-  baseline_tree: 3cf49aed71288e5dfd0b1651c712763e7e55fbef
-  contract_commit: 6ea2bab0b1dae0369db47185960ad320079cd7fa
-  c1_head: b428a4cc0dfcedd0f0f76b2f77caa65ea75f0dc4
-  c1_tree: bfc082af39a17070e35ffa72e87fc7514d3d0907
-  c2_head: 1b60f770c3e15897132463902dea762b65a3e926
-  c2_tree: 19db57547a2995a60a8b48d015c1d123f6646595
-  c3_head: cdb5ab9a9b8bf70fbd16067e8dcf10ebb7183cdb
-  c3_tree: d668a9fc8b0763149a25a1dedd12045f0b0ac99e
-artifacts:
-  spec: T17_7_EA-SPEC.yaml
-  decisions: T17_7_DECISIONS.yaml
-  contract: T17_7_AI-BUILD-CONTRACT.json
-  task_record: T17_7_MASTER_PLAN.md
-  migration_map: T17_7_INPUT_MIGRATION.md
-owner_approval:
-  first_core_cumulative: APPROVED
-  side_aware_recovery_scheduler: APPROVED
-  overlap_post_leg1_durable_wait: APPROVED
-  versioned_input_migration: APPROVED
-  vietnamese_human_readable_journal: APPROVED_MANDATORY
-runtime_evidence:
-  owner_log: 20260824.log
-  owner_log_sha256: 35cd9f019a71fdfca0d5a68e87353ff024d334eaa3a298c07c4de5c207d8125f
-  strategy_tester_status: FAIL_REQUIRES_T17_7
-  findings:
-    - "P1: Overlap vẫn có pair gross âm sau sequential close dưới 150ms execution delay."
-    - "P1: Recovery Hedge Pyramid WAIT có thể chiếm Strategy tick và làm Core Pyramid side đối diện bị chậm/starve."
-    - "P2: coverage raw 81/82 có thể map cùng broker volume nhưng observability chưa canonicalize theo executable stage."
-    - "Input consolidation/fingerprint migration brainstorm chưa được implement ở T17.6."
-  forward_status: NOT_ELIGIBLE
-  live_status: NOT_ELIGIBLE
-stage_evidence:
-  C1:
+project: BlackDragon Adaptive Recovery / T17.7
+repository: hoaithivo0511-eng/BD-ea-remake
+branch: feat/t17-full-pyramid
+pull_request: 28
+release_state: DRAFT_OWNER_QA_PENDING
+merge_allowed: false
+ready_for_review: false
+
+methodology: VibeCodeKit-MQL5 Full
+workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
+
+stages:
+  C1_scheduler:
     status: COMPLETE
-    head: b428a4cc0dfcedd0f0f76b2f77caa65ea75f0dc4
-    tree: bfc082af39a17070e35ffa72e87fc7514d3d0907
-    workflows:
-      t177_c1: SUCCESS
-      t176_ownership: SUCCESS
-      t17_full_pyramid: SUCCESS
-      t1_t16_regression: SUCCESS
-    native_c1: "11 passed / 0 failed"
-    metaeditor: "0 errors / 0 warnings"
-  C2:
+    contract: Recovery WAIT yields without suppressing valid opposite-side work
+  C2_core_anchor:
     status: COMPLETE
-    head: 1b60f770c3e15897132463902dea762b65a3e926
-    tree: 19db57547a2995a60a8b48d015c1d123f6646595
-    workflows:
-      t177_c2: SUCCESS
-      t177_c1: SUCCESS
-      t176_ownership: SUCCESS
-      t17_full_pyramid: SUCCESS
-      t1_t16_regression: SUCCESS
-    native_c2: "14 passed / 0 failed"
-    metaeditor: "0 errors / 0 warnings"
-    blackdragon_ex5_sha256: 994a36d3aacda54cfdfca9264632d6eefbca33924006ac3b7835f3856f47cdfa
-    evidence_artifact_id: 9529695276
-    evidence_package_sha256: 739af668a42624cfd66c060fcef665ae57823eed7b664f40fe0c3f01c17d7222
-  C3:
+    contract: DYNAMIC legacy parity plus FIRST_CORE_CUMULATIVE selectable anchor
+  C3_durable_overlap:
     status: COMPLETE
-    head: cdb5ab9a9b8bf70fbd16067e8dcf10ebb7183cdb
-    tree: d668a9fc8b0763149a25a1dedd12045f0b0ac99e
-    pure_model: "26 passed / 0 failed"
-    workflows:
-      t177_c3: SUCCESS
-      t177_c2: SUCCESS
-      t177_c1: SUCCESS
-      t176_ownership: SUCCESS
-      t17_full_pyramid: SUCCESS
-      t1_t16_regression: SUCCESS
-    note: "Native regression first attempt timed out on RunTests infrastructure; same exact-head rerun succeeded with no code change."
-  C4:
-    status: BUILDING
-    parent_head: cdb5ab9a9b8bf70fbd16067e8dcf10ebb7183cdb
-    pure_model_precommit: "20 passed / 0 failed"
-    scope:
-      - "Single final Hedge target semantic with separate absolute hard cap."
-      - "Broker executable-unit de-duplication of intermediate coverage stages."
-      - "Keep first stage when multiple percentages map to the same broker volume."
-      - "Carry skipped-stage gap into next executable stage to preserve cumulative distance."
-      - "Hedge remains add-only; broker minimum never inflates above final hard cap."
-build_plan:
-  current_stage: C4
-  stages:
-    C0: COMPLETE
-    C1: COMPLETE
-    C2: COMPLETE
-    C3: COMPLETE
-    C4: BUILDING
-    C5: PENDING
-    C6: PENDING
-    C7: PENDING
-release_gate:
-  pr: 28
-  keep_draft: true
-  merge_authorized: false
-  strategy_tester_required: true
+    contract: persist-before-mutate, broker-confirmed leg1, post-fill leg2 revalidation, restart-safe fail-closed
+  C4_hedge_ladder:
+    status: COMPLETE
+    contract: executable broker-unit ladder, staged de-dup, additive gaps, final target/hard-cap invariant
+    verified_head: d8171329556be0a8ca6ed34f9145c341e0876d4d
+    verified_tree: d1dc62dfc2ece9da0bc74a85e7a1acfaa8e25e01
+    native: 20/0
+    ex5_sha256: 054bf65b5daf233bad7d7c4f2aaed0bb6163016d5b4626e768ced84b0976094f
+    artifact_id: 9533056636
+  C5_input_migration:
+    status: COMPLETE_PENDING_FINAL_HEAD_REPLAY
+    contract: consolidated policy selectors, conditional fingerprint, legacy .set compatibility, active-state migration fail-closed
+  C6_vietnamese_journal:
+    status: COMPLETE_PENDING_FINAL_HEAD_REPLAY
+    contract: Vietnamese level vocabulary, throttled WAIT, human-readable technical reasons, one-time migration summary
+  C7_final_verify:
+    status: VERIFYING
+    workflow: .github/workflows/verify-t177-final.yml
+    artifact: blackdragon-t177-final-owner-qa
+
+runtime_release_gates:
+  deterministic_models: REQUIRED
+  source_invariants: REQUIRED
+  metaeditor_compile: REQUIRED_0_ERRORS_0_WARNINGS
+  native_mt5_scripts: REQUIRED
+  exact_head_provenance: REQUIRED
+  owner_strategy_tester: PENDING
+  forward_live: NOT_ELIGIBLE
+
+owner_strategy_tester:
+  status: PENDING_OWNER_QA
+  checklist: BlackDragon_v14/docs/vibecode/T17_7_OWNER_QA_CHECKLIST.md
+  required_after_final_artifact: true
+
+known_release_rules:
+  - Native compile PASS is not Strategy Tester PASS.
+  - Missing owner tester evidence remains PENDING, never inferred PASS.
+  - Do not merge or mark Ready-for-Review before explicit owner approval.
+  - Test only EX5 from exact final-owner-QA artifact and match SHA256 provenance.
