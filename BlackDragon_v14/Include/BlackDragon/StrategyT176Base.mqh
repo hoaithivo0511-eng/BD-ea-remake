@@ -276,7 +276,7 @@ private:
       }
       if(lots <= 0.0) return 0.0;
       double spreadPrice = MathMax(ctx.ask - ctx.bid, 0.0);
-      double deviationPrice = (double)Exec_Deviation(Slippage_, Cfg.PointScale) * ctx.point;
+      double deviationPrice = Cfg.SlippagePrice;
       return MG_PctDiffExecutionReserveCashPure(spreadPrice,
                                                 deviationPrice,
                                                 lots,
@@ -317,7 +317,7 @@ private:
       double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
       double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
       double spreadPrice = MathMax(ctx.ask - ctx.bid, 0.0);
-      double deviationPrice = (double)Exec_Deviation(Slippage_, Cfg.PointScale) * ctx.point;
+      double deviationPrice = Cfg.SlippagePrice;
       int requests = d.pairFirst == d.pairLast ? 1 : 2;
       double lots = d.pairFirst == d.pairLast ? firstLots : firstLots + lastLots;
       return Exit_OverlapExecutionReserveCashPure(spreadPrice,
@@ -461,10 +461,10 @@ private:
       if(MinuteStop > 0 && lastCoreAdd > 0 &&
          ctx.now <= lastCoreAdd + MinuteStop * 60) return false;
 
-      int dist = m_dist.DistancePoints(dcaSide.count) * Cfg.PointScale;
+      double distPrice = m_dist.DistancePrice(dcaSide.count, Cfg.DcaInputUnitPrice);
       bool hit = (dir == BD_DIR_BUY)
-         ? (ctx.ask <= last.openPrice - dist * ctx.point)
-         : (ctx.bid >= last.openPrice + dist * ctx.point);
+         ? (ctx.ask <= last.openPrice - distPrice)
+         : (ctx.bid >= last.openPrice + distPrice);
       if(!hit) return false;
 
       double nextLot = m_sizer.NextLot(dcaSide);

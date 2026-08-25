@@ -306,6 +306,12 @@ uint Recovery_T16SemanticFingerprint()
    // receive this new semantic revision; plain T16.6/ARCS parity is untouched.
    if(HedgePyramidMode_ != hedge_pyramid_TAT)
       canonical += "|t176HedgePolicyRev=" + (string)BD_T176_HEDGE_POLICY_REV;
+   // LEGACY_COMPAT keeps the existing fingerprint byte-for-byte. An explicit
+   // PIP_UNIFIED opt-in changes Core/DCA/TP topology, so active Recovery state
+   // from the other policy must fail closed instead of being reinterpreted.
+   if(UnitSystemMode_ == unit_PIP_UNIFIED)
+      canonical += "|unitPolicyRev=" + (string)BD_UNIT_POLICY_REV +
+                   "|unitMode=" + (string)(int)UnitSystemMode_;
    return Recovery_Fnv1aTextPure(canonical);
 }
 

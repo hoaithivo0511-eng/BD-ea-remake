@@ -22,9 +22,7 @@ public:
    bool Allow(const EAContext &ctx, const int dir)
    {
       if(MaxSpred == 0) return true;
-      // FE-201: MaxSpred is authored in reference points (2-digit gold);
-      // real spread on a 3-digit broker is 10x in broker points.
-      return ctx.spreadPoints <= MaxSpred * Cfg.PointScale;
+      return MathMax(ctx.ask - ctx.bid, 0.0) <= Cfg.MaxSpreadPrice + 1e-12;
    }
 };
 

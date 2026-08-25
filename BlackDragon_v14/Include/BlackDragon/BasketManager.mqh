@@ -29,11 +29,10 @@
 //    fix #3: SIGNED cost (v13 used MathAbs -> wrong side on positive swap)
 //    fix #8: tickValue<=0 -> no shift (symbol data not synchronized yet)
 double Basket_Breakeven(const double avgOpen, const double totalLots, const double costMoney,
-                        const double tickValue, const double point, const bool isBuy)
+                        const double tickValue, const double tickSize, const bool isBuy)
 {
    if(totalLots <= 0) return 0;
-   double shift = 0;
-   if(tickValue > 0) shift = costMoney / (tickValue * totalLots) * point;
+   double shift = Unit_CostShiftPricePure(costMoney, totalLots, tickValue, tickSize);
    return isBuy ? avgOpen - shift : avgOpen + shift;
 }
 
@@ -362,11 +361,13 @@ private:
    void ComputeLevels(const EAContext &ctx)
    {
       double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-      ComputeSide(buy,  ctx, tickValue, true,  m_commissionBuy);
-      ComputeSide(sell, ctx, tickValue, false, m_commissionSell);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      ComputeSide(buy,  ctx, tickValue, tickSize, true,  m_commissionBuy);
+      ComputeSide(sell, ctx, tickValue, tickSize, false, m_commissionSell);
    }
 
    void ComputeSide(BasketSide &s, const EAContext &ctx, const double tickValue,
+                    const double tickSize,
                     const bool isBuy, const double commission)
    {
       s.breakeven = 0; s.tpLevel = 0; s.slLevel = 0;
@@ -381,33 +382,33 @@ private:
       if(s.totalLots <= 0) return;
       double avg = wsum / s.totalLots;
 
-      if(tickValue <= 0)
-         Log_Warn("Basket", "tickval", "SYMBOL_TRADE_TICK_VALUE<=0, skipping cost shift this tick");
-      s.breakeven = Basket_Breakeven(avg, s.totalLots, swapSum + commission, tickValue, ctx.point, isBuy);
+      if(tickValue <= 0 || tickSize <= 0)
+         Log_Warn("Basket", "tickmeta", "tick value/size unavailable, skipping cost shift this tick");
+      s.breakeven = Basket_Breakeven(avg, s.totalLots, swapSum + commission, tickValue, tickSize, isBuy);
 
-      if(Cfg.TP != 0) s.tpLevel = isBuy ? s.breakeven + Cfg.TP * ctx.point
-                                        : s.breakeven - Cfg.TP * ctx.point;
-      if(Cfg.SL != 0) s.slLevel = isBuy ? s.pos[0].openPrice - Cfg.SL * ctx.point
-                                        : s.pos[0].openPrice + Cfg.SL * ctx.point;
+      if(Cfg.TPPrice != 0) s.tpLevel = isBuy ? s.breakeven + Cfg.TPPrice
+                                             : s.breakeven - Cfg.TPPrice;
+      if(Cfg.SLPrice != 0) s.slLevel = isBuy ? s.pos[0].openPrice - Cfg.SLPrice
+                                             : s.pos[0].openPrice + Cfg.SLPrice;
 
       // [STRATEGY-BEHAVIOR] trail only if TrailStart!=0 and (TrailStart<TP or TP==0)
-      if(Cfg.TrailStart != 0 && (Cfg.TrailStart < Cfg.TP || Cfg.TP == 0))
+      if(Cfg.TrailStartPrice != 0 && (Cfg.TrailStartPrice < Cfg.TPPrice || Cfg.TPPrice == 0))
       {
          if(isBuy)
          {
-            if(s.extremePrice > s.breakeven + Cfg.TrailStart * ctx.point)
-            { s.trailLevel = s.extremePrice - Cfg.TrailDistance * ctx.point; s.trailArmed = true; }
+            if(s.extremePrice > s.breakeven + Cfg.TrailStartPrice)
+            { s.trailLevel = s.extremePrice - Cfg.TrailDistancePrice; s.trailArmed = true; }
             else
-            { s.trailLevel = s.breakeven + Cfg.TrailStart * ctx.point; s.trailArmed = false; }
+            { s.trailLevel = s.breakeven + Cfg.TrailStartPrice; s.trailArmed = false; }
          }
          else
          {
             // v13 adds current spread to the sell arming threshold
             if(s.extremePrice != DBL_MAX &&
-               s.extremePrice < s.breakeven - (Cfg.TrailStart + ctx.spreadPoints) * ctx.point)
-            { s.trailLevel = s.extremePrice + Cfg.TrailDistance * ctx.point; s.trailArmed = true; }
+               s.extremePrice < s.breakeven - Cfg.TrailStartPrice - MathMax(ctx.ask - ctx.bid, 0.0))
+            { s.trailLevel = s.extremePrice + Cfg.TrailDistancePrice; s.trailArmed = true; }
             else
-            { s.trailLevel = s.breakeven - Cfg.TrailStart * ctx.point; s.trailArmed = false; }
+            { s.trailLevel = s.breakeven - Cfg.TrailStartPrice; s.trailArmed = false; }
          }
       }
    }

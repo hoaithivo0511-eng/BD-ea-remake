@@ -1,0 +1,112 @@
+name: Verify T17.10 Unit System
+
+on:
+  pull_request:
+    branches: [ feat/recovery-t16-arcs-stacked ]
+    paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/RunT1710UnitSystemTests.mq5'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/unit_system_t1710_model.cpp'
+      - 'BlackDragon_v14/docs/vibecode/T17_10_*'
+      - '.github/workflows/verify-t1710-unit-system.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  unit-model-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+      - name: Run independent unit model
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='BlackDragon_v14/Scripts/BlackDragon/Tests/unit_system_t1710_model.cpp'
+          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t1710-unit
+          /tmp/t1710-unit | tee /tmp/t1710-unit.out
+          grep -q 'T17.10 unit model: 36 passed, 0 failed' /tmp/t1710-unit.out
+          grep -q 'ALL GREEN' /tmp/t1710-unit.out
+      - name: Verify canonical unit source contracts
+        shell: python
+        run: |
+          from pathlib import Path
+          r=Path('BlackDragon_v14/Include/BlackDragon')
+          all_source='\n'.join(p.read_text(encoding='utf-8',errors='ignore') for p in r.rglob('*.mqh'))
+          unit=(r/'UnitSystem.mqh').read_text(encoding='utf-8')
+          cfg=(r/'Config.mqh').read_text(encoding='utf-8')
+          basket=(r/'BasketManager.mqh').read_text(encoding='utf-8')
+          strategy=(r/'StrategyT176Base.mqh').read_text(encoding='utf-8')
+          execution=(r/'ExecutionLayer.mqh').read_text(encoding='utf-8')
+          recovery=(r/'Recovery/RecoveryMath.mqh').read_text(encoding='utf-8')
+          fingerprint=(r/'Recovery/RecoveryT16ConfigT177C4Base.mqh').read_text(encoding='utf-8')
+          assert 'unit_LEGACY_COMPAT' in unit and 'unit_PIP_UNIFIED' in unit
+          assert 'Unit_DcaDistancePricePure' in unit and 'Unit_CostShiftPricePure' in unit
+          assert 'Config_BindUnitProfile' in cfg and 'Cfg.DcaInputUnitPrice' in cfg
+          assert 'Cfg.TPPrice' in basket and 'Cfg.TrailStartPrice' in basket
+          assert 'DistancePrice(dcaSide.count, Cfg.DcaInputUnitPrice)' in strategy
+          assert 'Exec_DeviationFromPrice' in execution
+          assert 'Unit_PipSizePure' in recovery
+          assert 'unitPolicyRev=' in fingerprint and 'UnitSystemMode_ == unit_PIP_UNIFIED' in fingerprint
+          for bad in ('Cfg.TP * ctx.point','Cfg.SL * ctx.point','Cfg.TrailStart * ctx.point','MaxSpred * Cfg.PointScale'):
+              assert bad not in all_source, bad
+          print('T17.10 canonical unit source contract PASS')
+      - name: Record exact identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git show -s --format=%T HEAD)"
+
+  unit-native:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if(-not(Test-Path "$env:MT5_DIR\metaeditor64.exe")){throw 'metaeditor64.exe not found'}
+      - name: Mirror exact tree
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SOURCE_SHA){throw 'checkout mismatch'}
+          $t=Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru;Start-Sleep -Seconds 40;$t|Stop-Process -Force -ErrorAction SilentlyContinue;Start-Sleep -Seconds 3
+          $mql5="$env:MT5_DIR\MQL5"
+          foreach($d in @('Experts','Include','Scripts')){New-Item -ItemType Directory -Force -Path "$mql5\$d"|Out-Null;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force}
+          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach($root in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")){Get-ChildItem $root -Recurse -File|Where-Object{$_.Extension -in '.mq5','.mqh'}|ForEach-Object{$txt=Get-Content $_.FullName -Raw -Encoding UTF8;[IO.File]::WriteAllText($_.FullName,$txt,$enc)}}
+      - name: Compile focused script and full EA
+        shell: pwsh
+        run: |
+          $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-t1710";New-Item -ItemType Directory -Force $b|Out-Null
+          $targets=@(@{N='RunT1710UnitSystemTests';S="$mql5\Scripts\BlackDragon\Tests\RunT1710UnitSystemTests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunT1710UnitSystemTests.ex5"},@{N='BlackDragon';S="$mql5\Experts\BlackDragon\BlackDragon.mq5";O="$mql5\Experts\BlackDragon\BlackDragon.ex5"})
+          foreach($target in $targets){$log="$b\$($target.N)-compile.log";Start-Process $editor -ArgumentList "/compile:`"$($target.S)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $target.O)-or$e.Count-or$w.Count){throw "$($target.N) compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $target.O $b -Force}
+          $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim();$hash=(Get-FileHash "$b\BlackDragon.ex5" -Algorithm SHA256).Hash.ToLowerInvariant();"HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$hash`n"|Out-File "$b\PROVENANCE.txt" -Encoding utf8
+      - name: Execute native unit suite
+        shell: pwsh
+        run: |
+          $b="$env:GITHUB_WORKSPACE\build-t1710";$ld="$env:MT5_DIR\MQL5\Logs";Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force;New-Item -ItemType Directory -Force $ld|Out-Null;Get-ChildItem $ld -Filter '*.log' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
+          $cfg="$b\RunT1710UnitSystemTests.ini";$txt="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\RunT1710UnitSystemTests`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n";[IO.File]::WriteAllText($cfg,$txt,[Text.Encoding]::Unicode);$p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru;$deadline=(Get-Date).AddMinutes(4);while(-not$p.HasExited-and(Get-Date)-lt$deadline){Start-Sleep 2;$p.Refresh()};if(-not$p.HasExited){Stop-Process -Id $p.Id -Force;throw 'T17.10 native timeout'};$logs=Get-ChildItem $ld -Filter '*.log'|Sort-Object LastWriteTime;if(-not$logs){throw 'T17.10 native log missing'};$raw=Get-Content $logs[-1].FullName -Raw;Copy-Item $logs[-1].FullName "$b\RunT1710UnitSystemTests-native.log" -Force;Write-Host $raw;$m=[regex]::Match($raw,'T17\.10 unit tests:\s*(\d+) passed,\s*(\d+) failed');if(-not$m.Success-or[int]$m.Groups[1].Value-ne43-or[int]$m.Groups[2].Value-ne0-or$raw-notmatch'ALL GREEN'){throw 'T17.10 expected 43/0'}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blackdragon-t1710-focused-exact-tree
+          path: build-t1710/
+          if-no-files-found: error

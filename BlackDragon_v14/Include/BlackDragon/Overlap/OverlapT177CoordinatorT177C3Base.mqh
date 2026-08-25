@@ -351,7 +351,7 @@ private:
       double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
       double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
       double spreadPrice = MathMax(ctx.ask - ctx.bid, 0.0);
-      double deviationPrice = (double)Exec_Deviation(Slippage_, Cfg.PointScale) * ctx.point;
+      double deviationPrice = Cfg.SlippagePrice;
       return Exit_OverlapExecutionReserveCashPure(spreadPrice, deviationPrice,
                                                   totalLots, requests,
                                                   tickSize, tickValue);

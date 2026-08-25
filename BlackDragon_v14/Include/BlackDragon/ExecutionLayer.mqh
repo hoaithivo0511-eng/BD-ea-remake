@@ -43,6 +43,21 @@ ulong Exec_Deviation(const int slippagePoints, const int pointScale)
    return (ulong)(s * k);
 }
 
+ulong Exec_DeviationFromPrice(const double slippagePrice, const double point)
+{
+   return Unit_PriceToBrokerPointsCeilPure(slippagePrice, point);
+}
+
+double Exec_SlippagePriceForSymbol(const string sym)
+{
+   double point = SymbolInfoDouble(sym, SYMBOL_POINT);
+   bool isGold = Sym_IsGoldSym(sym);
+   double pip = Unit_PipSizePure(isGold, point,
+                                 (int)SymbolInfoInteger(sym, SYMBOL_DIGITS));
+   double legacy = Unit_LegacyPointSizePure(isGold, point, AutoGoldPip);
+   return Unit_ConfigDistancePricePure((double)Slippage_, UnitSystemMode_, legacy, pip);
+}
+
 //--- BD-R1: legacy per-intent hard timeout remains unchanged.
 int Exec_HardTimeoutSec(const eIntent action)
 {
@@ -756,7 +771,7 @@ public:
       req.volume       = volume;
       req.type         = (dir == 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       req.price        = (dir == 0) ? tick.ask : tick.bid;
-      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale);
+      req.deviation    = Exec_DeviationFromPrice(Cfg.SlippagePrice, _Point);
       req.magic        = Magic;
       req.comment      = Exec_BuildComment(sOrdComm, dcaIndex);
       req.type_filling = m_filling;
@@ -784,7 +799,7 @@ public:
       req.volume       = volume;
       req.type         = (dir == 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       req.price        = (dir == 0) ? tick.ask : tick.bid;
-      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale);
+      req.deviation    = Exec_DeviationFromPrice(Cfg.SlippagePrice, _Point);
       req.magic        = (ulong)ownerMagic;
       req.comment      = comment;
       req.type_filling = m_filling;
@@ -827,7 +842,8 @@ public:
       req.volume       = target;
       req.type         = (type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
       req.price        = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
-      req.deviation    = Exec_Deviation(Slippage_, Sym_PointScaleFor(sym));
+      req.deviation    = Exec_DeviationFromPrice(Exec_SlippagePriceForSymbol(sym),
+                                                 SymbolInfoDouble(sym, SYMBOL_POINT));
       req.magic        = Exec_CloseRequestMagic(positionMagic);
       req.type_filling = FillingFor(sym);
       SExecRequestMeta meta;

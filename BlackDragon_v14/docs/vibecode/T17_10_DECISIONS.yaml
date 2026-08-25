@@ -1,0 +1,31 @@
+schema_version: "1.0"
+task: T17.10
+decisions:
+  - id: D1710-01
+    status: ACCEPTED
+    decision: "Add LEGACY_COMPAT and PIP_UNIFIED; default to LEGACY_COMPAT."
+    rationale: "A global unit fix must not silently reinterpret existing .set files."
+  - id: D1710-02
+    status: ACCEPTED
+    decision: "Convert public distances once into canonical price units."
+    rationale: "Price comparisons must not mix points, reference points and pips."
+  - id: D1710-03
+    status: ACCEPTED
+    decision: "Keep all Pips-suffixed Recovery/Pyramid inputs as true symbol pips in both modes."
+    rationale: "Their existing contract is already symbol-aware and must not migrate again."
+  - id: D1710-04
+    status: ACCEPTED
+    decision: "Convert slippage price to broker points only inside ExecutionLayer."
+    rationale: "MqlTradeRequest.deviation is explicitly broker points."
+  - id: D1710-05
+    status: ACCEPTED
+    decision: "Use tick size with tick value for basket cost-to-price shift."
+    rationale: "Point and tick size can differ; the old pairing misprices breakeven."
+  - id: D1710-06
+    status: ACCEPTED
+    decision: "Fail init when point/tick/pip metadata is invalid."
+    rationale: "Fallback conversion would conceal broker portability failures."
+  - id: D1710-07
+    status: REJECTED
+    decision: "Do not make PIP_UNIFIED the default and do not rewrite .set files automatically."
+    rationale: "That would be an unversioned strategy/risk change."

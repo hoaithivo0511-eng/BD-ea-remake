@@ -91,11 +91,19 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
 
-   Config_ApplyPointScale(Sym_PointScale());
-   if(Sym_IsGold())
-      Log_Info("Init", "Gold detected (" + (string)_Digits + " digits): PointScale=" +
-               (string)Cfg.PointScale + " — 200 input points = 2.00 USD = 20 pips on any broker" +
-               (AutoGoldPip ? "" : " (AutoGoldPip=OFF: scale forced 1)"));
+   string unitWhy = "";
+   if(!Config_BindUnitProfile(Sym_IsGold(), _Point, _Digits,
+                              SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), unitWhy))
+   {
+      Log_Error("Init", "Unit profile invalid: " + unitWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   Log_Info("Init", "UnitSystem=" + Unit_ModeName(Cfg.UnitMode) +
+            "; point=" + DoubleToString(Cfg.Point, _Digits) +
+            "; pip=" + DoubleToString(Cfg.PipSize, _Digits) +
+            "; tick=" + DoubleToString(Cfg.TickSize, _Digits) +
+            (Cfg.UnitMode == unit_PIP_UNIFIED && !AutoGoldPip
+             ? "; AutoGoldPip ignored in unified mode" : ""));
 
    if(!g_recovery.Init()) return INIT_PARAMETERS_INCORRECT;
 
