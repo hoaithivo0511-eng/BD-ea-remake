@@ -880,11 +880,13 @@ public:
                         const eExecCommandType commandType,
                         const eExecReconcilePolicy reconcilePolicy)
    {
-      if(!PositionSelectByTicket(ticket)) return false;
+      if(ticket==0 || !PositionSelectByTicket(ticket)) return false;
+      if((ulong)PositionGetInteger(POSITION_TICKET)!=ticket ||
+         PositionGetDouble(POSITION_VOLUME)<=0.0) return false;
       if(m_asyncAllowed && ExecMode == exec_Async && HasPendingModify(ticket)) return false;
       string sym = PositionGetString(POSITION_SYMBOL);
       long positionMagic = PositionGetInteger(POSITION_MAGIC);
-      if(!Exec_OwnerMatches(positionMagic, expectedOwnerMagic)) return false;
+      if(sym=="" || !Exec_OwnerMatches(positionMagic, expectedOwnerMagic)) return false;
       MqlTradeRequest req; MqlTradeResult res;
       ZeroMemory(req); ZeroMemory(res);
       req.action   = TRADE_ACTION_SLTP;
@@ -893,6 +895,7 @@ public:
       req.sl       = sl;
       req.tp       = tp;
       req.magic    = Exec_CloseRequestMagic(positionMagic);
+      if(req.position==0 || req.symbol=="") return false;
       SExecRequestMeta meta;
       Exec_InitMeta(meta, positionMagic, cycleKey, commandType, reconcilePolicy);
       return Send(req, res, INTENT_MODIFY_SLTP, meta, PositionGetDouble(POSITION_VOLUME));
@@ -900,7 +903,9 @@ public:
 
    bool ModifySlTp(const ulong ticket, const double sl, const double tp)
    {
-      if(!PositionSelectByTicket(ticket)) return false;
+      if(ticket==0 || !PositionSelectByTicket(ticket)) return false;
+      if((ulong)PositionGetInteger(POSITION_TICKET)!=ticket ||
+         PositionGetDouble(POSITION_VOLUME)<=0.0) return false;
       long positionMagic = PositionGetInteger(POSITION_MAGIC);
       return ModifySlTpOwned(ticket, sl, tp, positionMagic, 0,
                              EXEC_CMD_LEGACY, EXEC_RECONCILE_LEGACY_RELEASE);

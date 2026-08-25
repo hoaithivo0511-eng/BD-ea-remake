@@ -1,8 +1,8 @@
-project: BlackDragon Adaptive Recovery / T17.7
+project: BlackDragon Adaptive Recovery / T17.9
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
-release_state: DRAFT_OWNER_QA_PENDING
+release_state: DRAFT_T17_9_BUILD_VERIFY
 merge_allowed: false
 ready_for_review: false
 
@@ -10,6 +10,12 @@ methodology: VibeCodeKit-MQL5 Full
 workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
 
 stages:
+  T17_9_real_tp_interleave:
+    status: BUILD_VERIFY
+    contract: strict pre-ownership TP proof, durable Recovery-owned exact-ID epoch, same-side settlement barrier, stale-ticket hardening
+    baseline_head: 0f608ef97a1265521ed32443b5d504ceb9b7ef8d
+    baseline_tree: affca27b84038e126ded6f73c373bf02a7fab6c0
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
   C1_scheduler:
     status: COMPLETE
     contract: Recovery WAIT yields without suppressing valid opposite-side work
@@ -48,8 +54,8 @@ runtime_release_gates:
   forward_live: NOT_ELIGIBLE
 
 owner_strategy_tester:
-  status: PENDING_OWNER_QA
-  checklist: BlackDragon_v14/docs/vibecode/T17_7_OWNER_QA_CHECKLIST.md
+  status: PENDING_T17_9_OWNER_RERUN
+  checklist: BlackDragon_v14/docs/vibecode/T17_9_OWNER_QA_CHECKLIST.md
   required_after_final_artifact: true
 
 known_release_rules:

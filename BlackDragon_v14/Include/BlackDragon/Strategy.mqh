@@ -186,6 +186,16 @@ public:
          return;
       }
 
+      // T17.9 observes broker-TP hit before any same-side risk ADD. This is
+      // deliberately side-local: opposite-side scheduling remains eligible.
+      if(m_recoveryExit != NULL && RecoveryMode_ == recovery_ACTIVE)
+      {
+         m_recoveryExit.ObserveRealTpSettlement(recovery_CORE_BUY,
+                                                 ctx.bid,ctx.ask,ctx.now);
+         m_recoveryExit.ObserveRealTpSettlement(recovery_CORE_SELL,
+                                                 ctx.bid,ctx.ask,ctx.now);
+      }
+
       if(m_pyramid != NULL &&
          (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
       {
@@ -272,7 +282,11 @@ public:
       bool panelMutation = false;
       if(panelOpenBuy)
       {
-         if(m_overlap.BlocksSide(BD_DIR_BUY))
+         if(BlocksRealTpAdd(BD_DIR_BUY))
+            Log_WarnEvery("Recovery", "t179panelbuy",
+                          "CHỜ BUY | Broker TP cohort đang settle; khóa mở thêm cùng side",
+                          Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         else if(m_overlap.BlocksSide(BD_DIR_BUY))
             Log_WarnEvery("Overlap", "panelbuy",
                           "CHỜ BUY | Không mở thêm lệnh khi cặp Overlap đang xử lý",
                           Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
@@ -283,7 +297,11 @@ public:
       }
       if(panelOpenSell)
       {
-         if(m_overlap.BlocksSide(BD_DIR_SELL))
+         if(BlocksRealTpAdd(BD_DIR_SELL))
+            Log_WarnEvery("Recovery", "t179panelsell",
+                          "CHỜ SELL | Broker TP cohort đang settle; khóa mở thêm cùng side",
+                          Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         else if(m_overlap.BlocksSide(BD_DIR_SELL))
             Log_WarnEvery("Overlap", "panelsell",
                           "CHỜ SELL | Không mở thêm lệnh khi cặp Overlap đang xử lý",
                           Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
@@ -301,7 +319,8 @@ public:
          string pyrWhy = "";
          datetime buyLastBar = m_basket.LastBuyBar();
          bool allowPyramidAddBuy = m_newSeriesFilters.Allow(ctx, BD_DIR_BUY);
-         if(m_basket.buy.count > 0 && !m_overlap.BlocksSide(BD_DIR_BUY))
+         if(m_basket.buy.count > 0 && !m_overlap.BlocksSide(BD_DIR_BUY) &&
+            !BlocksRealTpAdd(BD_DIR_BUY))
          {
             bool changed = m_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY, MaxOrdersBuy,
                                            m_recovery, allowPyramidAddBuy,
@@ -320,7 +339,8 @@ public:
          pyrWhy = "";
          datetime sellLastBar = m_basket.LastSellBar();
          bool allowPyramidAddSell = m_newSeriesFilters.Allow(ctx, BD_DIR_SELL);
-         if(m_basket.sell.count > 0 && !m_overlap.BlocksSide(BD_DIR_SELL))
+         if(m_basket.sell.count > 0 && !m_overlap.BlocksSide(BD_DIR_SELL) &&
+            !BlocksRealTpAdd(BD_DIR_SELL))
          {
             bool changed = m_pyramid.Drive(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell,
                                            m_recovery, allowPyramidAddSell,

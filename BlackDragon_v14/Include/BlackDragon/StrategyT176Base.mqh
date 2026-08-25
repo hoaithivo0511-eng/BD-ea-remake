@@ -39,6 +39,12 @@ private:
       return dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;
    }
 
+   bool BlocksRealTpAdd(const int dir) const
+   {
+      return RecoveryMode_ == recovery_ACTIVE && m_recoveryExit != NULL &&
+             m_recoveryExit.BlocksSameSideAdd(RecoveryDir(dir));
+   }
+
    eRecoveryExitCoordRequest BeginFullSideClose(const int dir,
                                                 const eRecoveryExitCoordReason reason,
                                                 const datetime now)
@@ -411,6 +417,7 @@ private:
       bool hedgeAllowsBuy  = Hedge_AllowsNewSeries(Flag_Use_hedge, m_basket.sell.count);
       bool hedgeAllowsSell = Hedge_AllowsNewSeries(Flag_Use_hedge, m_basket.buy.count);
       if(Cfg.TradeBuy && ctx.signalBuy && m_basket.buy.count == 0 && Cfg.NewCycle &&
+         !BlocksRealTpAdd(BD_DIR_BUY) &&
          hedgeAllowsBuy &&
          m_basket.LastBuyBar() != ctx.barTime && !m_exec.BusyOpen(BD_DIR_BUY) &&
          m_newSeriesFilters.Allow(ctx, BD_DIR_BUY))
@@ -418,6 +425,7 @@ private:
          if(m_exec.OpenMarket(BD_DIR_BUY, m_sizer.FirstLot(), 1)) m_basket.Invalidate();
       }
       if(Cfg.TradeSell && ctx.signalSell && m_basket.sell.count == 0 && Cfg.NewCycle &&
+         !BlocksRealTpAdd(BD_DIR_SELL) &&
          hedgeAllowsSell &&
          m_basket.LastSellBar() != ctx.barTime && !m_exec.BusyOpen(BD_DIR_SELL) &&
          m_newSeriesFilters.Allow(ctx, BD_DIR_SELL))
@@ -430,6 +438,7 @@ private:
                    const int dir, const int maxOrders)
    {
       if(side.count <= 0 || maxOrders <= 0) return false;
+      if(BlocksRealTpAdd(dir)) return false;
 
       // T17.4: DCA evaluates only Seed+DCA positions even while Pyramid is live.
       BasketSide dcaSide;
@@ -590,6 +599,12 @@ private:
             tp = 0.0;
       }
 
+      if(TP_Mode == mode_Real && Cfg.TP != 0 && tp > 0.0 &&
+         RecoveryMode_ == recovery_ACTIVE && m_recoveryExit != NULL &&
+         !m_recoveryExit.PrepareRealTpEpoch(isBuy ? recovery_CORE_BUY : recovery_CORE_SELL,
+                                            tp,ctx.now))
+         return;
+
       if(sl == 0 && Trail_Mode == mode_Real && !side.trailArmed)
       {
          bool hadStop = false;
@@ -603,13 +618,26 @@ private:
       bool modified = false;
       for(int i = 0; i < side.count; i++)
       {
-         double curSl = NormalizeDouble(side.pos[i].sl, ctx.digits);
-         double curTp = NormalizeDouble(side.pos[i].tp, ctx.digits);
+         ulong ticket=side.pos[i].ticket;
+         long wantedType=isBuy ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+         if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+         ulong selectedTicket=(ulong)PositionGetInteger(POSITION_TICKET);
+         bool symbolMatches=PositionGetString(POSITION_SYMBOL)==_Symbol;
+         bool ownerMatches=Basket_OwnsMagic(PositionGetInteger(POSITION_MAGIC),
+                                             (long)Magic,flag_Hand_Ord);
+         bool typeMatches=PositionGetInteger(POSITION_TYPE)==wantedType;
+         double liveVolume=PositionGetDouble(POSITION_VOLUME);
+         if(!Recovery_T179ModifyCandidatePure(ticket,true,selectedTicket,
+                                               symbolMatches,ownerMatches,
+                                               typeMatches,liveVolume)) continue;
+         double curSl = NormalizeDouble(PositionGetDouble(POSITION_SL), ctx.digits);
+         double curTp = NormalizeDouble(PositionGetDouble(POSITION_TP), ctx.digits);
          if(curSl != sl || curTp != tp)
          {
-            if(m_exec.HasPendingModify(side.pos[i].ticket)) continue;
-            if(m_exec.ModifySlTp(side.pos[i].ticket, sl, tp)) modified = true;
-            else Log_Warn("Strategy", "sltp", "modify SL/TP failed ticket " + (string)side.pos[i].ticket);
+            if(m_exec.HasPendingModify(ticket)) continue;
+            if(m_exec.ModifySlTp(ticket, sl, tp)) modified = true;
+            else if(PositionSelectByTicket(ticket))
+               Log_Warn("Strategy", "sltp", "modify SL/TP failed live ticket " + (string)ticket);
          }
       }
       if(modified) m_basket.Invalidate();

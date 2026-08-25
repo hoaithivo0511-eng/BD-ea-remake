@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryExitCoordinator.mqh — T17.8 REAL broker TP wrapper      |
+//| RecoveryExitCoordinator.mqh — T17.9 REAL broker TP wrapper      |
 //| Base T17.7/T16 coordinator remains byte-identical in T177Base.   |
 //| Expected Core broker TP is never misclassified as manual/external.|
 //+------------------------------------------------------------------+
@@ -8,10 +8,13 @@
 
 #include "RecoveryExitCoordinatorT177Base.mqh"
 #include "RecoveryT178RuntimePolicy.mqh"
+#include "RecoveryT179RealTpPolicy.mqh"
 #include <BlackDragon/Config.mqh>
 
 #define BD_T178_TP_MAGIC   0x38505452 // "RTP8"
-#define BD_T178_TP_VERSION 1
+#define BD_T178_TP_VERSION 2
+#define BD_T179_TP_COHORT_CAP 64
+// Legacy T17.8 source-contract anchor: BD_T178_TP_VERSION 1
 
 struct SRecoveryT178TpPersistHeader
 {
@@ -34,8 +37,13 @@ struct SRecoveryT178TpEpoch
 {
    int active;
    int dir;
+   int recoveryOwned;
+   int settling;
    double targetTp;
    datetime startedAt;
+   datetime updatedAt;
+   int cohortCount;
+   ulong positionIds[BD_T179_TP_COHORT_CAP];
 };
 
 uint Recovery_T178FnvBytes(const uchar &bytes[])
@@ -76,6 +84,87 @@ private:
    long T178RecoveryPositionType(const eRecoveryCoreDirection dir) const
    {
       return dir == recovery_CORE_BUY ? POSITION_TYPE_SELL : POSITION_TYPE_BUY;
+   }
+
+   bool T179RecoveryOwnsSide(const eRecoveryCoreDirection dir) const
+   {
+      return CycleRequiresCoordination(dir);
+   }
+
+   bool T179EpochContains(const int idx,const ulong positionId) const
+   {
+      if(positionId==0 || idx<0 || idx>1) return false;
+      int n=m_tpEpoch[idx].cohortCount;
+      if(n<0 || n>BD_T179_TP_COHORT_CAP) return false;
+      for(int i=0;i<n;i++) if(m_tpEpoch[idx].positionIds[i]==positionId) return true;
+      return false;
+   }
+
+   void T179InsertPositionId(SRecoveryT178TpEpoch &epoch,const ulong positionId)
+   {
+      int n=epoch.cohortCount;
+      if(positionId==0 || n<0 || n>=BD_T179_TP_COHORT_CAP) return;
+      int at=n;
+      while(at>0 && epoch.positionIds[at-1]>positionId)
+      {
+         epoch.positionIds[at]=epoch.positionIds[at-1];
+         at--;
+      }
+      if(at>0 && epoch.positionIds[at-1]==positionId) return;
+      if(at<n && epoch.positionIds[at]==positionId) return;
+      epoch.positionIds[at]=positionId;
+      epoch.cohortCount=n+1;
+   }
+
+   bool T179CaptureCoreCohort(const eRecoveryCoreDirection dir,
+                              const double targetTp,
+                              const datetime now,
+                              SRecoveryT178TpEpoch &epoch,
+                              string &why) const
+   {
+      why="";
+      ZeroMemory(epoch);
+      epoch.active=1;
+      epoch.dir=(int)dir;
+      epoch.recoveryOwned=T179RecoveryOwnsSide(dir) ? 1 : 0;
+      epoch.targetTp=targetTp;
+      epoch.startedAt=now;
+      epoch.updatedAt=now;
+      long wanted=T178CorePositionType(dir);
+      for(int i=PositionsTotal()-1;i>=0;i--)
+      {
+         ulong ticket=PositionGetTicket(i);
+         if(ticket==0) continue;
+         if(PositionGetString(POSITION_SYMBOL)!=_Symbol ||
+            PositionGetInteger(POSITION_MAGIC)!=(long)Magic ||
+            PositionGetInteger(POSITION_TYPE)!=wanted) continue;
+         ulong positionId=(ulong)PositionGetInteger(POSITION_IDENTIFIER);
+         if(positionId==0) { why="Core position thiếu POSITION_IDENTIFIER"; return false; }
+         if(epoch.cohortCount>=BD_T179_TP_COHORT_CAP)
+         { why="REAL TP cohort vượt capacity an toàn"; return false; }
+         // Inline sorted insert keeps persisted identity deterministic.
+         int at=epoch.cohortCount;
+         while(at>0 && epoch.positionIds[at-1]>positionId)
+         { epoch.positionIds[at]=epoch.positionIds[at-1]; at--; }
+         if((at>0 && epoch.positionIds[at-1]==positionId) ||
+            (at<epoch.cohortCount && epoch.positionIds[at]==positionId)) continue;
+         epoch.positionIds[at]=positionId;
+         epoch.cohortCount++;
+      }
+      if(epoch.cohortCount<=0) { why="không có exact-Magic Core để tạo epoch"; return false; }
+      return true;
+   }
+
+   bool T179SameEpoch(const SRecoveryT178TpEpoch &a,
+                      const SRecoveryT178TpEpoch &b) const
+   {
+      double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+      if(tick<=0.0) tick=_Point;
+      if(a.active!=b.active || a.dir!=b.dir || a.recoveryOwned!=b.recoveryOwned ||
+         a.settling!=b.settling || a.cohortCount!=b.cohortCount ||
+         MathAbs(a.targetTp-b.targetTp)>MathMax(tick,_Point)+1e-12) return false;
+      for(int i=0;i<a.cohortCount;i++) if(a.positionIds[i]!=b.positionIds[i]) return false;
+      return true;
    }
 
    void ResetTpEpoch(const int idx)
@@ -201,6 +290,12 @@ private:
       if((e0.active!=0 && e0.dir!=(int)recovery_CORE_BUY) ||
          (e1.active!=0 && e1.dir!=(int)recovery_CORE_SELL))
       { why="side state REAL TP không hợp lệ"; return false; }
+      if(e0.cohortCount<0 || e0.cohortCount>BD_T179_TP_COHORT_CAP ||
+         e1.cohortCount<0 || e1.cohortCount>BD_T179_TP_COHORT_CAP)
+      { why="cohort count state REAL TP không hợp lệ"; return false; }
+      if((e0.active!=0 && (e0.targetTp<=0.0 || e0.cohortCount<=0)) ||
+         (e1.active!=0 && (e1.targetTp<=0.0 || e1.cohortCount<=0)))
+      { why="epoch REAL TP thiếu target/cohort"; return false; }
       m_tpEpoch[0]=e0; m_tpEpoch[1]=e1;
       m_tpSaveSequence=identity.saveSequence;
       return true;
@@ -270,29 +365,42 @@ private:
       return true;
    }
 
-   bool ExpectedCoreRealTpDealT178(const eRecoveryCoreDirection dir,
-                                   const ulong deal) const
+   eRecoveryT179RealTpProof ClassifyCoreRealTpDealT179(
+                                   const eRecoveryCoreDirection dir,
+                                   const ulong deal,
+                                   bool &strictProof) const
    {
-      if(deal==0 || !HistoryDealSelect(deal)) return false;
+      strictProof=false;
+      if(deal==0 || !HistoryDealSelect(deal)) return RECOVERY_T179_TP_EXTERNAL;
       long owner=ResolveClosedOwnerMagicT178(deal);
-      if(!HistoryDealSelect(deal)) return false;
+      if(!HistoryDealSelect(deal)) return RECOVERY_T179_TP_EXTERNAL;
       long reason=HistoryDealGetInteger(deal,DEAL_REASON);
       double dealPrice=HistoryDealGetDouble(deal,DEAL_PRICE);
       double programmedTp=ProgrammedTpFromDealT178(deal);
+      if(!HistoryDealSelect(deal)) return RECOVERY_T179_TP_EXTERNAL;
+      ulong positionId=(ulong)HistoryDealGetInteger(deal,DEAL_POSITION_ID);
       double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
       double spread=(double)SymbolInfoInteger(_Symbol,SYMBOL_SPREAD)*_Point;
-      if(tick<=0.0) return false;
+      if(tick<=0.0) return RECOVERY_T179_TP_EXTERNAL;
       double tpTolerance=MathMax(2.0*tick,_Point);
       double fillTolerance=MathMax(500.0*tick,5.0*spread+5.0*tick);
-      bool cohort=programmedTp>0.0 && LiveCoreTpCohortMatchesT178(dir,programmedTp,tpTolerance);
-      return Recovery_T178ExpectedCoreRealTpPure(TP_Mode==mode_Real,
-                                                  Cfg.TP!=0,
-                                                  owner==(long)Magic,
-                                                  reason==DEAL_REASON_TP,
-                                                  programmedTp,
-                                                  dealPrice,
-                                                  fillTolerance,
-                                                  cohort);
+      strictProof=Recovery_T179StrictBrokerTpProofPure(TP_Mode==mode_Real,
+                                                        Cfg.TP!=0,
+                                                        owner==(long)Magic,
+                                                        reason==DEAL_REASON_TP,
+                                                        programmedTp,
+                                                        dealPrice,
+                                                        fillTolerance);
+      int idx=T178Index(dir);
+      bool epochActive=m_tpEpoch[idx].active!=0;
+      bool targetMatches=epochActive &&
+         MathAbs(m_tpEpoch[idx].targetTp-programmedTp)<=tpTolerance+1e-12;
+      bool idMatches=epochActive && T179EpochContains(idx,positionId);
+      return Recovery_T179ClassifyBrokerTpPure(strictProof,
+                                                T179RecoveryOwnsSide(dir),
+                                                epochActive,
+                                                targetMatches,
+                                                idMatches);
    }
 
    long CoreUnitsT178(const eRecoveryCoreDirection dir) const
@@ -331,17 +439,54 @@ private:
       return units;
    }
 
-   bool ArmTpEpoch(const eRecoveryCoreDirection dir,
-                   const double targetTp,
-                   const datetime now,
-                   string &why)
+   bool StorePreparedTpEpochT179(const eRecoveryCoreDirection dir,
+                                const double targetTp,
+                                const datetime now,
+                                string &why)
+   {
+      int idx=T178Index(dir);
+      if(m_tpEpoch[idx].active!=0 && m_tpEpoch[idx].settling!=0) return true;
+      SRecoveryT178TpEpoch next;
+      if(!T179CaptureCoreCohort(dir,targetTp,now,next,why)) return false;
+      if(T179SameEpoch(m_tpEpoch[idx],next)) return true;
+      SRecoveryT178TpEpoch old=m_tpEpoch[idx];
+      m_tpEpoch[idx]=next;
+      if(SaveTpEpochs(why)) return true;
+      m_tpEpoch[idx]=old;
+      return false;
+   }
+
+   bool MarkTpEpochSettlingT179(const eRecoveryCoreDirection dir,
+                               const ulong positionId,
+                               const double targetTp,
+                               const datetime now,
+                               string &why)
    {
       int idx=T178Index(dir);
       SRecoveryT178TpEpoch old=m_tpEpoch[idx];
-      m_tpEpoch[idx].active=1;
-      m_tpEpoch[idx].dir=(int)dir;
+      if(m_tpEpoch[idx].active==0)
+      {
+         if(!T179CaptureCoreCohort(dir,targetTp,now,m_tpEpoch[idx],why))
+         {
+            // The first callback may arrive after the broker already removed
+            // every live member. Preserve at least the immutable deal identity.
+            ResetTpEpoch(idx);
+            m_tpEpoch[idx].active=1;
+            m_tpEpoch[idx].dir=(int)dir;
+            m_tpEpoch[idx].recoveryOwned=T179RecoveryOwnsSide(dir) ? 1 : 0;
+            m_tpEpoch[idx].targetTp=targetTp;
+            m_tpEpoch[idx].startedAt=now;
+            m_tpEpoch[idx].updatedAt=now;
+            m_tpEpoch[idx].cohortCount=0;
+         }
+      }
+      if(positionId!=0 && !T179EpochContains(idx,positionId))
+         T179InsertPositionId(m_tpEpoch[idx],positionId);
+      if(m_tpEpoch[idx].cohortCount<=0)
+      { m_tpEpoch[idx]=old; why="không khóa được identifier cho epoch REAL TP"; return false; }
       m_tpEpoch[idx].targetTp=targetTp;
-      if(m_tpEpoch[idx].startedAt<=0) m_tpEpoch[idx].startedAt=now;
+      m_tpEpoch[idx].settling=1;
+      m_tpEpoch[idx].updatedAt=now;
       if(SaveTpEpochs(why)) return true;
       m_tpEpoch[idx]=old;
       return false;
@@ -351,7 +496,13 @@ private:
    {
       int idx=T178Index(dir);
       if(m_tpEpoch[idx].active==0) return;
-      if(CoreUnitsT178(dir)>0 || RecoveryUnitsT178(dir)>0 || ReconcileHold(dir)) return;
+      if(m_tpEpoch[idx].settling==0)
+      {
+         if(CoreUnitsT178(dir)>0) return;
+      }
+      else if(!Recovery_T179SettlementCompletePure(true,true,CoreUnitsT178(dir),
+                                                    RecoveryUnitsT178(dir),
+                                                    ReconcileHold(dir))) return;
       ResetTpEpoch(idx);
       string why="";
       if(!SaveTpEpochs(why))
@@ -380,7 +531,7 @@ public:
       m_tpSaveSequence=0;
       m_tpPersistenceFault=false;
       string token=Recovery_SafeFileToken(_Symbol);
-      m_tpFile="BD_T178_REALTP_"+(string)AccountInfoInteger(ACCOUNT_LOGIN)+"_"+
+      m_tpFile="BD_T179_REALTP_"+(string)AccountInfoInteger(ACCOUNT_LOGIN)+"_"+
                token+"_"+(string)Magic+"_"+(string)RecoveryMagic_+".bin";
       m_tpTemp=m_tpFile+".tmp";
       string why="";
@@ -394,6 +545,11 @@ public:
       {
          if(m_tpEpoch[i].active==0) continue;
          eRecoveryCoreDirection dir=T178Direction(i);
+         if(m_tpEpoch[i].settling==0)
+         {
+            if(CoreUnitsT178(dir)<=0) ResetTpEpoch(i);
+            continue;
+         }
          eRecoveryExitCoordRequest req=CRecoveryExitCoordinator::BeginFullSideClose(
             dir,recovery_EXIT_REASON_LEGACY_TP,m_tpEpoch[i].startedAt);
          if(req==recovery_EXIT_BYPASS && CoreUnitsT178(dir)<=0 && RecoveryUnitsT178(dir)<=0)
@@ -409,6 +565,93 @@ public:
          m_tpPersistenceFault=true;
          Log_Error("Recovery","LỖI | Không cập nhật được state REAL TP sau khởi động | "+why);
       }
+   }
+
+   bool PrepareRealTpEpoch(const eRecoveryCoreDirection dir,
+                           const double targetTp,
+                           const datetime now)
+   {
+      if(RecoveryMode_!=recovery_ACTIVE || TP_Mode!=mode_Real || Cfg.TP==0)
+         return true;
+      if(targetTp<=0.0) return true;
+      int idx=T178Index(dir);
+      if(CoreUnitsT178(dir)<=0)
+      {
+         if(m_tpEpoch[idx].active==0 || m_tpEpoch[idx].settling!=0) return true;
+         SRecoveryT178TpEpoch old=m_tpEpoch[idx];
+         ResetTpEpoch(idx);
+         string clearWhy="";
+         if(SaveTpEpochs(clearWhy)) return true;
+         m_tpEpoch[idx]=old;
+         m_tpPersistenceFault=true;
+         Log_Error("Recovery","LỖI "+Recovery_DirectionName(dir)+
+                   " | Không xóa được epoch REAL TP đã flat | "+clearWhy);
+         return false;
+      }
+      string why="";
+      if(StorePreparedTpEpochT179(dir,targetTp,now,why)) return true;
+      m_tpPersistenceFault=true;
+      Log_Error("Recovery","LỖI "+Recovery_DirectionName(dir)+
+                " | Không chuẩn bị được epoch REAL TP trước mutation | "+why);
+      return false;
+   }
+
+   bool ObserveRealTpSettlement(const eRecoveryCoreDirection dir,
+                                const double bid,
+                                const double ask,
+                                const datetime now)
+   {
+      if(RecoveryMode_!=recovery_ACTIVE || TP_Mode!=mode_Real || Cfg.TP==0)
+         return false;
+      int idx=T178Index(dir);
+      if(m_tpEpoch[idx].active==0)
+      {
+         // Covers restart/upgrade and the first tick after positions appeared:
+         // snapshot the broker-programmed exact-Magic cohort before any ADD.
+         double commonTp=0.0;
+         double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+         if(tick<=0.0) tick=_Point;
+         long wanted=T178CorePositionType(dir);
+         bool mismatch=false;
+         for(int i=PositionsTotal()-1;i>=0;i--)
+         {
+            ulong ticket=PositionGetTicket(i);
+            if(ticket==0 || PositionGetString(POSITION_SYMBOL)!=_Symbol ||
+               PositionGetInteger(POSITION_MAGIC)!=(long)Magic ||
+               PositionGetInteger(POSITION_TYPE)!=wanted) continue;
+            double tp=PositionGetDouble(POSITION_TP);
+            if(tp<=0.0) { mismatch=true; break; }
+            if(commonTp<=0.0) commonTp=tp;
+            else if(MathAbs(commonTp-tp)>MathMax(2.0*tick,_Point)+1e-12)
+            { mismatch=true; break; }
+         }
+         if(!mismatch && commonTp>0.0 && !PrepareRealTpEpoch(dir,commonTp,now))
+            return true;
+      }
+      if(m_tpEpoch[idx].active==0 || m_tpEpoch[idx].settling!=0)
+         return m_tpEpoch[idx].settling!=0;
+      double tolerance=MathMax(2.0*SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE),_Point);
+      bool hit=dir==recovery_CORE_BUY ? bid+tolerance>=m_tpEpoch[idx].targetTp :
+                                       ask-tolerance<=m_tpEpoch[idx].targetTp;
+      if(!Recovery_T179SettlementStartsPure(true,false,hit,false)) return false;
+      string why="";
+      if(!MarkTpEpochSettlingT179(dir,0,m_tpEpoch[idx].targetTp,now,why))
+      {
+         m_tpPersistenceFault=true;
+         Log_Error("Recovery","LỖI "+Recovery_DirectionName(dir)+
+                   " | Không khóa được settlement barrier REAL TP | "+why);
+         return true;
+      }
+      Log_Info("Recovery","TP THẬT "+Recovery_DirectionName(dir)+
+               " | Giá đã chạm cohort broker TP | khóa ADD cùng side tới khi settle xong");
+      return true;
+   }
+
+   bool BlocksSameSideAdd(const eRecoveryCoreDirection dir) const
+   {
+      int idx=T178Index(dir);
+      return Recovery_T179BlocksSameSideAddPure(m_tpPersistenceFault,
+                                                 m_tpEpoch[idx].settling!=0);
    }
 
    bool HasBlockingWork() const
@@ -443,32 +686,47 @@ public:
             {
                long type=HistoryDealGetInteger(trans.deal,DEAL_TYPE);
                eRecoveryCoreDirection dir=recovery_CORE_BUY;
-               if(MapCoreClosingDealT178(owner,type,dir) &&
-                  ExpectedCoreRealTpDealT178(dir,trans.deal))
+               if(MapCoreClosingDealT178(owner,type,dir))
                {
-                  double tp=ProgrammedTpFromDealT178(trans.deal);
-                  datetime when=(datetime)HistoryDealGetInteger(trans.deal,DEAL_TIME);
-                  eRecoveryExitCoordRequest req=CRecoveryExitCoordinator::BeginFullSideClose(
-                     dir,recovery_EXIT_REASON_LEGACY_TP,when);
-                  bool needsCoordination=req!=recovery_EXIT_BYPASS;
-                  eRecoveryT178RealTpDisposition d=
-                     Recovery_T178RealTpDispositionPure(true,needsCoordination);
-                  if(d==RECOVERY_T178_REAL_TP_COORDINATE_FULL_SIDE)
+                  bool strictProof=false;
+                  eRecoveryT179RealTpProof proof=ClassifyCoreRealTpDealT179(
+                     dir,trans.deal,strictProof);
+                  bool recoveryOwns=T179RecoveryOwnsSide(dir);
+                  if(proof==RECOVERY_T179_TP_EXTERNAL)
                   {
-                     string persistWhy="";
-                     if(!ArmTpEpoch(dir,tp,when,persistWhy))
+                     if(strictProof && recoveryOwns)
                      {
                         m_tpPersistenceFault=true;
                         Log_Error("Recovery","LỖI "+Recovery_DirectionName(dir)+
-                                  " | Không lưu được chu kỳ REAL TP | "+persistWhy);
+                                  " | Broker TP có strict proof nhưng thiếu durable epoch membership | giữ fail-closed, không gắn nhãn manual/external");
+                        return true;
                      }
-                     else
-                        Log_Info("Recovery","TP THẬT "+Recovery_DirectionName(dir)+
-                                 " | Broker đang chốt Core | Recovery dọn side theo chu kỳ an toàn");
+                     return CRecoveryExitCoordinator::OnTradeTransaction(trans);
+                  }
+                  double tp=ProgrammedTpFromDealT178(trans.deal);
+                  if(!HistoryDealSelect(trans.deal)) return true;
+                  ulong positionId=(ulong)HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID);
+                  datetime when=(datetime)HistoryDealGetInteger(trans.deal,DEAL_TIME);
+                  string persistWhy="";
+                  if(!MarkTpEpochSettlingT179(dir,positionId,tp,when,persistWhy))
+                  {
+                     m_tpPersistenceFault=true;
+                     Log_Error("Recovery","LỖI "+Recovery_DirectionName(dir)+
+                               " | Không lưu được settlement epoch REAL TP | "+persistWhy);
+                     return true;
+                  }
+                  eRecoveryExitCoordRequest req=CRecoveryExitCoordinator::BeginFullSideClose(
+                     dir,recovery_EXIT_REASON_LEGACY_TP,when);
+                  bool needsCoordination=req!=recovery_EXIT_BYPASS;
+                  if(needsCoordination)
+                  {
+                     Log_Info("Recovery","TP THẬT "+Recovery_DirectionName(dir)+
+                              " | Broker đang chốt durable cohort | Recovery dọn side theo chu kỳ an toàn");
                   }
                   else
                      Log_Info("Recovery","TP THẬT "+Recovery_DirectionName(dir)+
-                              " | Broker chốt Core trước khi Recovery sở hữu side | không báo lỗi đối soát");
+                              " | Strict pre-ownership proof | không phụ thuộc live cohort, không báo lỗi đối soát");
+                  MaybeCompleteTpEpoch(dir);
                   // Suppress normal ARCS deal accounting. The side coordinator
                   // consumes live topology; caller still advances deal cursor.
                   return true;
