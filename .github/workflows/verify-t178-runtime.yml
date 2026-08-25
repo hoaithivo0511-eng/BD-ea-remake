@@ -1,0 +1,130 @@
+name: Verify T17.8 Runtime Fix
+
+on:
+  pull_request:
+    branches: [ feat/recovery-t16-arcs-stacked ]
+    paths:
+      - 'BlackDragon_v14/Experts/**'
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/RunT178RuntimeFixTests.mq5'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t178_runtime_model.cpp'
+      - '.github/workflows/verify-t178-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  t178-model-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+      - name: Run T17.8 independent model
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t178_runtime_model.cpp'
+          g++ -std=c++17 -O2 -Wall -Wextra "$SRC" -o /tmp/t178
+          /tmp/t178 | tee /tmp/t178.out
+          grep -q 'T17.8 runtime fix model: 23 passed, 0 failed' /tmp/t178.out
+          grep -q 'ALL GREEN' /tmp/t178.out
+      - name: Verify exact T17.8 source contracts and Hedge freeze
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          r=Path('BlackDragon_v14/Include/BlackDragon')
+          arcs=(r/'Recovery/RecoveryArcsStackT177HedgeLadder.mqh').read_text(encoding='utf-8')
+          coord=(r/'Recovery/RecoveryExitCoordinator.mqh').read_text(encoding='utf-8')
+          policy=(r/'Recovery/RecoveryT178RuntimePolicy.mqh').read_text(encoding='utf-8')
+          engine=(r/'Recovery/RecoveryEngine.mqh').read_text(encoding='utf-8')
+          pyr=(r/'Pyramid/PyramidConfig.mqh').read_text(encoding='utf-8')
+          assert 'CRecoveryArcsStackT178' in arcs
+          assert 'Hedge đã đủ target, TP chưa đạt' in arcs
+          assert 'Recovery_T178PersistenceOnlyYieldPure' in arcs
+          assert '#define CRecoveryArcsStackT177C4 CRecoveryArcsStackT178' in arcs
+          assert 'CRecoveryExitCoordinatorT178' in coord
+          assert 'BeginFullSideClose' in coord
+          assert 'DEAL_REASON_TP' in coord
+          assert 'LiveCoreTpCohortMatchesT178' in coord
+          assert 'BD_T178_TP_VERSION 1' in coord
+          assert 'Recovery_T178ExpectedCoreRealTpPure' in policy
+          assert 'CRecoveryArcsStackT177C4 m_arcs;' in engine
+          # Explicit owner request: Hedge coverage semantics are frozen in T17.8.
+          assert 'ArraySort(work);' in pyr
+          assert 'runtime canonicalizes the positive targets into ascending' in pyr
+          def blob(path):
+              return subprocess.check_output(['git','hash-object',str(path)],text=True).strip()
+          assert blob(r/'Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh') == '32100a677f2e70247c0da9d41fd29427440afdb3'
+          assert blob(r/'Recovery/RecoveryExitCoordinatorT177Base.mqh') == 'ebbcbf8493381603c4dc89c11bee31e1fc1dad57'
+          assert blob(r/'Pyramid/PyramidConfig.mqh') == '2427f5cdb0908c000d8d77bd252a6bffeda90490'
+          print('T17.8 source contracts PASS; Hedge coverage semantics unchanged')
+      - name: Record exact identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git show -s --format=%T HEAD)"
+
+  t178-native:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if(-not(Test-Path "$env:MT5_DIR\metaeditor64.exe")){throw 'metaeditor64.exe not found'}
+          if(-not(Test-Path "$env:MT5_DIR\terminal64.exe")){throw 'terminal64.exe not found'}
+      - name: Warm terminal and mirror exact tree
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SOURCE_SHA){throw 'checkout mismatch'}
+          $t=Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
+          Start-Sleep -Seconds 40
+          $t|Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          $mql5="$env:MT5_DIR\MQL5"
+          foreach($d in @('Experts','Include','Scripts')){New-Item -ItemType Directory -Force -Path "$mql5\$d"|Out-Null;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force}
+          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")){if(Test-Path $r){Get-ChildItem $r -Recurse -File|Where-Object{$_.Extension -in '.mq5','.mqh'}|ForEach-Object{$txt=Get-Content $_.FullName -Raw -Encoding UTF8;[IO.File]::WriteAllText($_.FullName,$txt,$enc)}}}
+      - name: Compile T17.8 test and full EA
+        shell: pwsh
+        run: |
+          $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-t178";New-Item -ItemType Directory -Force $b|Out-Null
+          $targets=@(
+            @{N='RunT178RuntimeFixTests';S="$mql5\Scripts\BlackDragon\Tests\RunT178RuntimeFixTests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunT178RuntimeFixTests.ex5"},
+            @{N='BlackDragon';S="$mql5\Experts\BlackDragon\BlackDragon.mq5";O="$mql5\Experts\BlackDragon\BlackDragon.ex5"})
+          foreach($t in $targets){$log="$b\$($t.N)-compile.log";Start-Process $editor -ArgumentList "/compile:`"$($t.S)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;if(-not(Test-Path $log)){throw "$($t.N) no compile log"};$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $t.O)-or$e.Count-or$w.Count){throw "$($t.N) compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $t.O $b -Force}
+          $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim();$hash=(Get-FileHash "$b\BlackDragon.ex5" -Algorithm SHA256).Hash.ToLowerInvariant();"HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$hash`n"|Out-File "$b\PROVENANCE.txt" -Encoding utf8;Write-Host "T17.8 MetaEditor PASS 0 errors/0 warnings HEAD=$head TREE=$tree EX5=$hash"
+      - name: Execute native T17.8 tests
+        shell: pwsh
+        run: |
+          $b="$env:GITHUB_WORKSPACE\build-t178";$ld="$env:MT5_DIR\MQL5\Logs";Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force;New-Item -ItemType Directory -Force $ld|Out-Null;Get-ChildItem $ld -Filter '*.log' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
+          $cfg="$b\RunT178RuntimeFixTests.ini";$txt="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\RunT178RuntimeFixTests`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n";[IO.File]::WriteAllText($cfg,$txt,[Text.Encoding]::Unicode);$p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru;$dl=(Get-Date).AddMinutes(4);while(-not$p.HasExited-and(Get-Date)-lt$dl){Start-Sleep 2;$p.Refresh()};if(-not$p.HasExited){Stop-Process -Id $p.Id -Force;throw 'T17.8 native timeout'};$logs=Get-ChildItem $ld -Filter '*.log'|Sort-Object LastWriteTime;if(-not$logs){throw 'T17.8 native log missing'};$raw=Get-Content $logs[-1].FullName -Raw;Copy-Item $logs[-1].FullName "$b\RunT178RuntimeFixTests-native.log" -Force;Write-Host $raw;$m=[regex]::Match($raw,'T17\.8 runtime fix tests:\s*(\d+) passed,\s*(\d+) failed');if(-not$m.Success-or[int]$m.Groups[1].Value-ne25-or[int]$m.Groups[2].Value-ne0-or$raw-notmatch'ALL GREEN'){throw 'T17.8 expected 25/0'};Write-Host 'T17.8 native PASS 25/0'
+      - name: Package focused evidence
+        shell: pwsh
+        run: |
+          $b="$env:GITHUB_WORKSPACE\build-t178";Compress-Archive "$b\*" "$env:GITHUB_WORKSPACE\BlackDragon-T17.8-focused.zip" -Force;$h=(Get-FileHash "$env:GITHUB_WORKSPACE\BlackDragon-T17.8-focused.zip" -Algorithm SHA256).Hash.ToLowerInvariant();"PACKAGE_SHA256=$h"|Add-Content "$b\PROVENANCE.txt";Write-Host "PACKAGE_SHA256=$h"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blackdragon-t178-focused-exact-tree
+          path: |
+            build-t178/
+            BlackDragon-T17.8-focused.zip
+          if-no-files-found: error
