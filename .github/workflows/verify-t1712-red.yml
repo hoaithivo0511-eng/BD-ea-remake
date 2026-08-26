@@ -1,0 +1,45 @@
+name: Verify T17.12 RED Contracts
+
+on:
+  push:
+    branches: [ feat/t17-full-pyramid ]
+    paths:
+      - 'BlackDragon_v14/Include/**'
+      - 'BlackDragon_v14/Scripts/BlackDragon/Tests/**'
+      - '.github/workflows/verify-t1712-red.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.sha }}
+
+jobs:
+  t1712-red-model-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+      - name: Exact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git show -s --format=%T HEAD)"
+      - name: T17.12 reference model
+        shell: bash
+        run: |
+          set -euo pipefail
+          R='BlackDragon_v14/Scripts/BlackDragon/Tests'
+          g++ -std=c++17 -O2 -Wall -Wextra "$R/t1712_runtime_model.cpp" -o /tmp/t1712_runtime_model
+          /tmp/t1712_runtime_model | tee /tmp/t1712_runtime_model.out
+          grep -q 'ALL GREEN' /tmp/t1712_runtime_model.out
+      - name: T17.12 source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1712_source_contract.py
