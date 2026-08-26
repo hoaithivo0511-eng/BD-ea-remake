@@ -5,10 +5,18 @@
 static int g_pass=0,g_fail=0;
 static void ck(bool v,const char *name){ if(v) g_pass++; else { g_fail++; std::cerr<<"FAIL: "<<name<<"\n"; } }
 
+// Mirror Recovery_T1712FinitePure: DBL_MAX is a fail-closed sentinel even
+// though the C++ standard library classifies the finite maximum as finite.
+static bool policy_finite(double v)
+{
+    return std::isfinite(v) && v > -DBL_MAX/4.0 && v < DBL_MAX/4.0;
+}
+
 static bool funded(bool recoveryOwns,bool valid,double core,double recovery,double pyramidRealized,double target,double reserve)
 {
     if(!recoveryOwns) return true;
-    if(!valid || !std::isfinite(reserve)) return false;
+    if(!valid || !policy_finite(reserve) || !policy_finite(target) ||
+       !policy_finite(core) || !policy_finite(recovery) || !policy_finite(pyramidRealized)) return false;
     return core+recovery+pyramidRealized+1e-9 >= std::max(target,0.0)+std::max(reserve,0.0);
 }
 
@@ -16,22 +24,26 @@ static bool projected_tp(bool isBuy,double currentPrice,double legacyTp,double c
                          double pyramidRealized,double target,double reserve,double slope,double &out)
 {
     out=0.0;
-    if(currentPrice<=0.0 || legacyTp<=0.0 || !std::isfinite(reserve) || !std::isfinite(slope)) return false;
+    if(currentPrice<=0.0 || legacyTp<=0.0 || !policy_finite(core) ||
+       !policy_finite(recovery) || !policy_finite(pyramidRealized) ||
+       !policy_finite(target) || !policy_finite(reserve) || !policy_finite(slope)) return false;
     double required=std::max(target,0.0)+std::max(reserve,0.0);
     double atLegacy=core+recovery+pyramidRealized+slope*(legacyTp-currentPrice);
     if(atLegacy+1e-9>=required){ out=legacyTp; return true; }
     double favorable=slope*(isBuy?1.0:-1.0);
     if(favorable<=1e-12) return false;
     double move=(required-atLegacy)/favorable;
-    if(move<0.0 || !std::isfinite(move)) return false;
+    if(move<0.0 || !policy_finite(move)) return false;
     out=legacyTp+(isBuy?move:-move);
-    return out>0.0 && (isBuy ? out+1e-12>=legacyTp : out<=legacyTp+1e-12);
+    return out>0.0 && policy_finite(out) &&
+           (isBuy ? out+1e-12>=legacyTp : out<=legacyTp+1e-12);
 }
 
 static bool money_tp_arm(double raw,double tp){ return tp>0.0 && raw>=tp; }
 static bool money_tp_ready(bool latched,double raw,double tp,double reserve)
 {
-    return latched && tp>0.0 && std::isfinite(reserve) && raw+1e-9>=tp+std::max(reserve,0.0);
+    return latched && tp>0.0 && policy_finite(reserve) &&
+           raw+1e-9>=tp+std::max(reserve,0.0);
 }
 
 enum OState { IDLE=0, ARMED=1, LEG1_SUBMITTED=2, LEG2_WAIT=3 };
