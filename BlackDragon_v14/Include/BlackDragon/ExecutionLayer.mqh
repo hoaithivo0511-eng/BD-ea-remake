@@ -110,6 +110,15 @@ bool Exec_RetryableRetcode(const uint rc)
           rc == TRADE_RETCODE_CONNECTION;
 }
 
+eExecSubmitDisposition Exec_SubmitDispositionPure(const bool accepted,
+                                                   const uint rc)
+{
+   if(accepted) return EXEC_SUBMIT_ACCEPTED;
+   if(rc == TRADE_RETCODE_NO_MONEY) return EXEC_SUBMIT_CAPACITY_BLOCKED;
+   if(Exec_RetryableRetcode(rc)) return EXEC_SUBMIT_TRANSIENT;
+   return EXEC_SUBMIT_REJECTED;
+}
+
 bool Exec_AmbiguousRetcode(const uint rc)
 {
    return rc == TRADE_RETCODE_TIMEOUT || rc == TRADE_RETCODE_CONNECTION;
@@ -292,6 +301,11 @@ private:
    bool m_asyncAllowed;
    bool m_busyOpenBuy;    // legacy Core busy flags only
    bool m_busyOpenSell;
+   bool m_capacityRejectReady[2];
+   int m_legacyIntentIndex[2];
+   datetime m_legacyIntentBar[2];
+   double m_legacyIntentRequiredMargin[2];
+   SExecSubmitOutcome m_capacityReject[2];
 
    bool RetcodeOk(const uint rc) const
    {
@@ -587,6 +601,24 @@ private:
       }
    }
 
+   void RecordLegacyCapacityRejectAt(const int i, const uint retcode)
+   {
+      if(i < 0 || i >= ArraySize(m_journal) || retcode != TRADE_RETCODE_NO_MONEY)
+         return;
+      if(m_journal[i].commandType != EXEC_CMD_LEGACY) return;
+      int dir = -1;
+      if(m_journal[i].action == INTENT_OPEN_BUY) dir = BD_DIR_BUY;
+      if(m_journal[i].action == INTENT_OPEN_SELL) dir = BD_DIR_SELL;
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL) return;
+      ZeroMemory(m_capacityReject[dir]);
+      m_capacityReject[dir].disposition = EXEC_SUBMIT_CAPACITY_BLOCKED;
+      m_capacityReject[dir].retcode = retcode;
+      m_capacityReject[dir].normalizedVolume = m_journal[i].volume;
+      m_capacityReject[dir].requiredMargin = m_legacyIntentRequiredMargin[dir];
+      m_capacityReject[dir].freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      m_capacityRejectReady[dir] = true;
+   }
+
    string Journal_DiagnosticAt(const int i) const
    {
       if(i < 0 || i >= ArraySize(m_journal) || !m_journal[i].active) return "";
@@ -608,8 +640,11 @@ private:
    }
 
    bool Send(MqlTradeRequest &req, MqlTradeResult &res, const eIntent action,
-             const SExecRequestMeta &meta, const double positionVolumeBefore)
+             const SExecRequestMeta &meta, const double positionVolumeBefore,
+             SExecSubmitOutcome &outcome)
    {
+      outcome.disposition = EXEC_SUBMIT_REJECTED;
+      outcome.retcode = 0;
       int positionCountBefore = CountOpenPositions(action, req.symbol, meta.ownerMagic);
 
       // Async path: fire and journal; confirmation arrives via broker state.
@@ -617,9 +652,13 @@ private:
       {
          if(!OrderSendAsync(req, res) || res.retcode != TRADE_RETCODE_PLACED)
          {
+            outcome.retcode = res.retcode;
+            outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
             Log_Warn("Exec", "async" + (string)action, "OrderSendAsync rejected, retcode=" + (string)res.retcode);
             return false;
          }
+         outcome.retcode = res.retcode;
+         outcome.disposition = Exec_SubmitDispositionPure(true, res.retcode);
          Journal_Add(res.request_id, req, action, meta, positionCountBefore, positionVolumeBefore);
          if(meta.commandType == EXEC_CMD_LEGACY)
          {
@@ -643,6 +682,8 @@ private:
          bool ok = OrderSend(req, res);
          if(ok && RetcodeOk(res.retcode))
          {
+            outcome.retcode = res.retcode;
+            outcome.disposition = Exec_SubmitDispositionPure(true, res.retcode);
             // Recovery commands retain correlation even in sync mode. Legacy
             // sync requests remain journal-free exactly as before T2.
             if(meta.commandType != EXEC_CMD_LEGACY)
@@ -657,6 +698,8 @@ private:
 
          if(Exec_IsFailClosed(meta.reconcilePolicy) && Exec_AmbiguousRetcode(res.retcode))
          {
+            outcome.retcode = res.retcode;
+            outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
             int j = Journal_Add(res.request_id, req, action, meta,
                                 positionCountBefore, positionVolumeBefore);
             m_journal[j].requestRetcode = res.retcode;
@@ -670,7 +713,17 @@ private:
       }
       Log_Warn("Exec", "send" + (string)action,
                "OrderSend failed retcode=" + (string)res.retcode + " comment=" + res.comment);
+      outcome.retcode = res.retcode;
+      outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
       return false;
+   }
+
+   bool Send(MqlTradeRequest &req, MqlTradeResult &res, const eIntent action,
+             const SExecRequestMeta &meta, const double positionVolumeBefore)
+   {
+      SExecSubmitOutcome ignored;
+      ZeroMemory(ignored);
+      return Send(req, res, action, meta, positionVolumeBefore, ignored);
    }
 
 public:
@@ -682,11 +735,32 @@ public:
       m_asyncAllowed = !MQLInfoInteger(MQL_TESTER);
       m_busyOpenBuy  = false;
       m_busyOpenSell = false;
+      for(int dir=BD_DIR_BUY; dir<=BD_DIR_SELL; dir++)
+      {
+         m_capacityRejectReady[dir] = false;
+         m_legacyIntentIndex[dir] = 0;
+         m_legacyIntentBar[dir] = 0;
+         m_legacyIntentRequiredMargin[dir] = 0.0;
+         ZeroMemory(m_capacityReject[dir]);
+      }
       if(ExecMode == exec_Async && !m_asyncAllowed)
          Log_Info("Exec", "tester detected: async mode falls back to sync");
    }
 
    bool BusyOpen(const int dir) const { return dir == 0 ? m_busyOpenBuy : m_busyOpenSell; }
+
+   bool TakeLegacyCapacityReject(const int dir, int &dcaIndex,
+                                 datetime &intentBar,
+                                 SExecSubmitOutcome &outcome)
+   {
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || !m_capacityRejectReady[dir])
+         return false;
+      dcaIndex = m_legacyIntentIndex[dir];
+      intentBar = m_legacyIntentBar[dir];
+      outcome = m_capacityReject[dir];
+      m_capacityRejectReady[dir] = false;
+      return true;
+   }
 
    bool HasPendingClose(const ulong ticket) const
    {
@@ -752,8 +826,12 @@ public:
    }
 
    //--- Legacy market-open API: semantics retained -------------------------
-   bool OpenMarket(const int dir, double volume, const int dcaIndex)
+   bool OpenMarketOutcome(const int dir, double volume, const int dcaIndex,
+                          SExecSubmitOutcome &outcome,
+                          const datetime intentBar=0)
    {
+      ZeroMemory(outcome);
+      outcome.disposition = EXEC_SUBMIT_REJECTED;
       if(!License_Check()) return false;
       double requested = volume;
       volume = Grid_NormalizeVolume(volume);
@@ -775,9 +853,28 @@ public:
       req.magic        = Magic;
       req.comment      = Exec_BuildComment(sOrdComm, dcaIndex);
       req.type_filling = m_filling;
+      outcome.normalizedVolume = volume;
+      outcome.freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      double requiredMargin = 0.0;
+      if(OrderCalcMargin(req.type, req.symbol, req.volume, req.price, requiredMargin))
+         outcome.requiredMargin = MathMax(0.0, requiredMargin);
+      if(m_asyncAllowed && ExecMode == exec_Async &&
+         dir >= BD_DIR_BUY && dir <= BD_DIR_SELL)
+      {
+         m_legacyIntentIndex[dir] = dcaIndex;
+         m_legacyIntentBar[dir] = intentBar;
+         m_legacyIntentRequiredMargin[dir] = outcome.requiredMargin;
+      }
       SExecRequestMeta meta;
       Exec_InitMeta(meta, (long)Magic, 0, EXEC_CMD_LEGACY, EXEC_RECONCILE_LEGACY_RELEASE);
-      return Send(req, res, dir == 0 ? INTENT_OPEN_BUY : INTENT_OPEN_SELL, meta, 0.0);
+      return Send(req, res, dir == 0 ? INTENT_OPEN_BUY : INTENT_OPEN_SELL,
+                  meta, 0.0, outcome);
+   }
+
+   bool OpenMarket(const int dir, double volume, const int dcaIndex)
+   {
+      SExecSubmitOutcome outcome;
+      return OpenMarketOutcome(dir, volume, dcaIndex, outcome);
    }
 
    //--- Owner-aware market-open primitive for later Recovery slices. -------
@@ -949,6 +1046,7 @@ public:
          {
             if(!RetcodeOk(result.retcode))
             {
+               RecordLegacyCapacityRejectAt(i, result.retcode);
                Journal_CompleteAt(i); // explicit rejection is a proven outcome
                if(result.retcode != 0)
                   Log_Warn("Exec", "txrej", "async request rejected retcode=" + (string)result.retcode);

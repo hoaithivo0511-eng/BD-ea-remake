@@ -63,31 +63,11 @@ int OnInit()
    Config_Init();
 
    string recoveryWhy = "";
-   if(!Recovery_ValidateFoundation(RecoveryMode_, (long)Magic, RecoveryMagic_,
-                                   RecoveryStartAfterDca_,
-                                   AccountInfoInteger(ACCOUNT_MARGIN_MODE),
-                                   recoveryWhy))
+   if(!Recovery_ValidateCompleteConfig((long)Magic,
+                                       AccountInfoInteger(ACCOUNT_MARGIN_MODE),
+                                       recoveryWhy))
    {
-      Log_Error("Init", "Recovery foundation invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   if(!Recovery_ValidateShadowConfig(RecoveryMode_, HedgeGapPips_, recoveryWhy))
-   {
-      Log_Error("Init", "Recovery shadow config invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
-                                  TargetRecoveryCorridorPips_, recoveryWhy))
-   {
-      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   // T17.6: this gate is deliberately top-level. Recovery OFF bypasses the
-   // T16 engine validator, but a staged Hedge Pyramid with Recovery OFF is a
-   // silent no-op and must fail configuration instead of misleading the user.
-   if(!Recovery_T17ValidateCrossInputs(recoveryWhy))
-   {
-      Log_Error("Init", "Recovery/Pyramid cross-input config invalid: " + recoveryWhy);
+      Log_Error("Init", "Recovery complete config invalid: " + recoveryWhy);
       return INIT_PARAMETERS_INCORRECT;
    }
 

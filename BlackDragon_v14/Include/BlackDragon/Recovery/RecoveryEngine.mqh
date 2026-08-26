@@ -267,6 +267,11 @@ public:
       return UseT16() && m_arcs.CanOpenFurtherGeneration(dir);
    }
 
+   bool TerminalNoHedge(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.TerminalNoHedge(dir);
+   }
+
    bool T16ExpectedBrokerSlDeal(const ulong deal)
    {
       return UseT16() && m_arcs.ExpectedBrokerSlDeal(deal);

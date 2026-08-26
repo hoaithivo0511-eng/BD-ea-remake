@@ -589,6 +589,13 @@ private:
          LatchReconcile(dir, why);
          return false;
       }
+      bool snapshotChanged = Recovery_T1711ActiveTpSnapshotChangedPure(snap.units,
+                                                                       l.openedUnits,
+                                                                       l.remainingUnits,
+                                                                       snap.weightedEntry,
+                                                                       l.weightedEntry,
+                                                                       snap.netBE,
+                                                                       l.netBE);
       l.openedUnits = snap.units;
       l.remainingUnits = snap.units;
       l.weightedEntry = snap.weightedEntry;
@@ -597,7 +604,7 @@ private:
                                      ctx.bid, ctx.ask,
                                      m_tpDistancePrice))
       {
-         PutLayer(dir, li, l);
+         if(snapshotChanged) PutLayer(dir, li, l);
          why = "TP Hedge ảo chưa đạt";
          return false;
       }

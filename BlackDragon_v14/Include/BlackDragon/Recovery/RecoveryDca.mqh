@@ -30,6 +30,38 @@ bool Recovery_ValidateDcaConfig(const eRecoveryMode mode,
    return true;
 }
 
+// T17.11: one authoritative top-level composition. Each existing validator
+// retains its own Recovery-OFF bypass; the T17 cross-input validator remains
+// unconditional because a staged Pyramid configured while Recovery is OFF is
+// an existing fail-fast contract, not a Recovery-only value.
+bool Recovery_ValidateCompleteConfig(const long coreMagic,
+                                     const long marginMode,
+                                     string &why)
+{
+   string detail = "";
+   why = "";
+   if(!Recovery_ValidateFoundation(RecoveryMode_, coreMagic, RecoveryMagic_,
+                                   RecoveryStartAfterDca_, marginMode, detail))
+   { why = "Foundation: " + detail; return false; }
+   if(!Recovery_ValidateShadowConfig(RecoveryMode_, HedgeGapPips_, detail))
+   { why = "Shadow: " + detail; return false; }
+   if(!Recovery_ValidateT5Config(RecoveryMode_, HedgeTPPips_,
+                                 HedgePartialClosePercent_, CoreCloseMode_, detail))
+   { why = "T5: " + detail; return false; }
+   if(!Recovery_ValidateT6Config(RecoveryMode_, HedgeLockNetProfitPips_,
+                                 HedgeLockSafetyBufferPips_, ReHedgeGapPips_,
+                                 MaxHedgeGenerations_, detail))
+   { why = "T6: " + detail; return false; }
+   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
+                                  TargetRecoveryCorridorPips_, detail))
+   { why = "DCA: " + detail; return false; }
+   if(!Recovery_T16ValidateConfig(detail))
+   { why = "T16/T17: " + detail; return false; }
+   if(!Recovery_T17ValidateCrossInputs(detail))
+   { why = "Recovery/Pyramid cross-input: " + detail; return false; }
+   return true;
+}
+
 bool Recovery_DcaPostHedgeStableState(const eRecoveryState state)
 {
    return state == recovery_HEDGE_ACTIVE ||
@@ -47,6 +79,13 @@ bool Recovery_DcaStateAllows(const eRecoveryMode mode,
    if(Recovery_DcaPostHedgeStableState(state))
       return continueAfterHedge;
    return false;
+}
+
+bool Recovery_T1711TerminalNoHedgeDcaAllowsPure(const eRecoveryMode mode,
+                                                const bool continueAfterHedge,
+                                                const bool terminalNoHedge)
+{
+   return mode == recovery_ACTIVE && continueAfterHedge && terminalNoHedge;
 }
 
 bool Recovery_DcaCoverageAllows(const double minCoveragePercent,
@@ -297,6 +336,17 @@ public:
       }
       if(!Recovery_DcaPostHedgeStableState(cycle.state))
          return true;
+
+      bool terminalNoHedge = m_recovery->TerminalNoHedge(recoveryDir);
+      if(Recovery_T1711TerminalNoHedgeDcaAllowsPure(RecoveryMode_,
+                                                    ContinueDcaAfterHedge_,
+                                                    terminalNoHedge))
+      {
+         Log_WarnEvery("Recovery", "t1711terminaldca" + (string)dir,
+                       "T17.11 terminal-no-Hedge: live Hedge metrics are N/A; Core DCA continues through normal non-Hedge filters",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return true;
+      }
 
       // T17.6: the denominator and net BE use exact Core Magic, matching ARCS.
       double coreLots = cycle.coreLots;

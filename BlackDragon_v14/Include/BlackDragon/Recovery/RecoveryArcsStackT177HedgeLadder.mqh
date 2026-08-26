@@ -202,11 +202,6 @@ public:
 
    bool Drive(CExecutionLayer &exec, const EAContext &ctx, string &why)
    {
-      // P1-A primary fix: do not enter PrepareTp() for the steady ACTIVE/no-TP
-      // case. That path used to PutLayer()+FlushPersistence on every tick.
-      if(TryYieldStableActiveTpWaitT178(recovery_CORE_BUY, ctx, why)) return false;
-      if(TryYieldStableActiveTpWaitT178(recovery_CORE_SELL, ctx, why)) return false;
-
       SRecoveryT178SemanticSnapshot before;
       CaptureSemanticT178(before);
       bool consumed = CRecoveryArcsStackT177C4::Drive(exec, ctx, why);
@@ -223,6 +218,17 @@ public:
                        exec.HasReconcileRequired(Recovery_CycleKey(recovery_CORE_BUY)) ||
                        exec.HasReconcileRequired(Recovery_CycleKey(recovery_CORE_SELL));
       bool semanticChanged = !SameSemanticT178(before, after);
+
+      // T17.11: passive wait is side-local. The common Drive has already
+      // evaluated BUY then SELL, so logging a stable wait here can never
+      // suppress actionable work on the opposite direction.
+      if(!consumed && !semanticChanged && !pending && !reconcile)
+      {
+         bool passive = TryYieldStableActiveTpWaitT178(recovery_CORE_BUY, ctx, why);
+         if(TryYieldStableActiveTpWaitT178(recovery_CORE_SELL, ctx, why))
+            passive = true;
+         if(passive) why = "";
+      }
 
       if(Recovery_T178PersistenceOnlyYieldPure(consumed, semanticChanged,
                                                pending, reconcile))

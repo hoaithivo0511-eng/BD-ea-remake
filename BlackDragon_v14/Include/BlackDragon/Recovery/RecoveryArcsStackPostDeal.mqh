@@ -330,6 +330,13 @@ public:
       return m_dir[Idx(dir)].generationCount < MaxHedgeGenerations_;
    }
 
+   // Derived runtime status only. No persisted enum/state value is added or
+   // renumbered; the authoritative ARCS facts are re-read on every query.
+   bool TerminalNoHedge(const eRecoveryCoreDirection dir) const
+   {
+      return MaxedNoHedge(dir);
+   }
+
    void GetCycle(const eRecoveryCoreDirection dir, SRecoveryCycle &out) const
    {
       CRecoveryArcsStackT162Base::GetCycle(dir, out);

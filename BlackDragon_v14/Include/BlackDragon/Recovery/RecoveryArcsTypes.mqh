@@ -213,4 +213,20 @@ bool Recovery_ArcsPhaseMutating(const eArcsPhase p)
           p == ARCS_GLOBAL_PROTECT || p == ARCS_GLOBAL_CLOSING;
 }
 
+// T17.11: an ACTIVE/no-TP observation is read-only when the broker snapshot
+// still matches the durable layer. A real fill/price-basis change is semantic
+// and must remain persistable before the scheduler yields.
+bool Recovery_T1711ActiveTpSnapshotChangedPure(const long liveUnits,
+                                               const long openedUnits,
+                                               const long remainingUnits,
+                                               const double weightedEntry,
+                                               const double storedWeightedEntry,
+                                               const double netBE,
+                                               const double storedNetBE)
+{
+   return liveUnits != openedUnits || liveUnits != remainingUnits ||
+          MathAbs(weightedEntry - storedWeightedEntry) > 1e-12 ||
+          MathAbs(netBE - storedNetBE) > 1e-12;
+}
+
 #endif // BD_RECOVERY_ARCS_TYPES_MQH

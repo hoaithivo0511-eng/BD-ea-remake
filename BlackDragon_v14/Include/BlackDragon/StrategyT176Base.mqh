@@ -16,6 +16,7 @@
 #include "Recovery/RecoveryExitCoordinator.mqh"
 #include "Recovery/RecoveryT165GuardScope.mqh"
 #include "Recovery/RecoveryT165MarginReserve.mqh"
+#include "StrategyT1711Admission.mqh"
 
 class CStrategy
 {
@@ -33,6 +34,7 @@ private:
    CFilterChain       m_gridFilters;
    eGuardAction       m_guardLatched;
    datetime           m_guardLatchAt;
+   SCoreCapacityLatch m_capacityLatch[2];
 
    eRecoveryCoreDirection RecoveryDir(const int dir) const
    {
@@ -509,10 +511,49 @@ private:
          return false;
       }
 
-      if(m_exec.OpenMarket(dir, nextLot, dcaSide.count + 1))
+      int dcaIndex = dcaSide.count + 1;
+      double normalizedNextLot = Grid_NormalizeVolume(nextLot);
+      double volumeStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+      double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      int rejectedIndex = 0;
+      datetime rejectedBar = 0;
+      SExecSubmitOutcome rejectedOutcome;
+      if(m_exec.TakeLegacyCapacityReject(dir, rejectedIndex, rejectedBar,
+                                         rejectedOutcome))
       {
+         if(rejectedIndex == dcaIndex &&
+            MathAbs(rejectedOutcome.normalizedVolume-normalizedNextLot) <=
+               MathMax(1e-12,MathAbs(volumeStep)*0.25))
+            Strategy_T1711LatchCapacity(m_capacityLatch[dir],dir,dcaIndex,
+                                        rejectedBar,rejectedOutcome);
+      }
+      if(Recovery_T1711CapacityLatchBlocksPure(m_capacityLatch[dir], dir,
+                                              dcaIndex, normalizedNextLot,
+                                              ctx.barTime, freeMargin, volumeStep))
+      {
+         Log_WarnEvery("Strategy", "t1711capacity" + (string)dir,
+                       "Core/DCA intent remains capacity-blocked after NO_MONEY",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return false;
+      }
+
+      // A changed intent, a new bar, or recovered margin is a fresh admission.
+      Strategy_T1711ResetCapacityLatch(m_capacityLatch[dir]);
+      SExecSubmitOutcome outcome;
+      if(m_exec.OpenMarketOutcome(dir, nextLot, dcaIndex, outcome,ctx.barTime))
+      {
+         Strategy_T1711ResetCapacityLatch(m_capacityLatch[dir]);
          m_basket.Invalidate();
          return true;
+      }
+      if(outcome.disposition == EXEC_SUBMIT_CAPACITY_BLOCKED)
+      {
+         Strategy_T1711LatchCapacity(m_capacityLatch[dir], dir, dcaIndex,
+                                     ctx.barTime, outcome);
+         Log_WarnEvery("Strategy", "t1711nomoney" + (string)dir,
+                       "Core/DCA admission latched after broker NO_MONEY retcode=" +
+                       (string)outcome.retcode,
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
       }
       return false;
    }
@@ -659,6 +700,8 @@ public:
       m_pyramid      = pyramid;
       m_guardLatched = GUARD_NONE;
       m_guardLatchAt = 0;
+      Strategy_T1711ResetCapacityLatch(m_capacityLatch[BD_DIR_BUY]);
+      Strategy_T1711ResetCapacityLatch(m_capacityLatch[BD_DIR_SELL]);
       m_newSeriesFilters.Add(new CSpreadFilter());
       m_newSeriesFilters.Add(new CPauseFilter());
       m_newSeriesFilters.Add(new CNewsFilter());

@@ -1,8 +1,8 @@
-project: BlackDragon Adaptive Recovery / T17.10
+project: BlackDragon Adaptive Recovery / T17.11
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
-release_state: DRAFT_T17_10_BUILD_VERIFY
+release_state: DRAFT_T17_11_BUILD_VERIFY
 merge_allowed: false
 ready_for_review: false
 
@@ -10,6 +10,13 @@ methodology: VibeCodeKit-MQL5 Full
 workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
 
 stages:
+  T17_11_runtime_liveness_admission:
+    status: BUILD_VERIFY
+    contract: per-direction scheduler liveness, terminal-no-Hedge DCA semantics, complete config validation, bounded NO_MONEY admission
+    baseline_head: e0ad9c59bac25e3e194d7bd917a80864cf4eecd9
+    baseline_tree: 87dff344c2879c9a2019677e10b26e81966614c8
+    source_of_truth: pr-comment-5419070453
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
   T17_10_unit_system:
     status: BUILD_VERIFY
     contract: canonical price/tick profile with LEGACY_COMPAT default and explicit PIP_UNIFIED migration
@@ -47,8 +54,8 @@ stages:
     contract: Vietnamese level vocabulary, throttled WAIT, human-readable technical reasons, one-time migration summary
   C7_final_verify:
     status: VERIFYING
-    workflow: .github/workflows/verify-t177-final.yml
-    artifact: blackdragon-t177-final-owner-qa
+    workflow: .github/workflows/verify-t1711-final.yml
+    artifact: blackdragon-t1711-final-owner-qa
 
 runtime_release_gates:
   deterministic_models: REQUIRED
@@ -60,8 +67,8 @@ runtime_release_gates:
   forward_live: NOT_ELIGIBLE
 
 owner_strategy_tester:
-  status: PENDING_T17_10_OWNER_RERUN
-  checklist: BlackDragon_v14/docs/vibecode/T17_10_OWNER_QA_CHECKLIST.md
+  status: PENDING_T17_11_OWNER_RERUN
+  checklist: BlackDragon_v14/docs/vibecode/T17_11_OWNER_QA_CHECKLIST.md
   required_after_final_artifact: true
 
 known_release_rules:

@@ -93,6 +93,25 @@ struct SExecRequestMeta
    eExecReconcilePolicy reconcilePolicy;
 };
 
+// T17.11: non-persisted submission outcome used only by Core/DCA admission.
+// This is deliberately separate from the persisted Recovery state enums.
+enum eExecSubmitDisposition
+{
+   EXEC_SUBMIT_REJECTED = 0,
+   EXEC_SUBMIT_ACCEPTED,
+   EXEC_SUBMIT_TRANSIENT,
+   EXEC_SUBMIT_CAPACITY_BLOCKED
+};
+
+struct SExecSubmitOutcome
+{
+   eExecSubmitDisposition disposition;
+   uint                   retcode;
+   double                 normalizedVolume;
+   double                 requiredMargin;
+   double                 freeMargin;
+};
+
 enum ePendingPhase
 {
    PENDING_SENT = 0,
