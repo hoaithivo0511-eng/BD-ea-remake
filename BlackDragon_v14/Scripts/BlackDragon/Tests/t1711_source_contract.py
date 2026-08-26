@@ -20,6 +20,8 @@ def main() -> int:
     dca = (INC / "Recovery" / "RecoveryDca.mqh").read_text(encoding="utf-8")
     execution = (INC / "ExecutionLayer.mqh").read_text(encoding="utf-8")
     strategy = (INC / "StrategyT176Base.mqh").read_text(encoding="utf-8")
+    types = (INC / "Types.mqh").read_text(encoding="utf-8")
+    filters = (INC / "EntryFilters.mqh").read_text(encoding="utf-8")
     oninit = EA.read_text(encoding="utf-8")
 
     results = [
@@ -30,13 +32,15 @@ def main() -> int:
         check("R11-02 terminalNoHedge authoritative predicate",
               "Recovery_T1711TerminalNoHedgePure" in policy163 and "TerminalNoHedge" in engine),
         check("R11-02 DCA consumes explicit terminal status",
-              "TerminalNoHedge" in dca and "terminalNoHedge" in dca),
+              "TerminalNoHedge" in dca and "terminalNoHedge" in dca and "m_recovery->" not in dca),
         check("R11-03 complete validator exists",
               all(token in dca for token in ["Recovery_ValidateCompleteConfig", "Recovery_ValidateT5Config", "Recovery_ValidateT6Config", "Recovery_T16ValidateConfig"])),
         check("R11-03 OnInit uses complete validator",
               "Recovery_ValidateCompleteConfig" in oninit),
         check("R11-04 typed legacy open outcome",
-              all(token in execution for token in ["OpenMarketOutcome", "EXEC_SUBMIT_CAPACITY_BLOCKED", "TakeLegacyCapacityReject", "RecordLegacyCapacityRejectAt"])),
+              all(token in execution for token in ["OpenMarketOutcome", "EXEC_SUBMIT_CAPACITY_BLOCKED", "TakeLegacyCapacityReject", "RecordLegacyCapacityRejectAt"]) and
+              "#define BD_DIR_BUY  0" in types and "#define BD_DIR_SELL 1" in types and
+              "#define BD_DIR_BUY" not in filters and "#define BD_DIR_SELL" not in filters),
         check("R11-04 strategy capacity latch",
               "m_capacityLatch" in strategy and "Recovery_T1711CapacityLatchBlocksPure" in strategy),
     ]
