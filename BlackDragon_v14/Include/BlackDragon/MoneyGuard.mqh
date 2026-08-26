@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| MoneyGuard.mqh — BlackDragon T17.12                             |
+//| MoneyGuard.mqh — BlackDragon T17.4                              |
 //| Purpose   : FE-401/402 money TP/SL decisions. Absolute-money     |
 //|             guards use CURRENT floating P/L and outrank strategy.|
 //| Invariants: READ-ONLY consumer; NEVER sends trade requests.      |
@@ -34,6 +34,9 @@ bool MG_PctDiffHit(const double buyProfit, const double sellProfit, const double
    return win + lose * (1.0 + pct / 100.0) >= 0;
 }
 
+// T17.4: the PctDiff ratio remains a current-floating signal. Its secondary
+// close-to-flat surplus gate must additionally repay active Pyramid campaign
+// realized debt. Missing campaign history defers only PctDiff fail-closed.
 bool MG_PctDiffEconomicHitBuffered(const double buyProfit,
                                    const double sellProfit,
                                    const double pct,
@@ -46,6 +49,7 @@ bool MG_PctDiffEconomicHitBuffered(const double buyProfit,
    return buyProfit + sellProfit + pyramidCampaignRealizedCash + 1e-9 >= buffer;
 }
 
+// Compatibility wrapper for callers/tests that have no active campaign debt.
 bool MG_PctDiffHitBuffered(const double buyProfit, const double sellProfit,
                            const double pct, const double executionBufferCash)
 {
@@ -53,6 +57,9 @@ bool MG_PctDiffHitBuffered(const double buyProfit, const double sellProfit,
                                         executionBufferCash);
 }
 
+// Conservative synchronous close reserve: two current spreads provide the
+// execution/cost floor, then one configured deviation is reserved for every
+// sequential close request. Invalid symbol economics fail closed.
 double MG_PctDiffExecutionReserveCashPure(const double spreadPrice,
                                           const double deviationPrice,
                                           const double totalLots,
@@ -68,24 +75,8 @@ double MG_PctDiffExecutionReserveCashPure(const double spreadPrice,
    return move / tickSize * tickValue * totalLots;
 }
 
-// T17.12 P1-C: conservative reserve for one account-scope sequential close
-// request. Account aggregation is kept in Strategy so raw MoneyTP arming stays
-// read-only and existing MoneyGuard trigger semantics remain unchanged.
-double MG_AccountTpCloseReserveLegCashPure(const double spreadPrice,
-                                           const double deviationPrice,
-                                           const double lots,
-                                           const double tickSize,
-                                           const double tickValue)
-{
-   if(tickSize <= 0.0 || tickValue <= 0.0) return DBL_MAX;
-   if(lots <= 0.0) return 0.0;
-   double spread = MathMax(spreadPrice, tickSize);
-   double move = 2.0 * spread + MathMax(deviationPrice, 0.0);
-   double cash = move / tickSize * tickValue * lots;
-   if(cash < 0.0 || cash >= DBL_MAX / 4.0) return DBL_MAX;
-   return cash;
-}
-
+// Pure latch transition used by Strategy: once a close is armed, a later
+// price retreat cannot cancel it. Only broker-observable flat scope clears it.
 eGuardAction MG_LatchNextPure(const eGuardAction latched,
                               const eGuardAction triggered,
                               const bool scopeFlat)
@@ -179,6 +170,9 @@ public:
    bool     Halted(const datetime now) const { return m_haltUntil != 0 && now < m_haltUntil; }
    datetime HaltUntil(const datetime now) const { return Halted(now) ? m_haltUntil : 0; }
 
+   // P0 T17.4: absolute-money rules operate only on CURRENT floating P/L.
+   // No realized Pyramid/Recovery history is accepted here, so a previously
+   // realized Peel loss can never postpone a configured floating-money exit.
    eGuardAction CheckFloatingPriority(const datetime now,
                                       const double buyFloating,
                                       const double sellFloating,
@@ -218,6 +212,7 @@ public:
       return GUARD_NONE;
    }
 
+   // Secondary guards run only after the absolute-money priority pass.
    eGuardAction CheckSecondaryFloating(const datetime now,
                                        const double buyFloating,
                                        const double sellFloating,
@@ -257,6 +252,8 @@ public:
       return GUARD_NONE;
    }
 
+   // Compatibility API retained for pre-T17.3 test callers. Production
+   // Strategy no longer uses this realized-aware path for absolute money TP/SL.
    eGuardAction CheckScopedEconomic(const datetime now,
                                     const double buyProfit, const double sellProfit,
                                     const bool bothOpen,
