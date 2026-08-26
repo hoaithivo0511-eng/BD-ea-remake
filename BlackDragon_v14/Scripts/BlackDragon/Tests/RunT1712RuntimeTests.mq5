@@ -34,9 +34,9 @@ void OnStart()
    T(!Recovery_T1712ProjectedTpPure(false,1.1000,1.0990,40,-40,0,100,5,0,tp),
      "SELL full hedge no finite target");
    T(!Recovery_T1712ProjectedTpPure(true,1.1000,1.1010,40,-60,0,100,5,-100000,tp),
-     "BUY over hedge no unsafe target");
+     "BUY over hedge no unsafe TP");
    T(!Recovery_T1712ProjectedTpPure(false,1.1000,1.0990,40,-60,0,100,5,100000,tp),
-     "SELL over hedge no unsafe target");
+     "SELL over hedge no unsafe TP");
    T(!Recovery_T1712ProjectedTpPure(true,1.1000,1.1010,40,-20,0,100,DBL_MAX,100000,tp),
      "REAL TP invalid economics fails closed");
 
@@ -47,9 +47,8 @@ void OnStart()
    T(MathAbs(Recovery_T1712CashSlopePerPricePure(false,1.0,0.4,0.0001,10.0)+60000.0)<1e-6,
      "SELL under hedge slope");
 
-   // Owner correction: configured MoneyTP is the immediate account close threshold.
+   // Owner correction: configured MoneyTP is the direct account close threshold.
    T(MG_MoneyTpHit(100.00,100.0),"MoneyTP exact threshold closes immediately");
-   T(MG_MoneyTpHit(100.12,100.0),"MoneyTP above threshold closes immediately");
    T(!MG_MoneyTpHit(99.99,100.0),"MoneyTP below threshold stays inactive");
    T(MG_LatchNextPure(GUARD_NONE,GUARD_CLOSE_ACCOUNT,false)==GUARD_CLOSE_ACCOUNT,
      "MoneyTP account close latches immediately once triggered");

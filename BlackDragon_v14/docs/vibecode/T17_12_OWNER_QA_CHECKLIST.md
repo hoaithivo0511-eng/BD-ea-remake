@@ -41,16 +41,18 @@ Do not accept an EX5 whose hash/size does not match the exact-head artifact.
 5. Proven stale/missing ticket or externally changed locked volume may cancel the obligation once; ordinary economic WAIT may not.
 6. Opposite-side scheduling remains eligible during read-only WAIT.
 
-## P1-C — MoneyTPAllAccount execution erosion
+## P1-C — MoneyTPAllAccount immediate-close owner correction
 
-1. `MoneyTPAllAccount` still arms on raw current `ACCOUNT_PROFIT >= configured target` before any new risk mutation.
-2. Once armed, Seed/DCA/Pyramid/Recovery ADD remains blocked even if floating retreats.
-3. Before the first new account-flatten mutation, current floating must fund target plus conservative account-scope close reserve.
-4. Reserve must include all current account positions across symbols/magics using each symbol's live spread, tick size/value and configured deviation conversion.
-5. Missing symbol/tick metadata waits fail-closed; it must not fall back to zero reserve.
-6. Once flatten admission opens, the sequential close-to-flat chain is not re-gated by later price retreat.
-7. `MoneySLAllAccount` and other MoneyGuard scopes retain their previous behavior.
-8. Record realized close-group outcome; target+reserve is a conservative admission policy, not a claim of impossible-to-breach broker execution guarantee.
+Owner Strategy Tester log `20260827.log` supersedes the earlier reserve-pre-admission contract. The old behavior latched at approximately `+100.02 USD` but waited for approximately `+160.68 USD`, then blocked Strategy mutations while floating retreated. That runtime behavior is a release-blocking liveness failure and must not recur.
+
+1. `MoneyTPAllAccount` is a direct raw-current-floating close threshold: `ACCOUNT_PROFIT >= configured target` triggers account close-to-flat.
+2. On the trigger tick the Strategy latches `GUARD_CLOSE_ACCOUNT` and begins the existing account-wide flatten path immediately; there is no `target + reserve` price-recovery admission gate.
+3. No `MoneyTP ACCOUNT WAIT`, `MoneyTP ACCOUNT ADMITTED`, account-TP reserve state, or equivalent pre-close profit wait may exist.
+4. Existing async safety serialization remains valid: if a broker OPEN/CLOSE outcome is already in flight, Strategy may wait for that broker outcome before sending a contradictory close, but it must not wait for floating profit to recover above the configured MoneyTP.
+5. Once the close-to-flat chain has begun, the existing MoneyGuard latch remains authoritative until the account scope is flat even if floating retreats during sequential broker execution.
+6. Account scope remains the legacy all-account scope; no new symbol/magic/user-input restriction is introduced.
+7. `MoneySLAllAccount` and all other MoneyGuard scopes retain their prior behavior.
+8. Record trigger floating and realized close-group outcome. The configured MoneyTP is a trigger threshold, not a guaranteed realized floor after spread/slippage/sequential execution.
 
 ## P2-D — invalid init lifecycle
 

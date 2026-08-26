@@ -42,6 +42,13 @@ static bool money_tp_close_now(double raw,double tp)
     return tp>0.0 && raw>=tp;
 }
 
+enum GuardState { GUARD_NONE_M=0, GUARD_ACCOUNT_M=1 };
+static int latch_next(int latched,int triggered,bool scopeFlat)
+{
+    if(latched!=GUARD_NONE_M) return scopeFlat ? GUARD_NONE_M : latched;
+    return triggered;
+}
+
 enum OState { IDLE=0, ARMED=1, LEG1_SUBMITTED=2, LEG2_WAIT=3 };
 static OState drive_armed(OState s,bool pairValid,bool economicsSafe,bool recoveryDefer)
 {
@@ -78,12 +85,13 @@ int main()
     ck(drive_armed(ARMED,true,true,false)==LEG1_SUBMITTED,"Overlap safe pair submits once");
     ck(drive_armed(ARMED,false,true,false)==IDLE,"Overlap proven stale pair may cancel");
 
-    // T17.12 owner correction: MoneyTPAllAccount is again an immediate close threshold.
-    // There is no target+reserve pre-admission state and therefore no profit-wait deadlock.
+    // Owner correction: MoneyTPAllAccount is an immediate raw-floating close threshold.
     ck(money_tp_close_now(100.00,100.0),"MoneyTP exact target closes immediately");
     ck(money_tp_close_now(100.12,100.0),"MoneyTP above target closes immediately");
     ck(!money_tp_close_now(99.99,100.0),"MoneyTP below target does not close");
     ck(!money_tp_close_now(1000.0,0.0),"MoneyTP disabled stays off");
+    ck(latch_next(GUARD_NONE_M,GUARD_ACCOUNT_M,false)==GUARD_ACCOUNT_M,
+       "MoneyTP hit commits account close latch without reserve pre-wait");
 
     // P2-D lifecycle remains unchanged.
     bool initialized=false;
