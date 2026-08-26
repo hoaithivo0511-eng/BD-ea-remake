@@ -12,8 +12,8 @@
 #include "Types.mqh"
 #include "NewsCalendar.mqh"
 
-#define BD_DIR_BUY  0
-#define BD_DIR_SELL 1
+// BD_DIR_BUY / BD_DIR_SELL are shared cross-module identifiers declared in
+// Types.mqh. EntryFilters consumes them but no longer owns their definition.
 
 //--- v13: MaxSpred, 0 disables ---------------------------------------
 class CSpreadFilter : public IEntryFilter
@@ -88,8 +88,8 @@ bool Hedge_AllowsGridAdd(const int ownCount)
 //--- FE-403 (v14.4): trading schedule by PC/LOCAL time (CCBSN manual) --
 //    4 on/off windows in "HH:MM"; overnight windows (start > end) are
 //    supported; [start, end) half-open. NOTE: in the Strategy Tester
-//    TimeLocal() equals the modelled server time. Since v14.8 this is
-//    the ONLY time-window system; Start_Hour/End_Hour were removed.
+//    TimeLocal() equals the modelled server time. Since v14.8 this is the
+//    ONLY time-window system; Start_Hour/End_Hour were removed.
 
 //--- PURE: "HH:MM" -> minutes since midnight. Tolerant to spaces and a
 //    1-digit hour; minute must be exactly 2 digits; both numeric.
