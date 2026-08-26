@@ -1,21 +1,16 @@
 name: Verify T17.12 Final Owner QA
 
 on:
-  push:
-    branches: [ feat/t17-full-pyramid ]
-    paths:
-      - 'BlackDragon_v14/Experts/**'
-      - 'BlackDragon_v14/Include/**'
-      - 'BlackDragon_v14/Scripts/**'
-      - 'BlackDragon_v14/docs/vibecode/**'
-      - '.github/workflows/verify-t1712-final.yml'
+  pull_request:
+    branches: [ feat/recovery-t16-arcs-stacked ]
+    types: [ edited ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  SOURCE_SHA: ${{ github.sha }}
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   final-model-source:
