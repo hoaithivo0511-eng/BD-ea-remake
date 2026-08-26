@@ -337,7 +337,7 @@ public:
       if(!Recovery_DcaPostHedgeStableState(cycle.state))
          return true;
 
-      bool terminalNoHedge = m_recovery->TerminalNoHedge(recoveryDir);
+      bool terminalNoHedge = m_recovery.TerminalNoHedge(recoveryDir);
       if(Recovery_T1711TerminalNoHedgeDcaAllowsPure(RecoveryMode_,
                                                     ContinueDcaAfterHedge_,
                                                     terminalNoHedge))
