@@ -1,0 +1,160 @@
+name: T17.12 Exact Head Native Owner Build
+
+on:
+  pull_request:
+    branches: [ ci/t1712-native-base ]
+    types: [ opened, synchronize, reopened ]
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  model-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+      - name: Exact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git show -s --format=%T HEAD)"
+      - name: T17.12 focused model
+        shell: bash
+        run: |
+          set -euo pipefail
+          R='BlackDragon_v14/Scripts/BlackDragon/Tests'
+          g++ -std=c++17 -O2 -Wall -Wextra "$R/t1712_runtime_model.cpp" -o /tmp/t1712_runtime_model
+          /tmp/t1712_runtime_model | tee /tmp/t1712.out
+          grep -q 'T17.12 reference model: 25 passed, 0 failed' /tmp/t1712.out
+          grep -q 'ALL GREEN' /tmp/t1712.out
+      - name: T17.11/T17.12 source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1711_source_contract.py
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1712_source_contract.py
+
+  native-owner-build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      MT5_DIR: 'C:\Program Files\MetaTrader 5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Exact identity
+        shell: pwsh
+        run: |
+          $head=(git rev-parse HEAD).Trim()
+          if($head -ne $env:SOURCE_SHA){throw "checkout mismatch $head != $env:SOURCE_SHA"}
+          Write-Host "HEAD=$head"
+          Write-Host "TREE=$((git show -s --format=%T HEAD).Trim())"
+
+      - name: Install MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing
+          Start-Process -FilePath '.\mt5setup.exe' -ArgumentList '/auto' -Wait
+          Start-Sleep -Seconds 10
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+          if(-not(Test-Path "$env:MT5_DIR\metaeditor64.exe")){throw 'metaeditor64.exe not found'}
+          if(-not(Test-Path "$env:MT5_DIR\terminal64.exe")){throw 'terminal64.exe not found'}
+
+      - name: Warm terminal and mirror exact source tree
+        shell: pwsh
+        run: |
+          $t=Start-Process "$env:MT5_DIR\terminal64.exe" -PassThru
+          Start-Sleep -Seconds 40
+          $t|Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          $mql5="$env:MT5_DIR\MQL5"
+          foreach($d in @('Experts','Include','Scripts')){
+            New-Item -ItemType Directory -Force -Path "$mql5\$d"|Out-Null
+            Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force
+          }
+          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")){
+            if(Test-Path $r){
+              Get-ChildItem $r -Recurse -File|Where-Object{$_.Extension -in '.mq5','.mqh'}|ForEach-Object{
+                $txt=Get-Content $_.FullName -Raw -Encoding UTF8
+                [IO.File]::WriteAllText($_.FullName,$txt,$enc)
+              }
+            }
+          }
+
+      - name: Compile focused T17.12 script and full EA
+        shell: pwsh
+        run: |
+          $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-t1712-owner";New-Item -ItemType Directory -Force $b|Out-Null
+          $targets=@(
+            @{N='RunT1712RuntimeTests';S="$mql5\Scripts\BlackDragon\Tests\RunT1712RuntimeTests.mq5";O="$mql5\Scripts\BlackDragon\Tests\RunT1712RuntimeTests.ex5"},
+            @{N='BlackDragon';S="$mql5\Experts\BlackDragon\BlackDragon.mq5";O="$mql5\Experts\BlackDragon\BlackDragon.ex5"}
+          )
+          foreach($t in $targets){
+            $log="$b\$($t.N)-compile.log"
+            Start-Process $editor -ArgumentList "/compile:`"$($t.S)`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow
+            $x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x
+            $e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '})
+            if(-not(Test-Path $t.O)-or$e.Count-or$w.Count){throw "$($t.N) compile failed: $($e.Count) errors/$($w.Count) warnings"}
+            Copy-Item $t.O $b -Force
+          }
+          $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim();$ex5="$b\BlackDragon.ex5";$hash=(Get-FileHash $ex5 -Algorithm SHA256).Hash.ToLowerInvariant();$size=(Get-Item $ex5).Length
+          "HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$hash`nBLACKDRAGON_EX5_SIZE=$size`nRUN_ID=$env:GITHUB_RUN_ID`nRUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT`n"|Out-File "$b\PROVENANCE.txt" -Encoding utf8
+          Write-Host "T17.12 OWNER EX5 BUILT HEAD=$head TREE=$tree SHA256=$hash SIZE=$size"
+
+      - name: Upload exact-head owner EX5 immediately
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackdragon-t1712-exact-head-owner-ex5
+          path: build-t1712-owner/
+          if-no-files-found: error
+
+      - name: Execute focused T17.12 native tests
+        shell: pwsh
+        run: |
+          $ld="$env:MT5_DIR\MQL5\Logs";Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force;New-Item -ItemType Directory -Force $ld|Out-Null;Get-ChildItem $ld -Filter '*.log' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
+          $cfg="$env:GITHUB_WORKSPACE\build-t1712-owner\RunT1712RuntimeTests.ini";$txt="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\RunT1712RuntimeTests`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n";[IO.File]::WriteAllText($cfg,$txt,[Text.Encoding]::Unicode)
+          $p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru;$dl=(Get-Date).AddMinutes(4);while(-not$p.HasExited-and(Get-Date)-lt$dl){Start-Sleep 2;$p.Refresh()};if(-not$p.HasExited){Stop-Process -Id $p.Id -Force;throw 'T17.12 native timeout'}
+          $logs=Get-ChildItem $ld -Filter '*.log'|Sort-Object LastWriteTime;if(-not$logs){throw 'T17.12 native log missing'};$raw=Get-Content $logs[-1].FullName -Raw;Write-Host $raw;Copy-Item $logs[-1].FullName "$env:GITHUB_WORKSPACE\build-t1712-owner\RunT1712RuntimeTests-native.log" -Force
+          $m=[regex]::Match($raw,'T17\.12 runtime tests:\s*(\d+) passed,\s*(\d+) failed');if(-not$m.Success-or[int]$m.Groups[1].Value-ne21-or[int]$m.Groups[2].Value-ne0-or$raw-notmatch'ALL GREEN'){throw 'T17.12 focused native mismatch'}
+
+      - name: Compile and execute established 19-suite native regression
+        shell: pwsh
+        run: |
+          $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-t1712-owner";$ld="$env:MT5_DIR\MQL5\Logs"
+          $tests=@(
+            @{N='RunT1711RuntimeTests';P='T17\.11 runtime tests:\s*(\d+) passed,\s*(\d+) failed';E=30},
+            @{N='RunT1710UnitSystemTests';P='T17\.10 unit tests:\s*(\d+) passed,\s*(\d+) failed';E=43},
+            @{N='RunT179RealTpTests';P='T17\.9 REAL-TP tests:\s*(\d+) passed,\s*(\d+) failed';E=32},
+            @{N='RunT178RuntimeFixTests';P='T17\.8 runtime fix tests:\s*(\d+) passed,\s*(\d+) failed';E=25},
+            @{N='RunT177SchedulerTests';P='T17\.7 C1 scheduler tests:\s*(\d+) passed,\s*(\d+) failed';E=11},
+            @{N='RunT177AnchorTests';P='T17\.7 C2 anchor tests:\s*(\d+) passed,\s*(\d+) failed';E=14},
+            @{N='RunT177OverlapTests';P='T17\.7 C3 Overlap tests:\s*(\d+) passed,\s*(\d+) failed';E=26},
+            @{N='RunT177HedgeLadderTests';P='T17\.7 C4 Hedge ladder tests:\s*(\d+) passed,\s*(\d+) failed';E=20},
+            @{N='RunT177MigrationTests';P='T17\.7 C5 migration tests:\s*(\d+) passed,\s*(\d+) failed';E=39},
+            @{N='RunT177JournalTests';P='T17\.7 C6 journal tests:\s*(\d+) passed,\s*(\d+) failed';E=24},
+            @{N='RunTests';P='BlackDragon v14 unit tests:\s*(\d+) passed,\s*(\d+) failed';E=246},
+            @{N='RunRecoveryMutationTests';P='Recovery T13 mutation policy tests:\s*(\d+) passed,\s*(\d+) failed';E=26},
+            @{N='RunRecoveryIdentityTests';P='Recovery T14 identity tests:\s*(\d+) passed,\s*(\d+) failed';E=17},
+            @{N='RunRecoveryArcsTests';P='Recovery T16 ARCS tests:\s*(\d+) passed,\s*(\d+) failed';E=33},
+            @{N='RunRecoveryLivenessTests';P='Recovery T16\.3 liveness tests:\s*(\d+) passed,\s*(\d+) failed';E=18},
+            @{N='RunRecoveryReachabilityTests';P='Recovery T16\.4 reachability tests:\s*(\d+) passed,\s*(\d+) failed';E=20},
+            @{N='RunRecoveryT165Tests';P='Recovery T16\.5 guard/margin/log tests:\s*(\d+) passed,\s*(\d+) failed';E=20},
+            @{N='RunRecoveryT166Tests';P='Recovery T16\.6 broker-min tests:\s*(\d+) passed,\s*(\d+) failed';E=16},
+            @{N='RunT176HardeningTests';P='T17\.6 hardening tests:\s*(\d+) passed,\s*(\d+) failed';E=14})
+          foreach($t in $tests){
+            $src="$mql5\Scripts\BlackDragon\Tests\$($t.N).mq5";$out="$mql5\Scripts\BlackDragon\Tests\$($t.N).ex5";$clog="$b\$($t.N)-compile.log";Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$clog`"" -Wait -NoNewWindow;$x=Get-Content $clog -Encoding Unicode -Raw;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $out)-or$e.Count-or$w.Count){Write-Host $x;throw "$($t.N) compile failed $($e.Count)/$($w.Count)"}
+            Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force;New-Item -ItemType Directory -Force $ld|Out-Null;Get-ChildItem $ld -Filter '*.log' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue;$cfg="$b\$($t.N).ini";$txt="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\$($t.N)`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n";[IO.File]::WriteAllText($cfg,$txt,[Text.Encoding]::Unicode);$p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru;$dl=(Get-Date).AddMinutes(4);while(-not$p.HasExited-and(Get-Date)-lt$dl){Start-Sleep 2;$p.Refresh()};if(-not$p.HasExited){Stop-Process -Id $p.Id -Force;throw "$($t.N) timeout"};$logs=Get-ChildItem $ld -Filter '*.log'|Sort-Object LastWriteTime;if(-not$logs){throw "$($t.N) log missing"};$raw=Get-Content $logs[-1].FullName -Raw;Copy-Item $logs[-1].FullName "$b\$($t.N)-native.log" -Force;$m=[regex]::Match($raw,$t.P);if(-not$m.Success-or[int]$m.Groups[1].Value-ne$t.E-or[int]$m.Groups[2].Value-ne0-or$raw-notmatch'ALL GREEN'){Write-Host $raw;throw "$($t.N) native mismatch expected $($t.E)/0"}
+          }
+          Write-Host 'T17.12 FULL 20-SUITE NATIVE MATRIX GREEN'
