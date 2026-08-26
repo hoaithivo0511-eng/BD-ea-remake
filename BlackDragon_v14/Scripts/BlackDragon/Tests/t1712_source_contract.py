@@ -40,27 +40,32 @@ coord=text(INC/'Recovery'/'RecoveryExitCoordinator.mqh')
 for token in ('PrepareRealTpEpoch','ObserveRealTpSettlement','POSITION_IDENTIFIER','DEAL_REASON_TP','BlocksSameSideAdd'):
     assert token in coord, f'T17.9 regression: missing {token}'
 
-# P1-B: public Overlap wrapper must override PAIR_ARMED so temporary WAIT never
-# drops the same durable pair; proven stale identity/volume cancellation remains in base.
+# P1-B: public wrapper must preserve PAIR_ARMED on temporary economics WAIT.
 overlap=text(INC/'Overlap'/'OverlapT177Coordinator.mqh')
-assert '#define private protected' in overlap
-assert 'DriveArmedT1712' in overlap
-needle='if(!Overlap_T177PreLeg1EligiblePure(side.count, OverlapOrderNumber, Overlap,'
-pos=overlap.find(needle)
-assert pos>=0, 'T17.12 wrapper pre-leg1 economics gate missing'
-window=overlap[pos:pos+800]
-assert 'ResetSide(idx)' not in window, 'RED T17.12: unsafe same-pair economics still resets durable obligation'
-assert 'return overlap_T177_DRIVE_WAIT;' in window
-assert 'DriveSide(ctx, buy, BD_DIR_BUY)' in overlap and 'DriveSide(ctx, sell, BD_DIR_SELL)' in overlap
+for token in ('DriveArmedT1712','t1712pairwait','return overlap_T177_DRIVE_WAIT;'):
+    assert token in overlap, f'RED T17.12 Overlap WAIT integration missing {token}'
+wait_pos=overlap.find('t1712pairwait')
+assert wait_pos>=0
+wait_window=overlap[max(0,wait_pos-700):wait_pos+700]
+assert 'ResetSide(idx)' not in wait_window, 'RED T17.12: temporary Overlap economics WAIT still resets pair'
 
-# P1-C: raw MoneyTP arm remains in MoneyGuard; public Strategy adds an account
-# close reserve and a one-way execution-start latch so erosion cannot abort cleanup.
+# P1-C: raw account TP trigger stays in MoneyGuard, while account-scope
+# reserve/admission is composed in the public Strategy wrapper so T17.6 base
+# remains frozen.
 money=text(INC/'MoneyGuard.mqh')
 assert 'bool MG_MoneyTpHit' in money
 assert 'MG_AccountTpCloseReserveLegCashPure' in money
-assert 'AccountTpExecutionReserveCashT1712' in strategy
-assert 'm_guardAccountTpReserve' in strategy
-assert 'm_guardAccountTpExecutionStarted' in strategy
+for token in (
+    'AccountTpExecutionReserveCashT1712',
+    'm_guardAccountTpReserve',
+    'm_guardAccountTpReserveRequired',
+    'm_guardAccountTpAdmitted',
+    'AccountTpAdmissionReadyT1712',
+    'ApplyGuardPriority',
+):
+    assert token in strategy, f'RED T17.12 MoneyTP integration missing {token}'
+assert 'AccountInfoDouble(ACCOUNT_PROFIT)' in strategy
+assert 'MoneyTPAllAccount' in strategy
 
 # P2-D: invalid init must make recovery persistence flush a no-op.
 engine=text(INC/'Recovery'/'RecoveryEngine.mqh')
