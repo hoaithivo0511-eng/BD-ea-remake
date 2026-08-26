@@ -2,7 +2,7 @@
 #include <iostream>
 
 enum Phase { IDLE=0, ARMED, BUILDING, ACTIVE, TP_PENDING, CORE_FUNDING,
-             LOCK_PENDING, PROTECTIVE_WAIT, LOCKED, GLOBAL_PROTECT };
+             LOCK_PENDING, PROTECTIVE_WAIT, LOCKED, REVERSAL_HOLD, GLOBAL_PROTECT };
 enum Submit { REJECTED=0, ACCEPTED, TRANSIENT, CAPACITY_BLOCKED };
 
 struct Latch {
@@ -19,7 +19,8 @@ bool snapshot_changed(long live,long opened,long remaining,double be,double stor
     return live!=opened || live!=remaining || std::fabs(be-storedBe)>1e-12;
 }
 bool terminal_no_hedge(Phase phase,int generation,int maxGeneration,long core,long hedge) {
-    return phase==LOCKED && maxGeneration>=1 && generation>=maxGeneration && core>0 && hedge<=0;
+    bool terminalPhase=phase==LOCKED || phase==REVERSAL_HOLD;
+    return terminalPhase && maxGeneration>=1 && generation>=maxGeneration && core>0 && hedge<=0;
 }
 bool dca_metrics_required(bool postHedgeStable,bool terminalNoHedge,bool coverageOn,bool corridorOn) {
     return postHedgeStable && !terminalNoHedge && (coverageOn||corridorOn);
@@ -58,7 +59,7 @@ int main() {
     ck("both passive no mutation",scheduler_actions({true,false},{true,false})==0);
 
     ck("terminal exact max",terminal_no_hedge(LOCKED,5,5,100,0));
-    ck("terminal over max",terminal_no_hedge(LOCKED,6,5,100,0));
+    ck("reversal hold over max terminal",terminal_no_hedge(REVERSAL_HOLD,6,5,100,0));
     ck("premax not terminal",!terminal_no_hedge(LOCKED,4,5,100,0));
     ck("active missing hedge not terminal",!terminal_no_hedge(ACTIVE,5,5,100,0));
     ck("no core not terminal",!terminal_no_hedge(LOCKED,5,5,0,0));
