@@ -6,7 +6,6 @@
 #ifndef BD_STRATEGY_T177_C3_MQH
 #define BD_STRATEGY_T177_C3_MQH
 
-// Preserve the exact pre-C3 Strategy implementation as a protected base.
 #define private protected
 #define CStrategy CStrategyT176Base
 #include "StrategyT176Base.mqh"
@@ -20,6 +19,164 @@ class CStrategy : public CStrategyT176Base
 {
 private:
    COverlapT177Coordinator m_overlap;
+   double m_guardAccountTpReserve;
+   bool   m_guardAccountTpReserveRequired;
+   bool   m_guardAccountTpAdmitted;
+
+   void ResetAccountTpAdmissionT1712()
+   {
+      m_guardAccountTpReserve = 0.0;
+      m_guardAccountTpReserveRequired = false;
+      m_guardAccountTpAdmitted = false;
+   }
+
+   double AccountTpExecutionReserveCashT1712() const
+   {
+      double total = 0.0;
+      int n = PositionsTotal();
+      for(int i = n - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0) continue;
+         string sym = PositionGetString(POSITION_SYMBOL);
+         double lots = PositionGetDouble(POSITION_VOLUME);
+         if(sym == "" || lots <= 0.0) return DBL_MAX;
+
+         MqlTick tick;
+         if(!SymbolInfoTick(sym, tick)) return DBL_MAX;
+         double tickSize = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
+         double tickValue = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
+         double spreadPrice = MathMax(tick.ask - tick.bid, 0.0);
+         double deviationPrice = Exec_SlippagePriceForSymbol(sym);
+         double leg = MG_AccountTpCloseReserveLegCashPure(spreadPrice,
+                                                          deviationPrice,
+                                                          lots,
+                                                          tickSize,
+                                                          tickValue);
+         if(leg == DBL_MAX || !Recovery_T1712FinitePure(leg)) return DBL_MAX;
+         total += leg;
+         if(!Recovery_T1712FinitePure(total)) return DBL_MAX;
+      }
+      return total;
+   }
+
+   bool AccountTpAdmissionReadyT1712()
+   {
+      if(!m_guardAccountTpReserveRequired || m_guardAccountTpAdmitted)
+         return true;
+
+      double reserve = AccountTpExecutionReserveCashT1712();
+      m_guardAccountTpReserve = reserve;
+      double floating = AccountInfoDouble(ACCOUNT_PROFIT);
+      double target = MoneyTPAllAccount > 0.0 ? MoneyTPAllAccount : 0.0;
+
+      if(reserve == DBL_MAX || !Recovery_T1712FinitePure(reserve))
+      {
+         Log_WarnEvery("Guard", "t1712tpaccmeta",
+                       "T17.12 MoneyTP ACCOUNT WAIT | không dựng được execution reserve toàn account",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return false;
+      }
+      if(floating + 1e-9 < target + reserve)
+      {
+         Log_WarnEvery("Guard", "t1712tpaccwait",
+                       "T17.12 MoneyTP ACCOUNT WAIT | floating=" +
+                       DoubleToString(floating,2) + " < target+reserve=" +
+                       DoubleToString(target + reserve,2) +
+                       " | reserve=" + DoubleToString(reserve,2),
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return false;
+      }
+
+      m_guardAccountTpAdmitted = true;
+      Log_Info("Guard", "T17.12 MoneyTP ACCOUNT ADMITTED | floating=" +
+               DoubleToString(floating,2) + " target=" + DoubleToString(target,2) +
+               " reserve=" + DoubleToString(reserve,2) +
+               " | close-to-flat will not be re-gated");
+      return true;
+   }
+
+   void LatchGuardT1712(const eGuardAction action, const datetime now)
+   {
+      if(action == GUARD_NONE) return;
+      eGuardAction next = MG_LatchNextPure(m_guardLatched, action, false);
+      if(m_guardLatched == GUARD_NONE && next != GUARD_NONE)
+      {
+         m_guardLatchAt = now;
+         ResetAccountTpAdmissionT1712();
+         if(next == GUARD_CLOSE_ACCOUNT &&
+            MG_MoneyTpHit(AccountInfoDouble(ACCOUNT_PROFIT), MoneyTPAllAccount))
+         {
+            m_guardAccountTpReserveRequired = true;
+            m_guardAccountTpReserve = DBL_MAX;
+         }
+         else
+            m_guardAccountTpAdmitted = true;
+
+         Log_Warn("Guard", "latch", "T17.4 MoneyGuard CLOSE LATCHED scope=" +
+                  GuardActionName(next) + "; no new Seed/DCA/Pyramid/Recovery ADD until flat");
+      }
+      m_guardLatched = next;
+   }
+
+   bool DriveGuardLatchT1712(const EAContext &ctx,
+                             const SRecoveryT165GuardMetrics &rg)
+   {
+      if(m_guardLatched == GUARD_NONE) return false;
+
+      if(m_guardAccountTpReserveRequired && !m_guardAccountTpAdmitted)
+      {
+         bool flat = GuardScopeFlat(m_guardLatched, rg);
+         bool pendingOpen = AnyOpenPending();
+         bool pendingClose = m_exec != NULL && m_exec.HasAnyPendingClose();
+         bool recoveryBusy = RecoveryMode_ == recovery_ACTIVE &&
+                             m_recoveryExit != NULL &&
+                             m_recoveryExit.HasBlockingWork();
+
+         // Existing broker outcomes/cleanup remain authoritative. The reserve
+         // only gates the first new account-flatten mutation.
+         if(flat || pendingOpen || pendingClose || recoveryBusy)
+         {
+            bool handled = CStrategyT176Base::DriveGuardLatch(ctx, rg);
+            if(m_guardLatched == GUARD_NONE) ResetAccountTpAdmissionT1712();
+            return handled;
+         }
+
+         if(!AccountTpAdmissionReadyT1712())
+            return true; // latch remains P0 and blocks every new risk mutation
+      }
+
+      bool handled = CStrategyT176Base::DriveGuardLatch(ctx, rg);
+      if(m_guardLatched == GUARD_NONE) ResetAccountTpAdmissionT1712();
+      return handled;
+   }
+
+   // Shadows the protected T17.6 implementation only in this public wrapper.
+   // Raw current ACCOUNT_PROFIT remains the arming domain; admission reserve is
+   // evaluated only after the latch already owns Strategy priority.
+   bool ApplyGuardPriority(const EAContext &ctx)
+   {
+      if(m_guard == NULL) return false;
+      SRecoveryT165GuardMetrics rg;
+      Recovery_T165ReadGuardMetrics(ctx.now, rg);
+
+      if(m_guardLatched != GUARD_NONE)
+         return DriveGuardLatchT1712(ctx, rg);
+
+      double buyFloating = m_basket.buy.totalProfit + rg.recoveryForBuyFloating;
+      double sellFloating = m_basket.sell.totalProfit + rg.recoveryForSellFloating;
+      bool bothCoreOpen = m_basket.buy.count > 0 && m_basket.sell.count > 0;
+      double accountFloating = AccountInfoDouble(ACCOUNT_PROFIT);
+
+      eGuardAction action = m_guard.CheckFloatingPriority(ctx.now,
+                                                          buyFloating,
+                                                          sellFloating,
+                                                          bothCoreOpen,
+                                                          accountFloating);
+      if(action == GUARD_NONE) return false;
+      LatchGuardT1712(action, ctx.now);
+      return DriveGuardLatchT1712(ctx, rg);
+   }
 
    bool RecoveryOwnsExitSideT1712(const int dir) const
    {
@@ -56,7 +213,6 @@ private:
       s.requiredTargetCash = requiredTargetCash;
       s.currentExitPrice = dir == BD_DIR_BUY ? ctx.bid : ctx.ask;
 
-      // Exact Core-only parity: no new economic condition participates.
       if(!s.recoveryOwns)
       {
          s.reserveCash = 0.0;
@@ -82,8 +238,6 @@ private:
          s.pyramidRealized = m_pyramid.CampaignRealized(dir);
       }
 
-      // Reuse the existing durable T5/T16 ledger. Never substitute the
-      // T16.5 day-realized cache for cycle economics.
       SRecoveryT5CycleRuntime rt;
       m_recovery.GetT5Runtime(RecoveryDir(dir), rt);
       s.recoveryCycleRealized = rt.ledger.hedgeNetCash - rt.ledger.coreLossSpent;
@@ -247,20 +401,15 @@ private:
             return false;
       }
 
-      // T17.12: only Recovery-owned TP/Trail closes get the new economic gate.
-      // Core-only and SL semantics remain byte-for-behavior equivalent.
       if((d.kind == EXIT_TP || d.kind == EXIT_TRAIL) &&
          !RecoveryExitFundedT1712(ctx, side, dir, d.kind))
          return false;
 
-      // Existing T17 invariant: Overlap never competes with live Pyramid legs.
       if(d.kind == EXIT_OVERLAP && m_pyramid != NULL && m_pyramid.HasLegs(side))
          return false;
 
       if(d.kind == EXIT_OVERLAP)
       {
-         // A durable obligation already owns this side. Duplicate Overlap
-         // decisions are ignored; the coordinator will re-evaluate economics.
          if(m_overlap.Active(dir)) return false;
 
          double firstProfit = 0.0;
@@ -337,8 +486,6 @@ private:
             tp = 0.0;
       }
 
-      // Compute the Recovery-aware broker target BEFORE preparing/updating the
-      // T17.9 durable epoch. A flat/adverse net slope clears unsafe Core TP.
       if(TP_Mode == mode_Real && Cfg.TP != 0 && tp > 0.0 &&
          RecoveryMode_ == recovery_ACTIVE)
       {
@@ -354,9 +501,6 @@ private:
          !m_recoveryExit.PrepareRealTpEpoch(RecoveryDir(dir), tp, ctx.now))
          return;
 
-      // Real trailing is also a broker-side Core-only trigger. If the trailing
-      // candidate would violate whole-cycle economics, retain any independent
-      // REAL SL risk limit but clear/defer only the trailing contribution.
       if(Trail_Mode == mode_Real && side.trailArmed && side.trailLevel > 0.0)
       {
          double baseRiskSl = (SL_Mode == mode_Real && Cfg.SL != 0) ?
@@ -426,6 +570,7 @@ public:
    {
       CStrategyT176Base::Init(basket, exec, sizer, guard, dist,
                               recovery, recoveryExit, pyramid);
+      ResetAccountTpAdmissionT1712();
       string overlapWhy = "";
       if(!m_overlap.Init(exec, recovery, recoveryExit, overlapWhy))
          Log_Error("Overlap", "T17.7 C3 init thất bại: " + overlapWhy);
@@ -663,8 +808,6 @@ public:
    }
 };
 
-// T17.5 inherited-source regression anchors. These executable semantics live
-// unchanged in StrategyT176Base.mqh; keep the inherited contract names visible.
 /*
  m_pyramid.BuildDcaView(side, dcaSide)
  m_pyramid.ReleaseNewestForDca(side, dir, releaseWhy)
