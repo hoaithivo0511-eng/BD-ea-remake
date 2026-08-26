@@ -47,11 +47,12 @@ void OnStart()
    T(MathAbs(Recovery_T1712CashSlopePerPricePure(false,1.0,0.4,0.0001,10.0)+60000.0)<1e-6,
      "SELL under hedge slope");
 
-   T(MG_MoneyTpHit(100.12,100.0),"MoneyTP raw arm threshold unchanged");
-   T(MathAbs(MG_AccountTpCloseReserveLegCashPure(0.0002,0.0001,1.0,0.0001,10.0)-50.0)<1e-9,
-     "account TP close-leg reserve");
-   T(MG_AccountTpCloseReserveLegCashPure(0.0002,0.0001,1.0,0.0,10.0)==DBL_MAX,
-     "account TP invalid metadata fails closed");
+   // Owner correction: configured MoneyTP is the immediate account close threshold.
+   T(MG_MoneyTpHit(100.00,100.0),"MoneyTP exact threshold closes immediately");
+   T(MG_MoneyTpHit(100.12,100.0),"MoneyTP above threshold closes immediately");
+   T(!MG_MoneyTpHit(99.99,100.0),"MoneyTP below threshold stays inactive");
+   T(MG_LatchNextPure(GUARD_NONE,GUARD_CLOSE_ACCOUNT,false)==GUARD_CLOSE_ACCOUNT,
+     "MoneyTP account close latches immediately once triggered");
 
    Print("T17.12 runtime tests: ",g_pass," passed, ",g_fail," failed");
    if(g_fail==0) Print("ALL GREEN");

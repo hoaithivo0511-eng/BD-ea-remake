@@ -5,8 +5,6 @@
 static int g_pass=0,g_fail=0;
 static void ck(bool v,const char *name){ if(v) g_pass++; else { g_fail++; std::cerr<<"FAIL: "<<name<<"\n"; } }
 
-// Mirror Recovery_T1712FinitePure: DBL_MAX is a fail-closed sentinel even
-// though the C++ standard library classifies the finite maximum as finite.
 static bool policy_finite(double v)
 {
     return std::isfinite(v) && v > -DBL_MAX/4.0 && v < DBL_MAX/4.0;
@@ -39,25 +37,23 @@ static bool projected_tp(bool isBuy,double currentPrice,double legacyTp,double c
            (isBuy ? out+1e-12>=legacyTp : out<=legacyTp+1e-12);
 }
 
-static bool money_tp_arm(double raw,double tp){ return tp>0.0 && raw>=tp; }
-static bool money_tp_ready(bool latched,double raw,double tp,double reserve)
+static bool money_tp_close_now(double raw,double tp)
 {
-    return latched && tp>0.0 && policy_finite(reserve) &&
-           raw+1e-9>=tp+std::max(reserve,0.0);
+    return tp>0.0 && raw>=tp;
 }
 
 enum OState { IDLE=0, ARMED=1, LEG1_SUBMITTED=2, LEG2_WAIT=3 };
 static OState drive_armed(OState s,bool pairValid,bool economicsSafe,bool recoveryDefer)
 {
     if(s!=ARMED) return s;
-    if(!pairValid) return IDLE;           // proven stale/identity invalidation may cancel
-    if(recoveryDefer || !economicsSafe) return ARMED; // read-only WAIT
+    if(!pairValid) return IDLE;
+    if(recoveryDefer || !economicsSafe) return ARMED;
     return LEG1_SUBMITTED;
 }
 
 int main()
 {
-    // P0-A: two runtime-shaped counterexamples must stay blocked while Recovery owns the side.
+    // P0-A Recovery-aware exit economics remains unchanged.
     ck(!funded(true,true,106.40,-448.49,0.0,100.0,5.0),"SELL virtual TP negative whole-cycle blocks");
     ck(!funded(true,true,215.29,-425.59,0.0,100.0,5.0),"BUY virtual TP negative whole-cycle blocks");
     ck(funded(true,true,215.29,-80.0,0.0,100.0,5.0),"funded recovery cycle may close");
@@ -67,30 +63,29 @@ int main()
     ck(!funded(true,true,150,-20,-40,100,5),"Pyramid realized debt participates");
     ck(funded(true,true,170,-20,-40,100,5),"Pyramid debt repaid before close");
 
-    // P0-A REAL TP: under-hedged BUY/SELL move outward; full/over hedge cannot create unsafe finite target.
     double tp=0.0;
     ck(projected_tp(true,1.1000,1.1010,40,-20,0,100,5,100000,tp) && tp>=1.1010,"BUY under-hedge outward target");
     ck(projected_tp(false,1.1000,1.0990,40,-20,0,100,5,-100000,tp) && tp<=1.0990,"SELL under-hedge outward target");
-    ck(!projected_tp(true,1.1000,1.1010,40,-40,0,100,5,0,tp),"BUY full hedge no finite favorable TP");
-    ck(!projected_tp(false,1.1000,1.0990,40,-40,0,100,5,0,tp),"SELL full hedge no finite favorable TP");
+    ck(!projected_tp(true,1.1000,1.1010,40,-40,0,100,5,0,tp),"BUY full hedge no finite target");
+    ck(!projected_tp(false,1.1000,1.0990,40,-40,0,100,5,0,tp),"SELL full hedge no finite target");
     ck(!projected_tp(true,1.1000,1.1010,40,-60,0,100,5,-100000,tp),"BUY over-hedge no unsafe TP");
     ck(!projected_tp(false,1.1000,1.0990,40,-60,0,100,5,100000,tp),"SELL over-hedge no unsafe TP");
     ck(!projected_tp(true,1.1000,1.1010,40,-20,0,100,DBL_MAX,100000,tp),"REAL TP missing metadata fails closed");
 
-    // P1-B: WAIT/DEFER must keep one durable same-pair obligation instead of IDLE re-arm churn.
+    // P1-B durable Overlap WAIT remains unchanged.
     ck(drive_armed(ARMED,true,false,false)==ARMED,"Overlap unsafe economics keeps ARMED");
     ck(drive_armed(ARMED,true,true,true)==ARMED,"Overlap Recovery DEFER keeps ARMED");
     ck(drive_armed(ARMED,true,true,false)==LEG1_SUBMITTED,"Overlap safe pair submits once");
     ck(drive_armed(ARMED,false,true,false)==IDLE,"Overlap proven stale pair may cancel");
 
-    // P1-C: raw ACCOUNT_PROFIT still arms, but execution waits for target + reserve while latch remains active.
-    ck(money_tp_arm(100.12,100.0),"MoneyTP raw threshold unchanged");
-    ck(!money_tp_ready(true,100.12,100.0,8.0),"MoneyTP sequential reserve prevents thin close");
-    ck(money_tp_ready(true,110.60,100.0,8.0),"MoneyTP latch executes when reserve funded");
-    ck(!money_tp_ready(true,107.0,100.0,8.0),"MoneyTP retreat stays latched/read-only");
-    ck(!money_tp_ready(true,1000.0,100.0,DBL_MAX),"MoneyTP invalid account reserve fails closed");
+    // T17.12 owner correction: MoneyTPAllAccount is again an immediate close threshold.
+    // There is no target+reserve pre-admission state and therefore no profit-wait deadlock.
+    ck(money_tp_close_now(100.00,100.0),"MoneyTP exact target closes immediately");
+    ck(money_tp_close_now(100.12,100.0),"MoneyTP above target closes immediately");
+    ck(!money_tp_close_now(99.99,100.0),"MoneyTP below target does not close");
+    ck(!money_tp_close_now(1000.0,0.0),"MoneyTP disabled stays off");
 
-    // P2-D lifecycle specification: a never-initialized engine has nothing to flush.
+    // P2-D lifecycle remains unchanged.
     bool initialized=false;
     ck(!initialized,"invalid-init leaves recovery uninitialized");
 
