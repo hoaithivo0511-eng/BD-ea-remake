@@ -9,6 +9,12 @@
 #define BD_TYPES_MQH
 #include "Config.mqh"
 
+// Shared side identifiers are a cross-module primitive. They live here rather
+// than in EntryFilters so ExecutionLayer/Strategy/tests can depend on them
+// without importing filter/news modules. Values intentionally remain 0/1.
+#define BD_DIR_BUY  0
+#define BD_DIR_SELL 1
+
 struct PositionInfo
 {
    ulong    ticket;
