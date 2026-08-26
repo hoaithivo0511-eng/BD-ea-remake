@@ -137,7 +137,7 @@ jobs:
           foreach($d in @('Experts','Include','Scripts')){New-Item -ItemType Directory -Force -Path "$mql5\$d"|Out-Null;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force}
           $enc=New-Object System.Text.UnicodeEncoding($false,$true)
           foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")){if(Test-Path $r){Get-ChildItem $r -Recurse -File|Where-Object{$_.Extension -in '.mq5','.mqh'}|ForEach-Object{$txt=Get-Content $_.FullName -Raw -Encoding UTF8;[IO.File]::WriteAllText($_.FullName,$txt,$enc)}}}
-      - name: Compile final EA and 17 native suites
+      - name: Compile final EA and 18 native suites
         shell: pwsh
         run: |
           $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-t1710-final";New-Item -ItemType Directory -Force $b|Out-Null
@@ -145,7 +145,7 @@ jobs:
           foreach($n in $names){$src="$mql5\Scripts\BlackDragon\Tests\$n.mq5";$out="$mql5\Scripts\BlackDragon\Tests\$n.ex5";$log="$b\$n-compile.log";Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $out)-or$e.Count-or$w.Count){throw "$n compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $out $b -Force}
           $src="$mql5\Experts\BlackDragon\BlackDragon.mq5";$out="$mql5\Experts\BlackDragon\BlackDragon.ex5";$log="$b\BlackDragon-compile.log";Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $out)-or$e.Count-or$w.Count){throw "BlackDragon compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $out $b -Force
           $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim();$hash=(Get-FileHash "$b\BlackDragon.ex5" -Algorithm SHA256).Hash.ToLowerInvariant();"HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$hash`n"|Out-File "$b\PROVENANCE.txt" -Encoding utf8;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\docs\vibecode\T17_10_OWNER_QA_CHECKLIST.md" $b -Force;Write-Host "FINAL T17.10 MetaEditor PASS 0 errors/0 warnings HEAD=$head TREE=$tree EX5=$hash"
-      - name: Execute final 17-suite native matrix
+      - name: Execute final 18-suite native matrix
         shell: pwsh
         run: |
           $b="$env:GITHUB_WORKSPACE\build-t1710-final";$ld="$env:MT5_DIR\MQL5\Logs";$tests=@(

@@ -38,7 +38,7 @@ jobs:
           logger=(r/'Logger.mqh').read_text(encoding='utf-8')
           cfg=(r/'Recovery/RecoveryT16Config.mqh').read_text(encoding='utf-8')
           scheduler=(r/'Recovery/RecoveryArcsStackT177Scheduler.mqh').read_text(encoding='utf-8')
-          ladder=(r/'Recovery/RecoveryArcsStackT177HedgeLadder.mqh').read_text(encoding='utf-8')
+          ladder=(r/'Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh').read_text(encoding='utf-8')
           overlap=(r/'Overlap/OverlapT177CoordinatorT177C3Base.mqh').read_text(encoding='utf-8')
           native=Path('BlackDragon_v14/Scripts/BlackDragon/Tests/RunT177JournalTests.mq5').read_text(encoding='utf-8')
           for t in ['Journal_T177HumanReasonPure','Journal_T177LinePure','BLOCK_GAP','BLOCK_RECOVERY','LEG2_WAIT_SAFE']:

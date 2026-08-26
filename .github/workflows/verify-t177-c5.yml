@@ -49,7 +49,7 @@ jobs:
           persistbase=(root/'Recovery/RecoveryArcsPersistenceT177C4Base.mqh').read_text(encoding='utf-8')
           coord=(root/'Overlap/OverlapT177Coordinator.mqh').read_text(encoding='utf-8')
           coordbase=(root/'Overlap/OverlapT177CoordinatorT177C3Base.mqh').read_text(encoding='utf-8')
-          c4=(root/'Recovery/RecoveryArcsStackT177HedgeLadder.mqh').read_text(encoding='utf-8')
+          c4=(root/'Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh').read_text(encoding='utf-8')
           native=Path('BlackDragon_v14/Scripts/BlackDragon/Tests/RunT177MigrationTests.mq5').read_text(encoding='utf-8')
 
           assert '#define BD_T177_CONFIG_POLICY_REV       1' in cfg
@@ -102,9 +102,9 @@ jobs:
 
           def blob(path):
               return subprocess.check_output(['git','hash-object',str(path)],text=True).strip()
-          assert blob(root/'Recovery/RecoveryT16ConfigT177C4Base.mqh') == 'bdf5771bd36712120ef47d90971d63f61e653f6c'
+          assert blob(root/'Recovery/RecoveryT16ConfigT177C4Base.mqh') == '95a8ae11c835541e76df782263a1e5efce0a1c14'
           assert blob(root/'Recovery/RecoveryArcsPersistenceT177C4Base.mqh') == 'a1b89d117d92570fe5e15751b035343d01fc39a4'
-          assert blob(root/'Overlap/OverlapT177CoordinatorT177C3Base.mqh') == '79ac34fee03218f396d3600ce2ae83f09f259ffa'
+          assert blob(root/'Overlap/OverlapT177CoordinatorT177C3Base.mqh') == '2ef6ed50f999ace3b6e7f6b8f048917ad5d18684'
           print('T17.7 C5 source/migration contracts PASS')
 
       - name: Record exact source identity

@@ -42,7 +42,7 @@ jobs:
           from pathlib import Path
 
           policy=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177HedgeLadder.mqh').read_text(encoding='utf-8')
-          runtime=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadder.mqh').read_text(encoding='utf-8')
+          runtime=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh').read_text(encoding='utf-8')
           engine=Path('BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh').read_text(encoding='utf-8')
           native=Path('BlackDragon_v14/Scripts/BlackDragon/Tests/RunT177HedgeLadderTests.mq5').read_text(encoding='utf-8')
 
