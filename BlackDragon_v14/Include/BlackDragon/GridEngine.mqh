@@ -62,7 +62,9 @@ double Grid_NormalizeVolume(double lot)
 //    (200 input points = 2.00 USD = 20 pips everywhere). Non-gold: 1.
 int Sym_PointScalePure(const bool isGold, const double point)
 {
-   return Unit_LegacyPointScalePure(isGold, point, true);
+   if(!isGold || point <= 0) return 1;
+   int k = (int)MathRound(0.01 / point);   // 2-digit: 1, 3-digit: 10
+   return k < 1 ? 1 : k;
 }
 
 //--- BD-R2 (v14.7.2): explicit-symbol variants -----------------------
@@ -181,16 +183,6 @@ int Grid_ChainDistancePoints(const int count, const double &gapsPip[])
    return (int)MathRound(gapsPip[idx] * BD_POINTS_PER_PIP);
 }
 
-double Grid_ChainDistancePrice(const int count, const double &gapsPip[],
-                               const double inputUnitPrice)
-{
-   int n = ArraySize(gapsPip);
-   if(n == 0 || count < 1 || inputUnitPrice <= 0.0) return 0.0;
-   int idx = count - 1;
-   if(idx > n - 1) idx = n - 1;
-   return gapsPip[idx] * inputUnitPrice;
-}
-
 class CDistancePlan
 {
 private:
@@ -202,11 +194,6 @@ public:
    int DistancePoints(const int count) const
    {
       return Grid_ChainDistancePoints(count, m_gapsPip);
-   }
-
-   double DistancePrice(const int count, const double inputUnitPrice) const
-   {
-      return Grid_ChainDistancePrice(count, m_gapsPip, inputUnitPrice);
    }
 };
 

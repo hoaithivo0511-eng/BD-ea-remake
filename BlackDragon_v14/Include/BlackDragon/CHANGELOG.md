@@ -1,28 +1,5 @@
 # CHANGELOG — EA Black Dragon (modular)
 
-## T17.11 — Recovery runtime liveness and admission hardening
-
-- Scheduler treats a stable ACTIVE/no-TP wait as side-local and read-only, so
-  it cannot starve actionable Recovery work on the opposite direction.
-- Terminal max-generation Core-without-Hedge topology is exposed as a derived,
-  non-persisted status; DCA honors `ContinueDcaAfterHedge_` without requiring
-  inapplicable live-Hedge coverage/corridor metrics.
-- `OnInit()` now composes every existing Recovery validator through one
-  authoritative fail-fast gate, including T5 and T6 families.
-- Legacy Core/DCA submission returns a typed broker disposition. A per-intent,
-  per-direction, per-bar strategy latch bounds repeated `NO_MONEY` attempts
-  while leaving Recovery-owned execution and transient retry semantics intact.
-- No user input, persisted enum, T17.10 unit behavior or trading-strategy
-  semantic changed. Strategy Tester remains pending owner replay.
-
-## T17.10 — versioned point/pip/tick unification
-
-- Thêm `UnitSystemMode_`: mặc định `LEGACY_COMPAT` giữ nguyên `.set`; `PIP_UNIFIED` là opt-in và hiểu TP/SL/trailing/spread/slippage theo pip.
-- DCA unified dùng pip-size của symbol, sửa lỗi bridge cố định 10 point trên FX 4-digit; Recovery/Pyramid `*Pips*` giữ nguyên semantic.
-- Basket breakeven ghép `SYMBOL_TRADE_TICK_VALUE` với `SYMBOL_TRADE_TICK_SIZE`, không còn ghép nhầm `_Point`.
-- Execution chỉ đổi slippage price sang broker points tại `MqlTradeRequest.deviation`; unit metadata lỗi làm OnInit fail-closed.
-- Recovery fingerprint chỉ thêm unit-policy revision khi opt-in unified, nên default legacy vẫn byte-compatible.
-
 ## [14.7.2] — 2026-08-11 — Deep review BD-R1…R9 (TIP-501…509) — CHƯA COMPILE
 
 > ⚠️ **Đọc dòng này trước mọi dòng khác.** Toàn bộ mục 14.7.2 là kết quả

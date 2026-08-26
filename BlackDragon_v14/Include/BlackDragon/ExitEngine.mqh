@@ -50,32 +50,6 @@ bool Exit_OverlapHit(const int count, const int overlapFromOrder, const bool ove
    return lastProfit > 0 && lastProfit >= -firstProfit * (100.0 + overlapPercent) / 100.0;
 }
 
-// T17.5 execution reserve for the two sequential Overlap closes. Two current
-// spreads cover the close-to-flat cost floor; configured deviation is reserved
-// once per close request. Invalid symbol economics fail closed.
-double Exit_OverlapExecutionReserveCashPure(const double spreadPrice,
-                                            const double deviationPrice,
-                                            const double totalLots,
-                                            const int closeRequestCount,
-                                            const double tickSize,
-                                            const double tickValue)
-{
-   if(tickSize <= 0.0 || tickValue <= 0.0) return DBL_MAX;
-   if(totalLots <= 0.0) return 0.0;
-   int requests = closeRequestCount > 0 ? closeRequestCount : 1;
-   double spread = MathMax(spreadPrice, tickSize);
-   double move = 2.0 * spread + MathMax(deviationPrice, 0.0) * requests;
-   return move / tickSize * tickValue * totalLots;
-}
-
-bool Exit_OverlapExecutionSafePure(const double firstProfit,
-                                   const double lastProfit,
-                                   const double executionReserveCash)
-{
-   if(executionReserveCash == DBL_MAX) return false;
-   return firstProfit + lastProfit + 1e-9 >= MathMax(executionReserveCash, 0.0);
-}
-
 //--- Coordinator-facing policy ---------------------------------------
 class CVirtualExitPolicy
 {

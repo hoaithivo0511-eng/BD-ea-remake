@@ -26,7 +26,7 @@ Quy tắc cứng:
 5. Không thêm biến global mới — thêm field vào struct/class sở hữu tương ứng.
 6. Vùng đánh dấu `[STRATEGY-BEHAVIOR]` là hành vi chiến lược: KHÔNG sửa khi refactor. Muốn hành vi khác → viết implementation mới qua interface.
 7. Cache (C1) chỉ được giữ dữ liệu TĨNH theo sự kiện (ticket, lots, giá mở, thời gian mở). Mọi giá trị biến thiên theo giá — profit, swap — phải đọc tươi mỗi tick qua `RefreshFloating()` (bài học AU-14-01: cache profit làm Overlap tê liệt).
-8. Mọi distance input phải chuyển đúng một lần sang price qua `UnitSystem.mqh`; không nhân `Cfg.PointScale` tại consumer. Broker deviation/stops đổi sang broker points ở execution boundary; cash dùng tick size + tick value.
+8. Mọi input dạng points thêm mới PHẢI tự trả lời câu hỏi "có cần nhân `Cfg.PointScale` không" (FE-201) — khoảng cách/mức giá: có; thời gian/phần trăm/tiền: không.
 9. Thứ tự lệnh DCA (lot bậc mấy, comment `|n`) đếm theo số lệnh ĐANG MỞ (`side.count`) — Overlap tỉa xong thì thứ tự lùi tương ứng. Đây là quyết định của Chủ nhà 26/07/2026, đã có test chốt — không "sửa giùm" sang đếm tổng.
 10. Mọi close intent (panel, Money Guard, TP/SL/trail/Overlap) là **terminal cho tick hiện tại**. Có thể gửi close cho cả BUY và SELL trước khi return, nhưng tuyệt đối không mở/DCA/modify phía sau.
 11. Async REQUEST accepted **không phải completion**. Pending journal chỉ nhả khi kết quả position/SLTP đã quan sát được, request bị reject, hoặc hard-timeout đã đối soát; transaction có thể đến khác thứ tự. Hard-timeout là **theo intent** (BD-R1, v14.7.2): CLOSE/MODIFY idempotent nên nhả sau 10s, OPEN giữ 30s vì nhả sớm có thể nhân đôi lệnh thật.
@@ -50,14 +50,14 @@ Quy tắc cứng:
 | Điều phối tổng | `Strategy.mqh` | Composition root; nơi đăng ký mọi behavior |
 | Filter mở rộng mẫu (ADX) | `Filters/AdxFilter.mqh` | P5 demo, mặc định OFF |
 | Chế độ lot DCA: martingale / chuỗi xN (FE-301) | `GridEngine.mqh` | `CMartingaleSizer` / `CSequenceSizer` qua `ILotSizer`; chọn theo `LotMode_` trong OnInit; parser `Grid_ParseLotSequence` |
-| Unit migration point/pip/tick T17.10 | `UnitSystem.mqh` + `Config.mqh` | `LEGACY_COMPAT` giữ `.set` cũ; `PIP_UNIFIED` opt-in; mọi consumer dùng canonical price |
+| Pip Vàng 2/3 digit — 1 USD = 10 pips (FE-201) | `GridEngine.mqh` + `Config.mqh` | `Sym_PointScale*` (thuần) + `Config_ApplyPointScale`; áp tại Strategy (grid dist), CSpreadFilter (MaxSpred) và deviation (BD-R2) |
 | Comment `\|n` theo thứ tự DCA (FE-203) | `ExecutionLayer.mqh` | `Exec_BuildComment`; index = số lệnh ĐANG MỞ + 1 (quyết định Chủ nhà 26/07/2026) |
 | Money TP/SL đa scope + %-diff close (FE-401) | `MoneyGuard.mqh` | Hàm thuần MG_* + `CMoneyGuard.Check()` — CHỈ trả quyết định, Strategy thực thi; đóng toàn account qua `ExecutionLayer.CloseAllAccount` |
 | Daily target + halt + delay ngày mới (FE-402) | `MoneyGuard.mqh` + `BasketManager.mqh` | dayNet = DayProfit + floating; `DayStartBalance()`; `CHaltFilter` đăng ký cả 2 chain qua `AddNewSeriesFilter`/`AddGridFilter`; deadline thuần `MG_HaltDeadline` + persist qua `Cfg.HaltUntil` (BD-R4) |
 | Giới hạn thời gian giờ PC/Local, 4 khung (FE-403) | `EntryFilters.mqh` | `TL_ParseHHMM`/`TL_InWindow` (thuần) + `CTimeSchedule` + `CTimeFilter`; đăng ký 2 chain khi `UseTimeLimit=true`; grid chain tôn trọng `DcaOutsideTime`; chỉ chặn MỞ lệnh — exits không đi qua chain |
 | Mobile Control qua lệnh chờ giá đặc biệt (FE-404) | `MobileControl.mqh` | `MC_Command`/`MC_Apply` (thuần) + `CMobileControl.Scan` trong OnTimer; ghi cờ runtime Cfg (RemoteStop/Pause/NewCycle) như panel; xóa lệnh chờ qua `ExecutionLayer.DeleteOrder` có backoff `BD_MC_DELETE_RETRY_SEC` (BD-R5); persist BD16 |
 | WMF Signal — port TradingView (FE-405) | `WmfSignal.mqh` | `WMF_Step`/`WMF_Price` (thuần, test đối chiếu tính tay) + `CWmfSignal : ISignal`; chọn qua `SignalSource_` trong OnInit (con trỏ ISignal); stoch confirm nhân bản y luật BD; seed 1000 nến, re-seed khi gap |
-| Chuỗi khoảng cách DCA theo pip (FE-407/T17.10) | `GridEngine.mqh` | `Grid_ChainDistancePrice` + `CDistancePlan`; legacy giữ bridge 10 reference-point, unified dùng symbol pip-size |
+| Chuỗi khoảng cách DCA theo pip (FE-407) | `GridEngine.mqh` | `Grid_ChainDistancePoints` (thuần) + `CDistancePlan` (root sở hữu, Strategy nhận qua Init); Classic đi đúng hàm v13; pip = BD_POINTS_PER_PIP point chuẩn, PointScale áp tại chỗ dùng |
 | Chuỗi hệ số nhân — lot lý thuyết (FE-408) | `GridEngine.mqh` | `Grid_ChainLot` (thuần, công thức đóng, không làm tròn trung gian) + `CChainSizer : ILotSizer`; base = pos[0].lots như martingale v13; đếm bậc theo lệnh ĐANG MỞ |
 | Quyền sở hữu lệnh (magic bot vs lệnh tay) | `BasketManager.mqh` | `Basket_OwnsMagic` (thuần) — định nghĩa DUY NHẤT, dùng chung cho position scan, `SeedDayProfit()` và booking realized trong `OnTradeTransaction` (BD-R6) |
 | Unit tests | `Scripts/BlackDragon/Tests/RunTests.mq5` | Chạy như Script; **số assert do chính script in ra ở dòng cuối** — đừng cứng hóa con số trong tài liệu (v14.7.2 thêm 28 assert cho BD-R1…R8). Bản port C++ chạy ngoài MT5: `Tests/offline_suite.cpp` |

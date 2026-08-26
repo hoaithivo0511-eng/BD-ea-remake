@@ -12,8 +12,8 @@
 #include "Types.mqh"
 #include "NewsCalendar.mqh"
 
-// BD_DIR_BUY / BD_DIR_SELL are shared cross-module identifiers declared in
-// Types.mqh. EntryFilters consumes them but no longer owns their definition.
+#define BD_DIR_BUY  0
+#define BD_DIR_SELL 1
 
 //--- v13: MaxSpred, 0 disables ---------------------------------------
 class CSpreadFilter : public IEntryFilter
@@ -22,7 +22,9 @@ public:
    bool Allow(const EAContext &ctx, const int dir)
    {
       if(MaxSpred == 0) return true;
-      return MathMax(ctx.ask - ctx.bid, 0.0) <= Cfg.MaxSpreadPrice + 1e-12;
+      // FE-201: MaxSpred is authored in reference points (2-digit gold);
+      // real spread on a 3-digit broker is 10x in broker points.
+      return ctx.spreadPoints <= MaxSpred * Cfg.PointScale;
    }
 };
 
@@ -88,8 +90,8 @@ bool Hedge_AllowsGridAdd(const int ownCount)
 //--- FE-403 (v14.4): trading schedule by PC/LOCAL time (CCBSN manual) --
 //    4 on/off windows in "HH:MM"; overnight windows (start > end) are
 //    supported; [start, end) half-open. NOTE: in the Strategy Tester
-//    TimeLocal() equals the modelled server time. Since v14.8 this is the
-//    ONLY time-window system; Start_Hour/End_Hour were removed.
+//    TimeLocal() equals the modelled server time. Since v14.8 this is
+//    the ONLY time-window system; Start_Hour/End_Hour were removed.
 
 //--- PURE: "HH:MM" -> minutes since midnight. Tolerant to spaces and a
 //    1-digit hour; minute must be exactly 2 digits; both numeric.

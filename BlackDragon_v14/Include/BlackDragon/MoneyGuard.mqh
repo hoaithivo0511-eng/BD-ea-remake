@@ -1,8 +1,15 @@
 //+------------------------------------------------------------------+
-//| MoneyGuard.mqh — BlackDragon T17.12                             |
-//| Purpose   : FE-401/402 money TP/SL decisions. Absolute-money     |
-//|             guards use CURRENT floating P/L and outrank strategy.|
-//| Invariants: READ-ONLY consumer; NEVER sends trade requests.      |
+//| MoneyGuard.mqh — BlackDragon v14.3.0                             |
+//| Purpose   : FE-401/402 (theo CCBSN manual, Chu nha duyet plan    |
+//|             26/07/2026): money TP/SL theo scope account/magic/   |
+//|             side, %-difference close-all, daily profit target    |
+//|             voi trading halt + delay dau ngay moi.               |
+//| Invariants: READ-ONLY consumer cua BasketManager va AccountInfo. |
+//|             KHONG BAO GIO gui lenh — chi tra quyet dinh, Strategy|
+//|             thuc thi qua ExecutionLayer.                         |
+//| Quyet dinh Chu nha: daily scope = Magic cua bot; hedged-TP kich  |
+//|             hoat khi CA HAI ro cung mo; panel bypass khi halt.   |
+//| Depends on: Config.mqh, Types.mqh, Logger.mqh                    |
 //+------------------------------------------------------------------+
 #ifndef BD_MONEYGUARD_MQH
 #define BD_MONEYGUARD_MQH
@@ -12,19 +19,25 @@
 enum eGuardAction
 {
    GUARD_NONE = 0,
-   GUARD_CLOSE_ACCOUNT,
-   GUARD_CLOSE_MAGIC,
-   GUARD_CLOSE_BUY,
-   GUARD_CLOSE_SELL,
-   GUARD_CLOSE_MAGIC_DAILY
+   GUARD_CLOSE_ACCOUNT,      // close EVERY position on the account (any magic/symbol)
+   GUARD_CLOSE_MAGIC,        // close both baskets of this EA
+   GUARD_CLOSE_BUY,          // close buy basket only
+   GUARD_CLOSE_SELL,         // close sell basket only
+   GUARD_CLOSE_MAGIC_DAILY   // close both baskets AND halt until next day + delay
 };
 
+//--- PURE decision helpers (unit-tested in RunTests + offline suite) --
+//    Convention (per manual): TP thresholds POSITIVE (500), SL thresholds
+//    NEGATIVE (-500), 0 = feature off.
 bool MG_MoneyTpHit(const double profit, const double tp)
 { return tp > 0 && profit >= tp; }
 
 bool MG_MoneySlHit(const double profit, const double sl)
 { return sl < 0 && profit <= sl; }
 
+//--- CCBSN formula: (loi nhuan chieu loi) + (loi nhuan chieu lo x (1+%)) >= 0.
+//    Doc example: Buy +10, Sell -8, 2% -> 10 + (-8*1.02) = +1.84 -> close.
+//    Only meaningful when one side is losing; both-positive is Money TP All's job.
 bool MG_PctDiffHit(const double buyProfit, const double sellProfit, const double pct)
 {
    if(pct <= 0) return false;
@@ -34,67 +47,8 @@ bool MG_PctDiffHit(const double buyProfit, const double sellProfit, const double
    return win + lose * (1.0 + pct / 100.0) >= 0;
 }
 
-bool MG_PctDiffEconomicHitBuffered(const double buyProfit,
-                                   const double sellProfit,
-                                   const double pct,
-                                   const double pyramidCampaignRealizedCash,
-                                   const bool campaignHistoryValid,
-                                   const double executionBufferCash)
-{
-   if(!campaignHistoryValid || !MG_PctDiffHit(buyProfit, sellProfit, pct)) return false;
-   double buffer = MathMax(executionBufferCash, 0.0);
-   return buyProfit + sellProfit + pyramidCampaignRealizedCash + 1e-9 >= buffer;
-}
-
-bool MG_PctDiffHitBuffered(const double buyProfit, const double sellProfit,
-                           const double pct, const double executionBufferCash)
-{
-   return MG_PctDiffEconomicHitBuffered(buyProfit, sellProfit, pct, 0.0, true,
-                                        executionBufferCash);
-}
-
-double MG_PctDiffExecutionReserveCashPure(const double spreadPrice,
-                                          const double deviationPrice,
-                                          const double totalLots,
-                                          const int closeRequestCount,
-                                          const double tickSize,
-                                          const double tickValue)
-{
-   if(tickSize <= 0.0 || tickValue <= 0.0) return DBL_MAX;
-   if(totalLots <= 0.0) return 0.0;
-   int requests = closeRequestCount > 0 ? closeRequestCount : 1;
-   double spread = MathMax(spreadPrice, tickSize);
-   double move = 2.0 * spread + MathMax(deviationPrice, 0.0) * requests;
-   return move / tickSize * tickValue * totalLots;
-}
-
-// T17.12 P1-C: conservative reserve for one account-scope sequential close
-// request. Account aggregation is kept in Strategy so raw MoneyTP arming stays
-// read-only and existing MoneyGuard trigger semantics remain unchanged.
-double MG_AccountTpCloseReserveLegCashPure(const double spreadPrice,
-                                           const double deviationPrice,
-                                           const double lots,
-                                           const double tickSize,
-                                           const double tickValue)
-{
-   if(tickSize <= 0.0 || tickValue <= 0.0) return DBL_MAX;
-   if(lots <= 0.0) return 0.0;
-   double spread = MathMax(spreadPrice, tickSize);
-   double move = 2.0 * spread + MathMax(deviationPrice, 0.0);
-   double cash = move / tickSize * tickValue * lots;
-   if(cash < 0.0 || cash >= DBL_MAX / 4.0) return DBL_MAX;
-   return cash;
-}
-
-eGuardAction MG_LatchNextPure(const eGuardAction latched,
-                              const eGuardAction triggered,
-                              const bool scopeFlat)
-{
-   if(latched != GUARD_NONE)
-      return scopeFlat ? GUARD_NONE : latched;
-   return triggered;
-}
-
+//--- FE-402: daily net (floating + realized today) vs $ and % thresholds.
+//    dayStartBalance <= 0 disables the % checks (no valid base).
 bool MG_DailyTpHit(const double dayNet, const double tpMoney,
                    const double dayStartBalance, const double tpPct)
 {
@@ -110,6 +64,10 @@ bool MG_DailySlHit(const double dayNet, const double slMoney,
    return false;
 }
 
+//--- BD-R4 (v14.7.2): PURE halt deadline = next midnight + delay --------
+//    Extracted from StartHalt so the arithmetic is unit-testable and so a
+//    negative NewDayDelayMin can never pull the deadline back into today
+//    (which would silently cancel the halt on the very next tick).
 datetime MG_HaltDeadline(const datetime dayStart, const int delayMin)
 {
    int d = delayMin < 0 ? 0 : delayMin;
@@ -119,7 +77,8 @@ datetime MG_HaltDeadline(const datetime dayStart, const int delayMin)
 class CMoneyGuard
 {
 private:
-   datetime m_haltUntil;
+   datetime m_haltUntil;      // 0 = not halted
+   //--- validated copies of the inputs (wrong sign -> warn + OFF, 14.2.2 spirit)
    double m_pctDiff;
    double m_tpAccount, m_slAccount;
    double m_tpAll, m_slAll, m_tpHedged;
@@ -139,9 +98,9 @@ private:
 
    void StartHalt(const datetime now)
    {
-      datetime dayStart = StringToTime(TimeToString(now, TIME_DATE));
+      datetime dayStart = StringToTime(TimeToString(now, TIME_DATE));   // 00:00 server time today
       m_haltUntil = MG_HaltDeadline(dayStart, NewDayDelayMin);
-      Cfg.HaltUntil = m_haltUntil;
+      Cfg.HaltUntil = m_haltUntil;   // BD-R4: mirror so Persist_Save() carries it across a restart
       Log_Info("Guard", "DAILY target/limit hit — closing baskets, trading halted until " +
                TimeToString(m_haltUntil, TIME_DATE | TIME_MINUTES) +
                " (new day + " + (string)NewDayDelayMin + "min delay)");
@@ -152,6 +111,11 @@ public:
 
    void Init()
    {
+      // BD-R4: Persist_Load() runs BEFORE this in OnInit, so Cfg.HaltUntil
+      // already holds any deadline saved before the restart. Zeroing it here
+      // was what let a terminal restart / recompile resume trading on the
+      // same day the daily SL fired. In the tester Persist_* are no-ops, so
+      // Cfg.HaltUntil is 0 and this is byte-identical to the old behaviour.
       m_haltUntil = Cfg.HaltUntil;
       m_pctDiff   = TpIn(PctDiffClose,      "PctDiffClose");
       m_tpAccount = TpIn(MoneyTPAllAccount, "MoneyTPAllAccount");
@@ -170,7 +134,7 @@ public:
       bool any = m_pctDiff > 0 || m_tpAccount > 0 || m_slAccount < 0 || m_tpAll > 0 || m_slAll < 0 ||
                  m_tpHedged > 0 || m_tpBuy > 0 || m_slBuy < 0 || m_tpSell > 0 || m_slSell < 0 ||
                  m_dailyTpM > 0 || m_dailySlM < 0 || m_dailyTpP > 0 || m_dailySlP < 0;
-      if(any) Log_Info("Guard", "MoneyGuard active (FE-401/402) — T17.4 floating-money priority armed");
+      if(any) Log_Info("Guard", "MoneyGuard active (FE-401/402) — thresholds armed");
       if(Halted(TimeCurrent()))
          Log_Info("Guard", "daily halt RESTORED from state file — trading stays halted until " +
                   TimeToString(m_haltUntil, TIME_DATE | TIME_MINUTES));
@@ -179,57 +143,31 @@ public:
    bool     Halted(const datetime now) const { return m_haltUntil != 0 && now < m_haltUntil; }
    datetime HaltUntil(const datetime now) const { return Halted(now) ? m_haltUntil : 0; }
 
-   eGuardAction CheckFloatingPriority(const datetime now,
-                                      const double buyFloating,
-                                      const double sellFloating,
-                                      const bool bothOpen,
-                                      const double accountFloating)
+   //--- Evaluate once per tick. Widest scope wins. Repeat-fire while the
+   //    condition persists is harmless: closes are idempotent (sync: gone
+   //    next tick; async: HasPendingClose guards) and daily re-fire is
+   //    blocked by Halted(). Trigger logs are throttled (60s) by Logger.
+   eGuardAction Check(const datetime now, const double buyProfit, const double sellProfit,
+                      const bool bothOpen, const double dayNet, const double dayStartBalance)
    {
       if(m_haltUntil != 0 && now >= m_haltUntil)
       {
          m_haltUntil = 0;
-         Cfg.HaltUntil = 0;
+         Cfg.HaltUntil = 0;   // BD-R4: clear the persisted copy too
          Log_Info("Guard", "daily halt over — trading resumed");
       }
 
-      double magicNet = buyFloating + sellFloating;
+      double magicNet = buyProfit + sellProfit;
+      double accNet   = AccountInfoDouble(ACCOUNT_PROFIT);   // floating, whole account
 
-      if(MG_MoneyTpHit(accountFloating, m_tpAccount))
-      { Log_Warn("Guard", "tpacc", "Money TP All account FLOATING: " + DoubleToString(accountFloating, 2) + " >= " + DoubleToString(m_tpAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
-      if(MG_MoneySlHit(accountFloating, m_slAccount))
-      { Log_Warn("Guard", "slacc", "Money SL All account FLOATING: " + DoubleToString(accountFloating, 2) + " <= " + DoubleToString(m_slAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
+      // 1. account-wide money TP/SL (widest scope)
+      if(MG_MoneyTpHit(accNet, m_tpAccount))
+      { Log_Warn("Guard", "tpacc", "Money TP All account: " + DoubleToString(accNet, 2) + " >= " + DoubleToString(m_tpAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
+      if(MG_MoneySlHit(accNet, m_slAccount))
+      { Log_Warn("Guard", "slacc", "Money SL All account: " + DoubleToString(accNet, 2) + " <= " + DoubleToString(m_slAccount, 2)); return GUARD_CLOSE_ACCOUNT; }
 
-      if(bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged))
-      { Log_Warn("Guard", "tphdg", "Money TP All (hedged) FLOATING: " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpHedged, 2)); return GUARD_CLOSE_MAGIC; }
-      if(MG_MoneyTpHit(magicNet, m_tpAll))
-      { Log_Warn("Guard", "tpall", "Money TP All FLOATING: " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpAll, 2)); return GUARD_CLOSE_MAGIC; }
-      if(MG_MoneySlHit(magicNet, m_slAll))
-      { Log_Warn("Guard", "slall", "Money SL All FLOATING: " + DoubleToString(magicNet, 2) + " <= " + DoubleToString(m_slAll, 2)); return GUARD_CLOSE_MAGIC; }
-
-      if(MG_MoneyTpHit(buyFloating, m_tpBuy))
-      { Log_Warn("Guard", "tpbuy", "Money TP Buy FLOATING: " + DoubleToString(buyFloating, 2)); return GUARD_CLOSE_BUY; }
-      if(MG_MoneySlHit(buyFloating, m_slBuy))
-      { Log_Warn("Guard", "slbuy", "Money SL Buy FLOATING: " + DoubleToString(buyFloating, 2)); return GUARD_CLOSE_BUY; }
-      if(MG_MoneyTpHit(sellFloating, m_tpSell))
-      { Log_Warn("Guard", "tpsel", "Money TP Sell FLOATING: " + DoubleToString(sellFloating, 2)); return GUARD_CLOSE_SELL; }
-      if(MG_MoneySlHit(sellFloating, m_slSell))
-      { Log_Warn("Guard", "slsel", "Money SL Sell FLOATING: " + DoubleToString(sellFloating, 2)); return GUARD_CLOSE_SELL; }
-
-      return GUARD_NONE;
-   }
-
-   eGuardAction CheckSecondaryFloating(const datetime now,
-                                       const double buyFloating,
-                                       const double sellFloating,
-                                       const bool bothOpen,
-                                       const double dayNet,
-                                       const double dayStartBalance,
-                                       const bool dayNetValid,
-                                       const double pyramidCampaignRealizedCash,
-                                       const bool pctCampaignHistoryValid,
-                                       const double pctDiffExecutionBufferCash)
-   {
-      if(dayNetValid && !Halted(now) &&
+      // 2. daily target/limit (magic scope) -> close + halt
+      if(!Halted(now) &&
          (MG_DailyTpHit(dayNet, m_dailyTpM, dayStartBalance, m_dailyTpP) ||
           MG_DailySlHit(dayNet, m_dailySlM, dayStartBalance, m_dailySlP)))
       {
@@ -239,78 +177,35 @@ public:
          return GUARD_CLOSE_MAGIC_DAILY;
       }
 
-      if(bothOpen && MG_PctDiffEconomicHitBuffered(buyFloating, sellFloating,
-                                                   m_pctDiff,
-                                                   pyramidCampaignRealizedCash,
-                                                   pctCampaignHistoryValid,
-                                                   pctDiffExecutionBufferCash))
-      {
-         Log_Warn("Guard", "pctd", "PctDiff close-all FLOATING: buy " +
-                  DoubleToString(buyFloating, 2) + " / sell " +
-                  DoubleToString(sellFloating, 2) + " @ " +
-                  DoubleToString(m_pctDiff, 2) + "%; Pyramid campaign realized=" +
-                  DoubleToString(pyramidCampaignRealizedCash, 2) +
-                  "; execution reserve=" +
-                  DoubleToString(MathMax(pctDiffExecutionBufferCash, 0.0), 2));
-         return GUARD_CLOSE_MAGIC;
-      }
+      // 3. magic-wide: hedged special TP first (both baskets open), then normal
+      if(bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged))
+      { Log_Warn("Guard", "tphdg", "Money TP All (hedged, both sides open): " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpHedged, 2)); return GUARD_CLOSE_MAGIC; }
+      if(MG_MoneyTpHit(magicNet, m_tpAll))
+      { Log_Warn("Guard", "tpall", "Money TP All: " + DoubleToString(magicNet, 2) + " >= " + DoubleToString(m_tpAll, 2)); return GUARD_CLOSE_MAGIC; }
+      if(MG_MoneySlHit(magicNet, m_slAll))
+      { Log_Warn("Guard", "slall", "Money SL All: " + DoubleToString(magicNet, 2) + " <= " + DoubleToString(m_slAll, 2)); return GUARD_CLOSE_MAGIC; }
+
+      // 4. %-difference close-all (CCBSN formula)
+      if(bothOpen && MG_PctDiffHit(buyProfit, sellProfit, m_pctDiff))
+      { Log_Warn("Guard", "pctd", "PctDiff close-all: buy " + DoubleToString(buyProfit, 2) + " / sell " + DoubleToString(sellProfit, 2) + " @ " + DoubleToString(m_pctDiff, 2) + "%"); return GUARD_CLOSE_MAGIC; }
+
+      // 5. per-side money TP/SL
+      if(MG_MoneyTpHit(buyProfit, m_tpBuy))
+      { Log_Warn("Guard", "tpbuy", "Money TP Buy: " + DoubleToString(buyProfit, 2)); return GUARD_CLOSE_BUY; }
+      if(MG_MoneySlHit(buyProfit, m_slBuy))
+      { Log_Warn("Guard", "slbuy", "Money SL Buy: " + DoubleToString(buyProfit, 2)); return GUARD_CLOSE_BUY; }
+      if(MG_MoneyTpHit(sellProfit, m_tpSell))
+      { Log_Warn("Guard", "tpsel", "Money TP Sell: " + DoubleToString(sellProfit, 2)); return GUARD_CLOSE_SELL; }
+      if(MG_MoneySlHit(sellProfit, m_slSell))
+      { Log_Warn("Guard", "slsel", "Money SL Sell: " + DoubleToString(sellProfit, 2)); return GUARD_CLOSE_SELL; }
+
       return GUARD_NONE;
-   }
-
-   eGuardAction CheckScopedEconomic(const datetime now,
-                                    const double buyProfit, const double sellProfit,
-                                    const bool bothOpen,
-                                    const double dayNet, const double dayStartBalance,
-                                    const bool dayNetValid,
-                                    const double accountEconomicProfit,
-                                    const bool economicProfitValid)
-   {
-      if(m_haltUntil != 0 && now >= m_haltUntil)
-      {
-         m_haltUntil = 0;
-         Cfg.HaltUntil = 0;
-      }
-
-      double magicNet = buyProfit + sellProfit;
-      double accNet   = economicProfitValid ? accountEconomicProfit
-                                            : AccountInfoDouble(ACCOUNT_PROFIT);
-
-      if(economicProfitValid && MG_MoneyTpHit(accNet, m_tpAccount)) return GUARD_CLOSE_ACCOUNT;
-      if(MG_MoneySlHit(accNet, m_slAccount)) return GUARD_CLOSE_ACCOUNT;
-      if(dayNetValid && !Halted(now) &&
-         (MG_DailyTpHit(dayNet, m_dailyTpM, dayStartBalance, m_dailyTpP) ||
-          MG_DailySlHit(dayNet, m_dailySlM, dayStartBalance, m_dailySlP)))
-      { StartHalt(now); return GUARD_CLOSE_MAGIC_DAILY; }
-      if(economicProfitValid && bothOpen && MG_MoneyTpHit(magicNet, m_tpHedged)) return GUARD_CLOSE_MAGIC;
-      if(economicProfitValid && MG_MoneyTpHit(magicNet, m_tpAll)) return GUARD_CLOSE_MAGIC;
-      if(MG_MoneySlHit(magicNet, m_slAll)) return GUARD_CLOSE_MAGIC;
-      if(economicProfitValid && bothOpen && MG_PctDiffHit(buyProfit, sellProfit, m_pctDiff)) return GUARD_CLOSE_MAGIC;
-      if(economicProfitValid && MG_MoneyTpHit(buyProfit, m_tpBuy)) return GUARD_CLOSE_BUY;
-      if(MG_MoneySlHit(buyProfit, m_slBuy)) return GUARD_CLOSE_BUY;
-      if(economicProfitValid && MG_MoneyTpHit(sellProfit, m_tpSell)) return GUARD_CLOSE_SELL;
-      if(MG_MoneySlHit(sellProfit, m_slSell)) return GUARD_CLOSE_SELL;
-      return GUARD_NONE;
-   }
-
-   eGuardAction CheckScoped(const datetime now,
-                            const double buyProfit, const double sellProfit,
-                            const bool bothOpen,
-                            const double dayNet, const double dayStartBalance,
-                            const bool dayNetValid)
-   {
-      return CheckScopedEconomic(now, buyProfit, sellProfit, bothOpen,
-                                 dayNet, dayStartBalance, dayNetValid,
-                                 AccountInfoDouble(ACCOUNT_PROFIT), true);
-   }
-
-   eGuardAction Check(const datetime now, const double buyProfit, const double sellProfit,
-                      const bool bothOpen, const double dayNet, const double dayStartBalance)
-   {
-      return CheckScoped(now, buyProfit, sellProfit, bothOpen,
-                         dayNet, dayStartBalance, true);
    }
 };
 
+//--- FE-402: entry filter — blocks AUTOMATED entries while daily-halted.
+//    Registered on BOTH chains (new series + grid adds) in OnInit.
+//    Panel manual orders stay bypassed (Chu nha's decision, v13 philosophy).
 class CHaltFilter : public IEntryFilter
 {
 private:
