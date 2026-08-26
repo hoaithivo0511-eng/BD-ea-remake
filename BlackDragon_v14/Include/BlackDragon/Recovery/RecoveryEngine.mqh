@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T17.7 scheduler over T17.6 Pyramid         |
+//| RecoveryEngine.mqh — T17.12 lifecycle-safe Recovery wrapper     |
 //| Exact T13/T14 engine remains available for the legacy contract.  |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
@@ -89,6 +89,7 @@ class CRecoveryEngine : public CRecoveryEngineT15Base
 {
 private:
    CRecoveryArcsStackT177C4 m_arcs;
+   bool m_initialized;
 
    bool UseT16() const
    {
@@ -103,10 +104,17 @@ private:
    }
 
 public:
+   CRecoveryEngine(void) : CRecoveryEngineT15Base()
+   {
+      m_initialized = false;
+   }
+
    bool Init()
    {
-      if(UseT16()) return m_arcs.Init();
-      return CRecoveryEngineT15Base::Init();
+      m_initialized = false;
+      bool ok = UseT16() ? m_arcs.Init() : CRecoveryEngineT15Base::Init();
+      m_initialized = ok;
+      return ok;
    }
 
    void OnTick(const EAContext &ctx)
@@ -136,6 +144,7 @@ public:
 
    bool FlushPersistence()
    {
+      if(!m_initialized) return true;
       if(UseT16()) return m_arcs.FlushPersistence();
       return CRecoveryEngineT15Base::FlushPersistence();
    }
