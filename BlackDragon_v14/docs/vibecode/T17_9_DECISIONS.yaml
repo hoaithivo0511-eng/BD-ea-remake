@@ -1,0 +1,32 @@
+schema_version: "1.0"
+task: T17.9
+decisions:
+  - id: D179-01
+    status: ACCEPTED
+    decision: "Classify pre-ownership broker TP from immutable deal/order proof without consulting the mutable live cohort."
+    rationale: "A later Core position is not evidence that an older DEAL_REASON_TP callback was manual."
+  - id: D179-02
+    status: ACCEPTED
+    decision: "Persist an exact POSITION_IDENTIFIER cohort plus target TP before REAL-TP maintenance while Recovery owns the topology."
+    rationale: "Callback classification must survive interleave and restart without depending on current PositionsTotal()."
+  - id: D179-03
+    status: ACCEPTED
+    decision: "Freeze the epoch once settlement starts; do not admit later identifiers or target changes."
+    rationale: "The broker-TP cohort is immutable once price reaches the programmed target or its first callback arrives."
+  - id: D179-04
+    status: ACCEPTED
+    decision: "Expose a side-local settlement barrier and gate Seed, DCA and Core Pyramid before execution."
+    rationale: "A global barrier would unnecessarily starve the opposite side."
+  - id: D179-05
+    status: ACCEPTED
+    decision: "Reselect and validate ticket, symbol, owner and position type before SL/TP mutation."
+    rationale: "Basket cache is an observation, not authority for a broker mutation."
+  - id: D179-06
+    status: DEFERRED
+    decision: "Keep point/pip/tick unit unification in backlog comment 5412935232."
+    rationale: "Changing unit semantics would expand T17.9 and invalidate focused evidence."
+  - id: D179-07
+    status: REJECTED
+    decision: "Do not use LiveCoreTpCohortMatchesT178 as Recovery-owned TP authority."
+    rationale: "It is mutable during OnTick/callback interleave and caused the reported failure."
+

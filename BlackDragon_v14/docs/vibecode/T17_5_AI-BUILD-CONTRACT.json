@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "id": "T17.5",
+  "status": "OWNER_APPROVED",
+  "allowed_paths": [
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh",
+    "BlackDragon_v14/Include/BlackDragon/ExitEngine.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Strategy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT17Pyramid.mqh",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/pyramid_t17_model.cpp",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/RunPyramidT17Tests.mq5",
+    ".github/workflows/verify-t17-pyramid.yml",
+    "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+    "BlackDragon_v14/docs/vibecode/T17_5_*"
+  ],
+  "forbidden_paths": [
+    "BlackDragon_v14/Include/BlackDragon/MoneyGuard.mqh",
+    "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Config.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine*.mqh",
+    "BlackDragon_v14/Sets/**",
+    "BlackDragon_v14/evidence/**",
+    "BlackDragon_v14/release/**"
+  ],
+  "forbidden_changes": [
+    "new user inputs or changed defaults",
+    "implicit Hedge reduction for descending coverage tokens",
+    "fixed-Pyramid Peel execution-reserve sizing",
+    "MoneyTPAllAccount realized-aware valuation",
+    "DCA or Recovery T16.6 semantic changes",
+    "PR merge or ready-for-review transition"
+  ],
+  "forbidden_claims": [
+    "Strategy Tester PASS without exact-binary owner evidence",
+    "forward eligible",
+    "live eligible",
+    "byte-reproducible EX5"
+  ],
+  "behavioral_guards": [
+    {
+      "id": "RETRO-A1-STATE-COUNT",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": ["flat-boundary replay tests", "seed-rotation test", "unordered coverage boundary tests"],
+      "checker": "focused model plus native MQL5 policy tests",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A3-OWNER-DECISION",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": ["T17_5_DECISIONS.yaml", "locking tests"],
+      "checker": "source invariants",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A4-EXPECTED-VALUES",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": ["independent seed-rotation chronology", "independent Overlap reserve calculation"],
+      "checker": "C++ model and native MQL5 differential values",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A5-HISTORY-FRESHNESS",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": ["restart replay", "incomplete-history fail-closed test", "exact millisecond boundary filter"],
+      "checker": "native policy test and source invariant",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A9-UNIT-SCALE",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": ["broker volume-unit replay", "XAU tick-size/tick-value Overlap reserve example"],
+      "checker": "C++ model plus native MQL5 policy tests",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A12-MULTI-FILE",
+      "severity": "P2",
+      "class": "hard",
+      "required_evidence": ["exact changed-file allowlist", "post-edit source invariants"],
+      "checker": "git diff allowlist plus workflow assertions",
+      "waiver_allowed": false
+    }
+  ],
+  "required_evidence": {
+    "local": ["focused C++ model", "T1-T16.6 C++ regression", "source invariant mirror"],
+    "github_windows": ["MetaEditor tests 0/0", "MetaEditor EA 0/0", "native T17.5 policy tests", "full native regression"],
+    "owner_runtime": ["complete Strategy Tester report/log/set", "exact EX5 SHA256", "small Peel scenario", "large Peel scenario", "seed-rotation chronology", "Overlap realized-pair ledger"]
+  },
+  "release_level_after_build": "DRAFT"
+}

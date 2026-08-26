@@ -1,0 +1,78 @@
+project: BlackDragon Adaptive Recovery / T17.11
+repository: hoaithivo0511-eng/BD-ea-remake
+branch: feat/t17-full-pyramid
+pull_request: 28
+release_state: DRAFT_T17_11_BUILD_VERIFY
+merge_allowed: false
+ready_for_review: false
+
+methodology: VibeCodeKit-MQL5 Full
+workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
+
+stages:
+  T17_11_runtime_liveness_admission:
+    status: BUILD_VERIFY
+    contract: per-direction scheduler liveness, terminal-no-Hedge DCA semantics, complete config validation, bounded NO_MONEY admission
+    baseline_head: e0ad9c59bac25e3e194d7bd917a80864cf4eecd9
+    baseline_tree: 87dff344c2879c9a2019677e10b26e81966614c8
+    source_of_truth: pr-comment-5419070453
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
+  T17_10_unit_system:
+    status: BUILD_VERIFY
+    contract: canonical price/tick profile with LEGACY_COMPAT default and explicit PIP_UNIFIED migration
+    baseline_head: 1ac8d3fd0080dd6a5ed1cf48b2dc5d43aba6d9f0
+    baseline_tree: 5779e104f00656f3444116a3ce44f13fc7dff8b8
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
+  T17_9_real_tp_interleave:
+    status: DETERMINISTIC_COMPLETE_OWNER_TESTER_PENDING
+    contract: strict pre-ownership TP proof, durable Recovery-owned exact-ID epoch, same-side settlement barrier, stale-ticket hardening
+    baseline_head: 0f608ef97a1265521ed32443b5d504ceb9b7ef8d
+    baseline_tree: affca27b84038e126ded6f73c373bf02a7fab6c0
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
+  C1_scheduler:
+    status: COMPLETE
+    contract: Recovery WAIT yields without suppressing valid opposite-side work
+  C2_core_anchor:
+    status: COMPLETE
+    contract: DYNAMIC legacy parity plus FIRST_CORE_CUMULATIVE selectable anchor
+  C3_durable_overlap:
+    status: COMPLETE
+    contract: persist-before-mutate, broker-confirmed leg1, post-fill leg2 revalidation, restart-safe fail-closed
+  C4_hedge_ladder:
+    status: COMPLETE
+    contract: executable broker-unit ladder, staged de-dup, additive gaps, final target/hard-cap invariant
+    verified_head: d8171329556be0a8ca6ed34f9145c341e0876d4d
+    verified_tree: d1dc62dfc2ece9da0bc74a85e7a1acfaa8e25e01
+    native: 20/0
+    ex5_sha256: 054bf65b5daf233bad7d7c4f2aaed0bb6163016d5b4626e768ced84b0976094f
+    artifact_id: 9533056636
+  C5_input_migration:
+    status: COMPLETE_PENDING_FINAL_HEAD_REPLAY
+    contract: consolidated policy selectors, conditional fingerprint, legacy .set compatibility, active-state migration fail-closed
+  C6_vietnamese_journal:
+    status: COMPLETE_PENDING_FINAL_HEAD_REPLAY
+    contract: Vietnamese level vocabulary, throttled WAIT, human-readable technical reasons, one-time migration summary
+  C7_final_verify:
+    status: VERIFYING
+    workflow: .github/workflows/verify-t1711-final.yml
+    artifact: blackdragon-t1711-final-owner-qa
+
+runtime_release_gates:
+  deterministic_models: REQUIRED
+  source_invariants: REQUIRED
+  metaeditor_compile: REQUIRED_0_ERRORS_0_WARNINGS
+  native_mt5_scripts: REQUIRED
+  exact_head_provenance: REQUIRED
+  owner_strategy_tester: PENDING
+  forward_live: NOT_ELIGIBLE
+
+owner_strategy_tester:
+  status: PENDING_T17_11_OWNER_RERUN
+  checklist: BlackDragon_v14/docs/vibecode/T17_11_OWNER_QA_CHECKLIST.md
+  required_after_final_artifact: true
+
+known_release_rules:
+  - Native compile PASS is not Strategy Tester PASS.
+  - Missing owner tester evidence remains PENDING, never inferred PASS.
+  - Do not merge or mark Ready-for-Review before explicit owner approval.
+  - Test only EX5 from exact final-owner-QA artifact and match SHA256 provenance.
