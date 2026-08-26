@@ -3,6 +3,7 @@
 //+------------------------------------------------------------------+
 #property script_show_inputs
 #include <BlackDragon/Recovery/RecoveryDca.mqh>
+#include <BlackDragon/Recovery/RecoveryT177MigrationPolicy.mqh>
 #include <BlackDragon/StrategyT1711Admission.mqh>
 
 int g_t1711_pass=0,g_t1711_fail=0;
@@ -22,15 +23,23 @@ void OnStart()
    T1711Check("snapshot entry delta",Recovery_T1711ActiveTpSnapshotChangedPure(100,100,100,1.26,1.25,1.20,1.20));
    T1711Check("snapshot BE delta",Recovery_T1711ActiveTpSnapshotChangedPure(100,100,100,1.25,1.25,1.21,1.20));
 
-   // R11-02: terminal-no-Hedge is an explicit authoritative topology.
+   // R11-02: terminal-no-Hedge is an explicit authoritative topology. Both
+   // DCA and CORE_ONLY Overlap consume the same terminal truth; ordinary
+   // post-Hedge states continue to fail closed when live Hedge is absent.
    T1711Check("terminal no hedge",Recovery_T1711TerminalNoHedgePure(3,3,100,0,true));
    T1711Check("not terminal phase",!Recovery_T1711TerminalNoHedgePure(3,3,100,0,false));
    T1711Check("generation not maxed",!Recovery_T1711TerminalNoHedgePure(2,3,100,0,true));
    T1711Check("live hedge remains",!Recovery_T1711TerminalNoHedgePure(3,3,100,10,true));
    T1711Check("flat core rejected",!Recovery_T1711TerminalNoHedgePure(3,3,0,0,true));
-   T1711Check("DCA continues terminal",Recovery_T1711TerminalNoHedgeDcaAllowsPure(recovery_ACTIVE,true,true));
-   T1711Check("DCA opt-out honored",!Recovery_T1711TerminalNoHedgeDcaAllowsPure(recovery_ACTIVE,false,true));
-   T1711Check("DCA nonterminal unchanged",!Recovery_T1711TerminalNoHedgeDcaAllowsPure(recovery_ACTIVE,true,false));
+   T1711Check("terminal DCA and Overlap continue",
+              Recovery_T1711TerminalNoHedgeDcaAllowsPure(recovery_ACTIVE,true,true) &&
+              !Recovery_T1711OverlapCoreOnlyBlockedPure(recovery_HEDGE_LOCKED,0.0,true,true));
+   T1711Check("terminal opt-out blocks DCA and Overlap",
+              !Recovery_T1711TerminalNoHedgeDcaAllowsPure(recovery_ACTIVE,false,true) &&
+              Recovery_T1711OverlapCoreOnlyBlockedPure(recovery_HEDGE_LOCKED,0.0,true,false));
+   T1711Check("nonterminal DCA and Overlap unchanged",
+              !Recovery_T1711TerminalNoHedgeDcaAllowsPure(recovery_ACTIVE,true,false) &&
+              Recovery_T1711OverlapCoreOnlyBlockedPure(recovery_HEDGE_LOCKED,0.0,false,true));
 
    // R11-03: the authoritative composition accepts the shipped defaults and
    // each formerly omitted family still fails its own invalid values.

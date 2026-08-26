@@ -49,8 +49,11 @@ public:
                                                          : recovery_CORE_SELL;
          SRecoveryCycle cycle;
          m_c5Recovery.GetCycle(rdir, cycle);
-         if(Recovery_T177OverlapCoreOnlyBlockedPure(cycle.state,
-                                                    cycle.activeHedgeLots))
+         bool terminalNoHedge = m_c5Recovery.TerminalNoHedge(rdir);
+         if(Recovery_T1711OverlapCoreOnlyBlockedPure(cycle.state,
+                                                     cycle.activeHedgeLots,
+                                                     terminalNoHedge,
+                                                     ContinueDcaAfterHedge_))
          {
             why = "Side đang có trạng thái/Hedge Recovery; chế độ CORE_ONLY không tạo cặp mới";
             return false;

@@ -18,6 +18,8 @@ def main() -> int:
     policy163 = (INC / "Recovery" / "RecoveryT163Policy.mqh").read_text(encoding="utf-8")
     engine = (INC / "Recovery" / "RecoveryEngine.mqh").read_text(encoding="utf-8")
     dca = (INC / "Recovery" / "RecoveryDca.mqh").read_text(encoding="utf-8")
+    migration = (INC / "Recovery" / "RecoveryT177MigrationPolicy.mqh").read_text(encoding="utf-8")
+    overlap = (INC / "Overlap" / "OverlapT177Coordinator.mqh").read_text(encoding="utf-8")
     execution = (INC / "ExecutionLayer.mqh").read_text(encoding="utf-8")
     strategy = (INC / "StrategyT176Base.mqh").read_text(encoding="utf-8")
     types = (INC / "Types.mqh").read_text(encoding="utf-8")
@@ -31,8 +33,10 @@ def main() -> int:
               "Recovery_T1711ActiveTpSnapshotChangedPure" in base),
         check("R11-02 terminalNoHedge authoritative predicate",
               "Recovery_T1711TerminalNoHedgePure" in policy163 and "TerminalNoHedge" in engine),
-        check("R11-02 DCA consumes explicit terminal status",
-              "TerminalNoHedge" in dca and "terminalNoHedge" in dca and "m_recovery->" not in dca),
+        check("R11-02 DCA and Overlap consume explicit terminal status",
+              "TerminalNoHedge" in dca and "terminalNoHedge" in dca and "m_recovery->" not in dca and
+              "Recovery_T1711OverlapCoreOnlyBlockedPure" in migration and
+              "TerminalNoHedge" in overlap and "Recovery_T1711OverlapCoreOnlyBlockedPure" in overlap),
         check("R11-03 complete validator exists",
               all(token in dca for token in ["Recovery_ValidateCompleteConfig", "Recovery_ValidateT5Config", "Recovery_ValidateT6Config", "Recovery_T16ValidateConfig"])),
         check("R11-03 OnInit uses complete validator",

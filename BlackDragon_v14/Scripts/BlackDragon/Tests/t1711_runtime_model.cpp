@@ -25,6 +25,11 @@ bool terminal_no_hedge(Phase phase,int generation,int maxGeneration,long core,lo
 bool dca_metrics_required(bool postHedgeStable,bool terminalNoHedge,bool coverageOn,bool corridorOn) {
     return postHedgeStable && !terminalNoHedge && (coverageOn||corridorOn);
 }
+bool overlap_core_only_blocked(Phase phase,double activeHedgeLots,bool terminalNoHedge,bool continueAfterHedge) {
+    if(terminalNoHedge && continueAfterHedge && activeHedgeLots<=1e-12) return false;
+    if(activeHedgeLots>1e-12) return true;
+    return phase!=IDLE && phase!=ARMED;
+}
 int scheduler_actions(const SideWork& buy,const SideWork& sell) {
     int actions=0;
     // A passive wait is side-local: it suppresses only that side's mutation.
@@ -64,8 +69,10 @@ int main() {
     ck("active missing hedge not terminal",!terminal_no_hedge(ACTIVE,5,5,100,0));
     ck("no core not terminal",!terminal_no_hedge(LOCKED,5,5,0,0));
     ck("live hedge not terminal",!terminal_no_hedge(LOCKED,5,5,100,1));
-    ck("terminal bypasses N-A metrics",!dca_metrics_required(true,true,true,true));
-    ck("ordinary locked still needs metrics",dca_metrics_required(true,false,true,true));
+    ck("terminal bypasses N-A metrics and CORE_ONLY overlap",
+       !dca_metrics_required(true,true,true,true) && !overlap_core_only_blocked(LOCKED,0,true,true));
+    ck("ordinary locked still needs metrics and blocks CORE_ONLY overlap",
+       dca_metrics_required(true,false,true,true) && overlap_core_only_blocked(LOCKED,0,false,true));
 
     ck("accepted disposition",classify_submit(true,10009)==ACCEPTED);
     ck("NO_MONEY capacity",classify_submit(false,10019)==CAPACITY_BLOCKED);
