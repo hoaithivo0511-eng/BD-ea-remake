@@ -40,22 +40,27 @@ coord=text(INC/'Recovery'/'RecoveryExitCoordinator.mqh')
 for token in ('PrepareRealTpEpoch','ObserveRealTpSettlement','POSITION_IDENTIFIER','DEAL_REASON_TP','BlocksSameSideAdd'):
     assert token in coord, f'T17.9 regression: missing {token}'
 
-# P1-B: temporarily unsafe economics must preserve the durable pair instead of ResetSide -> re-arm churn.
-overlap=text(INC/'Overlap'/'OverlapT177CoordinatorT177C3Base.mqh')
+# P1-B: public Overlap wrapper must override PAIR_ARMED so temporary WAIT never
+# drops the same durable pair; proven stale identity/volume cancellation remains in base.
+overlap=text(INC/'Overlap'/'OverlapT177Coordinator.mqh')
+assert '#define private protected' in overlap
+assert 'DriveArmedT1712' in overlap
 needle='if(!Overlap_T177PreLeg1EligiblePure(side.count, OverlapOrderNumber, Overlap,'
 pos=overlap.find(needle)
-assert pos>=0, 'Overlap pre-leg1 economics gate missing'
-window=overlap[pos:pos+900]
-assert 'ResetSide(idx)' not in window, 'RED T17.12: unsafe Overlap economics still resets durable pair'
+assert pos>=0, 'T17.12 wrapper pre-leg1 economics gate missing'
+window=overlap[pos:pos+800]
+assert 'ResetSide(idx)' not in window, 'RED T17.12: unsafe same-pair economics still resets durable obligation'
 assert 'return overlap_T177_DRIVE_WAIT;' in window
+assert 'DriveSide(ctx, buy, BD_DIR_BUY)' in overlap and 'DriveSide(ctx, sell, BD_DIR_SELL)' in overlap
 
-# P1-C: account TP gets an account-scope close reserve without changing raw trigger semantics.
+# P1-C: raw MoneyTP arm remains in MoneyGuard; public Strategy adds an account
+# close reserve and a one-way execution-start latch so erosion cannot abort cleanup.
 money=text(INC/'MoneyGuard.mqh')
 assert 'bool MG_MoneyTpHit' in money
 assert 'MG_AccountTpCloseReserveLegCashPure' in money
-base=text(INC/'StrategyT176Base.mqh')
-assert 'AccountTpExecutionReserveCashT1712' in base
-assert 'm_guardAccountTpReserve' in base
+assert 'AccountTpExecutionReserveCashT1712' in strategy
+assert 'm_guardAccountTpReserve' in strategy
+assert 'm_guardAccountTpExecutionStarted' in strategy
 
 # P2-D: invalid init must make recovery persistence flush a no-op.
 engine=text(INC/'Recovery'/'RecoveryEngine.mqh')
