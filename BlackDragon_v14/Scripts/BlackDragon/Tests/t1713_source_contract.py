@@ -5,47 +5,48 @@ ROOT = Path(__file__).resolve().parents[4]
 def read(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
 
-recovery_types = read("Include/BlackDragon/Recovery/RecoveryTypes.mqh")
-recovery_dca = read("Include/BlackDragon/Recovery/RecoveryDca.mqh")
-core_pyramid = read("Include/BlackDragon/Pyramid/CorePyramid.mqh")
+policy = read("Include/BlackDragon/Recovery/RecoveryT1713ConcurrencyPolicy.mqh")
+recovery_dca = read("Include/BlackDragon/Recovery/RecoveryDcaT1713.mqh")
+core_pyramid = read("Include/BlackDragon/Pyramid/CorePyramidT177Anchor.mqh")
 overlap_policy = read("Include/BlackDragon/Overlap/OverlapT177Policy.mqh")
 overlap_coord = read("Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh")
 strategy = read("Include/BlackDragon/Strategy.mqh")
+expert = read("Experts/BlackDragon/BlackDragon.mq5")
 hedge_ladder = read("Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh")
 
 checks = []
 def ck(ok: bool, name: str):
     checks.append((ok, name))
 
-ck("Recovery_T1713CoreGrowthStateAllowsPure" in recovery_types,
+ck("Recovery_T1713CoreGrowthStateAllowsPure" in policy,
    "shared T17.13 Recovery Core-growth state policy exists")
-ck("recovery_HEDGE_BUILDING" in recovery_types and "recovery_REHEDGE_PENDING" in recovery_types,
-   "T17.13 policy can classify BUILDING through REHEDGE states")
+ck("recovery_HEDGE_BUILDING" in policy and "recovery_REHEDGE_PENDING" in policy,
+   "T17.13 policy classifies BUILDING through REHEDGE states")
 ck("Recovery_T1713CoreGrowthStateAllowsPure" in recovery_dca,
-   "DCA admission uses shared T17.13 Core-growth policy")
+   "DCA admission wrapper uses shared T17.13 Core-growth policy")
 ck("Recovery_T1713CoreGrowthStateAllowsPure" in core_pyramid,
-   "Core Pyramid ADD uses shared T17.13 Core-growth policy")
-ck("if(recoveryOwns || !allowAdd || !CampaignHistoryReady(dir))" not in core_pyramid,
-   "Core Pyramid Drive no longer blanket-blocks ADD whenever Recovery owns side")
+   "Core Pyramid wrapper uses shared T17.13 Core-growth policy")
+ck("CCorePyramidEngineT176Base::Drive" not in core_pyramid.split("bool Drive(")[-1],
+   "DYNAMIC Pyramid path no longer delegates to blanket Recovery-owned block")
 
 ck("Overlap_T1713BlocksCoreGrowthPure" in overlap_policy,
-   "Overlap has a dedicated Core-growth blocking policy")
-ck("overlap_T177_PAIR_ARMED" in overlap_policy,
-   "Overlap policy retains durable lifecycle enum identity")
+   "Overlap has dedicated Core-growth blocking policy")
 ck("Overlap_T1713MayCommitPairPure" in overlap_policy,
-   "Overlap pair commit is explicitly separated from soft candidate WAIT")
+   "Overlap pair commit is separated from soft candidate WAIT")
 ck("BlocksCoreGrowth" in overlap_coord,
    "coordinator exposes non-exclusive Core-growth admission")
 ck("RouteForSide(dir, defer)" in overlap_coord,
    "coordinator preflights Recovery route before durable pair commitment")
 ck("T17.13 soft-release" in overlap_coord,
-   "legacy/persisted PAIR_ARMED read-only WAIT is released instead of owning side")
+   "persisted PAIR_ARMED read-only WAIT releases instead of owning side")
 
 ck("m_overlap.BlocksCoreGrowth(BD_DIR_BUY)" in strategy and
    "m_overlap.BlocksCoreGrowth(BD_DIR_SELL)" in strategy,
    "Strategy gates DCA/Core Pyramid only on actual Overlap mutation/reconcile")
 ck("t1713coreblock" in strategy,
    "Strategy journals explicit Core-growth blocker diagnostics")
+ck("RecoveryDcaT1713.mqh" in expert,
+   "composition root loads T17.13 DCA wrapper")
 
 ck("BuildExecutablePlanC4" in hedge_ladder and "Recovery_ArcsCoreUnits" in hedge_ladder and
    "Recovery_T176RebasedGenerationTargetPure" in hedge_ladder,

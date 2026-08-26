@@ -1,5 +1,5 @@
 #property strict
-#include <BlackDragon/Recovery/RecoveryTypes.mqh>
+#include <BlackDragon/Recovery/RecoveryT1713ConcurrencyPolicy.mqh>
 #include <BlackDragon/Overlap/OverlapT177Policy.mqh>
 
 int g_pass=0, g_fail=0;
