@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //| OverlapT177Policy.mqh — T17.7 C3 durable two-leg policy         |
-//| Pure lifecycle/economics helpers; no trade or file API calls.    |
+//| T17.13: read-only pair states do not own Core-growth admission.  |
 //+------------------------------------------------------------------+
 #ifndef BD_OVERLAP_T177_POLICY_MQH
 #define BD_OVERLAP_T177_POLICY_MQH
@@ -65,11 +65,6 @@ bool Overlap_T177PreLeg1EligiblePure(const int sideCount,
                                         executionReserveCash);
 }
 
-// After leg 1 is broker-confirmed, only ACTUAL realized leg-1 cash may fund
-// the still-live losing leg. The leg-2 close is allowed only when that realized
-// cash plus CURRENT leg-2 floating covers the CURRENT one-request execution
-// reserve. This reuses the T17.5 reserve contract instead of inventing a new
-// cost formula.
 bool Overlap_T177Leg2SafePure(const double leg1RealizedCash,
                               const double leg2FloatingCash,
                               const double leg2ExecutionReserveCash)
@@ -88,12 +83,7 @@ eOverlapT177SubmitObservation Overlap_T177SubmittedObservationPure(
    if(reconcileRequired) return overlap_T177_OBS_RECONCILE;
    if(pending) return overlap_T177_OBS_PENDING;
    if(!ticketLive) return overlap_T177_OBS_CONFIRMED;
-   // A submitted state restored after restart has lost its in-memory execution
-   // journal/coordinator identity. A still-live ticket is therefore ambiguous.
    if(loadedFromDisk) return overlap_T177_OBS_RECONCILE;
-   // Same-session live + no pending journal means the request has a proven
-   // non-execution/rejection outcome. It may be re-armed on a later tick after
-   // fresh economics, but never blindly retried as the same request.
    return overlap_T177_OBS_REJECTED;
 }
 
@@ -110,6 +100,7 @@ bool Overlap_T177AllowsOtherModulesPure(const eOverlapT177DriveDisposition d)
           d == overlap_T177_DRIVE_WAIT;
 }
 
+// Durable obligation ownership remains unchanged for restart/settlement.
 bool Overlap_T177BlocksSidePure(const eOverlapT177State state)
 {
    return state != overlap_T177_IDLE && state != overlap_T177_COMPLETE;
@@ -119,6 +110,24 @@ bool Overlap_T177SubmittedStatePure(const eOverlapT177State state)
 {
    return state == overlap_T177_LEG1_SUBMITTED ||
           state == overlap_T177_LEG2_SUBMITTED;
+}
+
+// T17.13: Core growth is independent of a read-only Overlap obligation.
+// Only broker mutation in-flight or ambiguous reconciliation can freeze adds.
+bool Overlap_T1713BlocksCoreGrowthPure(const eOverlapT177State state)
+{
+   return state == overlap_T177_LEG1_SUBMITTED ||
+          state == overlap_T177_LEG2_SUBMITTED ||
+          state == overlap_T177_RECONCILE;
+}
+
+// Pair identity becomes a durable execution intent only when current economics
+// are safe and Recovery routing is immediately available. Ordinary WAIT stays
+// a soft candidate and must not own the side.
+bool Overlap_T1713MayCommitPairPure(const bool economicsSafe,
+                                    const bool recoveryDefer)
+{
+   return economicsSafe && !recoveryDefer;
 }
 
 string Overlap_T177StateNameVi(const eOverlapT177State state)

@@ -14,10 +14,9 @@
 #define Pyramid_SemanticText Pyramid_T177ExtendedSemanticText
 #include <BlackDragon/Recovery/RecoveryEngine.mqh>
 #undef Pyramid_SemanticText
-// Load the T17.7 Core wrapper before Strategy. It includes/renames the verified
-// T17.6 CorePyramid base, so Strategy's later CorePyramid include is guard-skipped.
-#include <BlackDragon/Pyramid/CorePyramidT177Anchor.mqh>
-#include <BlackDragon/Recovery/RecoveryDca.mqh>
+// T17.13 wrappers retain T17.6/T17.7 bases and only relax read-only Core-growth admission.
+#include <BlackDragon/Pyramid/CorePyramidT1713.mqh>
+#include <BlackDragon/Recovery/RecoveryDcaT1713.mqh>
 #include <BlackDragon/Recovery/RecoveryExitCoordinator.mqh>
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
@@ -34,7 +33,7 @@
 #include <BlackDragon/MobileControl.mqh>
 #include <BlackDragon/Panel.mqh>
 #include <BlackDragon/Persistence.mqh>
-#include <BlackDragon/Strategy.mqh>
+#include <BlackDragon/StrategyT1713.mqh>
 #include <BlackDragon/Filters/AdxFilter.mqh>
 
 CRsiStochSignal  g_sigBD;

@@ -1,15 +1,13 @@
 //+------------------------------------------------------------------+
-//| OverlapT177Coordinator.mqh — T17.12 durable same-pair WAIT      |
-//| C5 policy gate retained; T17.12 overrides PAIR_ARMED liveness   |
-//| only so temporary economics/Recovery WAIT is read-only.          |
+//| OverlapT177Coordinator.mqh — T17.13 non-exclusive pre-leg wait  |
+//| Durable execution identity remains; read-only WAIT cannot starve |
+//| same-side Core DCA/Pyramid growth.                               |
 //+------------------------------------------------------------------+
 #ifndef BD_OVERLAP_T177_COORDINATOR_T177_C5_WRAPPER_MQH
 #define BD_OVERLAP_T177_COORDINATOR_T177_C5_WRAPPER_MQH
 
 #include <BlackDragon/Recovery/RecoveryT177MigrationPolicy.mqh>
 
-// Same wrapper technique already used by Strategy: keep the verified C3 base
-// implementation intact and expose internals only to this compatibility layer.
 #define private protected
 #define COverlapT177Coordinator COverlapT177CoordinatorT177C3Base
 #include "OverlapT177CoordinatorT177C3Base.mqh"
@@ -21,7 +19,24 @@ class COverlapT177Coordinator : public COverlapT177CoordinatorT177C3Base
 private:
    CRecoveryEngine *m_c5Recovery;
 
-   eOverlapT177DriveDisposition DriveArmedT1712(const int idx,
+   eOverlapT177DriveDisposition SoftReleaseArmedT1713(const int idx,
+                                                       const string reason)
+   {
+      ResetSide(idx);
+      string why = "";
+      if(!SaveAll(why) && why != "")
+      {
+         LatchReconcile(idx, "T17.13 soft-release persistence failed: " + why);
+         return overlap_T177_DRIVE_RECONCILE;
+      }
+      Log_WarnEvery("Overlap", "t1713softrelease" + (string)idx,
+                    "T17.13 soft-release " + (idx == 0 ? "BUY" : "SELL") +
+                    " | chưa có broker mutation; Core DCA/Pyramid không bị khóa | " + reason,
+                    Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+      return overlap_T177_DRIVE_WAIT;
+   }
+
+   eOverlapT177DriveDisposition DriveArmedT1713(const int idx,
                                                 const EAContext &ctx,
                                                 const BasketSide &side)
    {
@@ -38,42 +53,30 @@ private:
          return overlap_T177_DRIVE_RECONCILE;
       }
 
-      // No Overlap-owned mutation exists yet. A broker-observable stale pair
-      // remains a valid cancellation reason; this is not an economic WAIT.
       if(!firstExists || !lastExists)
-      {
-         ResetSide(idx);
-         string why = "";
-         SaveAll(why);
-         return overlap_T177_DRIVE_WAIT;
-      }
+         return SoftReleaseArmedT1713(idx, "pair candidate không còn live");
 
       double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
       double eps = step > 0.0 ? step * 0.5 : 1e-9;
       if(MathAbs(firstVolume - s.firstVolume) > eps ||
          MathAbs(lastVolume - s.lastVolume) > eps)
-      {
-         // External volume mutation invalidates the locked obligation identity.
-         ResetSide(idx);
-         string why = "";
-         SaveAll(why);
-         return overlap_T177_DRIVE_WAIT;
-      }
+         return SoftReleaseArmedT1713(idx, "Core volume thay đổi trước leg1; tính lại candidate mới");
 
       double reserve = ExecutionReserveCash(ctx, firstVolume + lastVolume, 2);
-      if(!Overlap_T177PreLeg1EligiblePure(side.count, OverlapOrderNumber, Overlap,
-                                          firstFloating, lastFloating,
-                                          OverlapPercent, reserve))
+      bool economicsSafe = Overlap_T177PreLeg1EligiblePure(side.count,
+                                                            OverlapOrderNumber,
+                                                            Overlap,
+                                                            firstFloating,
+                                                            lastFloating,
+                                                            OverlapPercent,
+                                                            reserve);
+      bool defer = false;
+      RouteForSide(s.dir, defer);
+      if(!Overlap_T1713MayCommitPairPure(economicsSafe, defer))
       {
-         // T17.12 P1-B: the exact same-side pair stays durably PAIR_ARMED.
-         // No reset, no persistence rewrite and therefore no ARM churn on the
-         // next tick. Strategy still yields because WAIT does not consume the
-         // global mutation tick, so opposite-side work remains eligible.
-         Log_WarnEvery("Overlap", "t1712pairwait" + (string)idx,
-                       "CHỜ " + (idx == 0 ? "BUY" : "SELL") +
-                       " | Cặp Overlap đã khóa, tạm chưa đủ economics; giữ nguyên nghĩa vụ",
-                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
-         return overlap_T177_DRIVE_WAIT;
+         string reason = !economicsSafe ? "economics chưa đủ để submit leg1"
+                                        : "Recovery route đang read-only DEFER";
+         return SoftReleaseArmedT1713(idx, reason);
       }
       return SubmitLeg(idx, true, ctx);
    }
@@ -90,8 +93,35 @@ public:
              string &why)
    {
       m_c5Recovery = recovery;
-      return COverlapT177CoordinatorT177C3Base::Init(exec, recovery,
-                                                      recoveryExit, why);
+      bool ok = COverlapT177CoordinatorT177C3Base::Init(exec, recovery,
+                                                        recoveryExit, why);
+      if(!ok || m_globalReconcile) return ok;
+
+      // T17.13 migration: an old persisted PAIR_ARMED proves no broker close
+      // was submitted yet. Release it and let current basket economics choose
+      // a fresh candidate; submitted/reconcile states remain durable.
+      bool released = false;
+      for(int i = 0; i < 2; i++)
+      {
+         if((eOverlapT177State)m_side[i].state == overlap_T177_PAIR_ARMED)
+         {
+            ResetSide(i);
+            released = true;
+         }
+      }
+      if(released)
+      {
+         string persistWhy = "";
+         if(!SaveAll(persistWhy) && persistWhy != "")
+         {
+            m_globalReconcile = true;
+            why = "T17.13 không clear được persisted pre-leg pair: " + persistWhy;
+            return true;
+         }
+         Log_Warn("Overlap", "t1713migrate",
+                  "T17.13 soft-release persisted PAIR_ARMED: chưa có broker mutation, candidate sẽ được tính lại");
+      }
+      return true;
    }
 
    bool Arm(const int dir, const ulong firstTicket, const ulong lastTicket,
@@ -121,8 +151,36 @@ public:
             return false;
          }
       }
+
+      bool defer = false;
+      RouteForSide(dir, defer);
+      if(!Overlap_T1713MayCommitPairPure(true, defer))
+      {
+         why = "Recovery đang read-only DEFER; pair chỉ là soft candidate, chưa persist/khóa side";
+         return false;
+      }
       return COverlapT177CoordinatorT177C3Base::Arm(dir, firstTicket,
                                                      lastTicket, now, why);
+   }
+
+   bool BlocksCoreGrowth(const int dir) const
+   {
+      if(m_globalReconcile)
+      {
+         Log_WarnEvery("Overlap", "t1713coreblockglobal",
+                       "T17.13 Core growth blocked: Overlap đang RECONCILE hai phía",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return true;
+      }
+      int idx = Index(dir);
+      eOverlapT177State state = (eOverlapT177State)m_side[idx].state;
+      bool blocked = Overlap_T1713BlocksCoreGrowthPure(state);
+      if(blocked)
+         Log_WarnEvery("Overlap", "t1713coreblock" + (string)idx,
+                       "T17.13 Core growth blocked only by Overlap broker mutation/reconcile state=" +
+                       Overlap_T177StateNameVi(state),
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+      return blocked;
    }
 
    eOverlapT177DriveDisposition DriveSide(const EAContext &ctx,
@@ -133,7 +191,7 @@ public:
       if(m_globalReconcile) return overlap_T177_DRIVE_RECONCILE;
       eOverlapT177State state = (eOverlapT177State)m_side[idx].state;
       if(state == overlap_T177_PAIR_ARMED)
-         return DriveArmedT1712(idx, ctx, side);
+         return DriveArmedT1713(idx, ctx, side);
       return COverlapT177CoordinatorT177C3Base::DriveSide(ctx, side, dir);
    }
 
