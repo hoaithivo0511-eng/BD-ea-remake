@@ -800,6 +800,7 @@ public:
    void BeginAccountWideClose(const datetime now)
    {
       if(RecoveryMode_ != recovery_ACTIVE || m_exec == NULL) return;
+      if(m_accountWidePending) return;
       m_accountWidePending = true;
       m_accountWideStartedAt = now;
       Recovery_ClearGlobalFlattenFinalization();

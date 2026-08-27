@@ -11,6 +11,7 @@
 #include "BasketManager.mqh"
 #include "ExecutionLayer.mqh"
 #include "MoneyGuard.mqh"
+#include "StrategyT1714GuardPolicy.mqh"
 #include "Panel.mqh"
 #include "Pyramid/CorePyramid.mqh"
 #include "Recovery/RecoveryExitCoordinator.mqh"
@@ -167,7 +168,10 @@ private:
       }
       if(pendingClose)
          return true;
-      if(recoveryBusy)
+      bool accountPreemptsRecovery =
+         Strategy_T1714AccountGuardPreemptsRecoveryPure(m_guardLatched,
+                                                        recoveryBusy);
+      if(recoveryBusy && !accountPreemptsRecovery)
       {
          DriveRecoveryExit(ctx.now);
          return true;

@@ -351,6 +351,18 @@ public:
          return false;
       }
 
+      // T17.14: a synchronous Core close can make protective broker-SL effects
+      // visible before their deferred DEAL_ADD callbacks. Consume only exact
+      // persisted-SL history proof before comparing live and persisted layers.
+      string protectiveWhy = "";
+      if(!RefreshExpectedProtectiveCloseOwnership(dir, protectiveWhy))
+      {
+         why = "post-Overlap protective ownership refresh failed: " + protectiveWhy;
+         LatchReconcile(dir, why);
+         Save(why);
+         return false;
+      }
+
       if(!ValidateLiveBook(dir, why))
       {
          LatchReconcile(dir, "post-Overlap ARCS live-book mismatch: " + why);

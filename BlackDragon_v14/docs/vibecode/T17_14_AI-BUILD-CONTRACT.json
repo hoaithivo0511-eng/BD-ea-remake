@@ -1,0 +1,49 @@
+{
+  "schema": "vibecode-ai-build-contract/1.0",
+  "id": "BLACKDRAGON-T17.14",
+  "mode": "Full",
+  "approved_source": "owner-chat-2026-08-27-runtime-log-fix-approval",
+  "allowed_paths": [
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1714InterleavePolicy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDealT162Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT13Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT1714GuardPolicy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/t1714_runtime_model.cpp",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/RunT1714RuntimeTests.mq5",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/t1714_source_contract.py",
+    "BlackDragon_v14/docs/vibecode/T17_14_*",
+    "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+    "BlackDragon_v14/evidence/retro/guards.yaml",
+    ".github/workflows/verify-t1713-final.yml"
+  ],
+  "forbidden": [
+    "change entry, DCA spacing, lot, coverage or profit-target semantics",
+    "accept manual, partial-proof or ambiguous ARCS mutation",
+    "bypass pending OPEN outcome ordering",
+    "enable live trading",
+    "merge or mark PR ready"
+  ],
+  "guards": [
+    {"id":"RETRO-A1","severity":"P0","checker":"t1714.interleave_state_model","waiver_allowed":false},
+    {"id":"RETRO-A2","severity":"P0","checker":"t1714.failure_policy","waiver_allowed":false},
+    {"id":"RETRO-A3","severity":"P1","checker":"t1714.decision_locking_tests","waiver_allowed":false},
+    {"id":"RETRO-A4","severity":"P1","checker":"t1714.independent_oracle","waiver_allowed":false},
+    {"id":"RETRO-A5","severity":"P0","checker":"t1714.persisted_live_freshness","waiver_allowed":false},
+    {"id":"RETRO-A6","severity":"P0","checker":"t1714.callback_idempotency","waiver_allowed":false},
+    {"id":"RETRO-A8","severity":"P0","checker":"t1714.persist_until_consumed","waiver_allowed":false},
+    {"id":"RETRO-A9","severity":"P0","checker":"t1714.exact_volume_units","waiver_allowed":false},
+    {"id":"RETRO-A10","severity":"P1","checker":"t1714.windows_native_matrix","waiver_allowed":false},
+    {"id":"RETRO-A12","severity":"P1","checker":"t1714.source_contract","waiver_allowed":false}
+  ],
+  "required_evidence": [
+    "RED source contract for exact 12-deal protective-SL/Overlap ordering",
+    "idempotent protective ownership refresh and negative proof tests",
+    "account MoneyGuard preemption and idempotent global-flatten tests",
+    "full established deterministic and source-contract regression",
+    "MetaEditor full EA and native suites with 0 errors and 0 warnings",
+    "exact HEAD, tree, workflow run and EX5 SHA256/size provenance"
+  ],
+  "forbidden_claims": ["Strategy Tester PASS", "release eligible", "forward eligible", "live ready"]
+}
