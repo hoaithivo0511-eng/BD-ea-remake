@@ -90,7 +90,9 @@ jobs:
 
           assert 'OVERLAP_OFF' in coord
           assert 'OVERLAP_CORE_ONLY' in coord
-          assert 'Recovery_T177OverlapCoreOnlyBlockedPure' in coord
+          assert 'Recovery_T1711OverlapCoreOnlyBlockedPure' in coord
+          assert 'Overlap_T1713MayCommitPairPure' in coord
+          assert 'BlocksCoreGrowth' in coord
           assert 'COverlapT177CoordinatorT177C3Base::Arm' in coord
           assert 'overlap_T177_LEG2_WAIT_SAFE' in coordbase
           assert 'ReadLeg1Realized' in coordbase

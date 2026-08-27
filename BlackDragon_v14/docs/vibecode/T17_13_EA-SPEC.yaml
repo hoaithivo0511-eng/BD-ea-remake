@@ -1,0 +1,33 @@
+schema: vibecode-ea-spec/1.0
+id: BLACKDRAGON-T17.13
+mode: Full
+status: approved_build
+source_of_truth: owner-chat-2026-08-27
+baseline:
+  head: 47ae97f4ebae00beb46c2fa0f8efb49ac142b7c5
+  tree: 35144eaf9de8d20826b193d212c166cc24fdd46e
+requirements:
+  - id: R13-01
+    severity: P0
+    text: ContinueDcaAfterHedge=true permits Core DCA and Core Pyramid ADD during read-only Recovery BUILDING, ACTIVE, LOCKED and REHEDGE_PENDING states.
+  - id: R13-02
+    severity: P0
+    text: Recovery or Overlap broker mutation, close/protect pending state, and reconciliation remain fail-closed and preserve one broker mutation per tick.
+  - id: R13-03
+    severity: P1
+    text: Pre-leg Overlap candidates do not persistently own the side; durable ownership begins only when a broker mutation is submitted.
+  - id: R13-04
+    severity: P1
+    text: Core growth rebases the live Hedge target from current exact Core units without changing persisted enum or unit semantics.
+  - id: R13-05
+    severity: P1
+    text: The owner 11-BUY counterexample crosses Recovery, Overlap, pending and spacing admission gates to exactly one execution intent when no mutation owns the tick.
+non_goals:
+  - entry signal, lot sizing, risk limit or exit semantic changes
+  - new inputs or persisted enum renumbering
+  - weakening pending mutation or reconciliation barriers
+  - Strategy Tester, forward, profitability or live-readiness claims
+release:
+  strategy_tester: PENDING_OWNER
+  release_eligible: false
+  merge_allowed: false

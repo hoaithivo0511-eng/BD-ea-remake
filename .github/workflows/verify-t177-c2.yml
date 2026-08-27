@@ -42,7 +42,8 @@ jobs:
           from pathlib import Path
 
           anchor=Path('BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidAnchorT177.mqh').read_text(encoding='utf-8')
-          wrapper=Path('BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramidT177Anchor.mqh').read_text(encoding='utf-8')
+          wrapper_path=Path('BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramidT1713.mqh')
+          wrapper=wrapper_path.read_text(encoding='utf-8')
           base=Path('BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh').read_text(encoding='utf-8')
           ea=Path('BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5').read_text(encoding='utf-8')
           native=Path('BlackDragon_v14/Scripts/BlackDragon/Tests/RunT177AnchorTests.mq5').read_text(encoding='utf-8')
@@ -61,17 +62,18 @@ jobs:
 
           assert '#define CCorePyramidEngine CCorePyramidEngineT176Base' in wrapper
           assert '#include "CorePyramid.mqh"' in wrapper
-          assert 'return CCorePyramidEngineT176Base::Drive' in wrapper
+          assert 'bool Drive(' in wrapper and 'TryAddT1713' in wrapper
           assert 'm_campaignStartDeal[dir]' in wrapper
           for token in ['DEAL_MAGIC','DEAL_ENTRY','DEAL_TYPE','DEAL_PRICE']:
               assert token in wrapper
           assert 'Pyramid_T177CumulativeDistancePure(m_distance, level)' in wrapper
           assert 'anchor = m_firstCorePrice[dir]' in wrapper
           assert 'CorePyramidMode_ == pyramid_CHU_KY_SACH && stats.exitDeals > 0' in wrapper
-          assert 'recoveryOwns = c.state != recovery_CORE_ONLY;' in wrapper
+          assert 'RecoveryAllowsAddT1713' in wrapper
+          assert 'Recovery_T1713CoreGrowthStateAllowsPure' in wrapper
 
-          # Legacy DYNAMIC implementation remains untouched and is delegated to
-          # directly rather than being reimplemented in C2.
+          # Legacy DYNAMIC formulas remain the compatibility oracle while the
+          # T17.13 wrapper composes the C2 anchor with current admission policy.
           assert 'Pyramid_T173RearmAnchorPure' in base
           assert 'double gapPips = Pyramid_SeqValue(m_distance, level - 1);' in base
 
@@ -79,8 +81,8 @@ jobs:
           semantic_define=ea.index('#define Pyramid_SemanticText Pyramid_T177ExtendedSemanticText')
           recovery_inc=ea.index('#include <BlackDragon/Recovery/RecoveryEngine.mqh>')
           semantic_undef=ea.index('#undef Pyramid_SemanticText')
-          wrapper_inc=ea.index('#include <BlackDragon/Pyramid/CorePyramidT177Anchor.mqh>')
-          strategy_inc=ea.index('#include <BlackDragon/Strategy.mqh>')
+          wrapper_inc=ea.index('#include <BlackDragon/Pyramid/CorePyramidT1713.mqh>')
+          strategy_inc=ea.index('#include <BlackDragon/StrategyT1713.mqh>')
           assert anchor_inc < semantic_define < recovery_inc < semantic_undef < wrapper_inc < strategy_inc
           assert 'CoreAnchor=' in ea
 

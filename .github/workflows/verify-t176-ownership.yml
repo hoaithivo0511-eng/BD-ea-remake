@@ -85,7 +85,10 @@ jobs:
           assert 'Recovery_ArcsBuildCore(rdir, step, exactTriggerCore)' in reserve
           assert 'Recovery_ArcsCoreUnits(rdir, step)' in reserve
           assert 'Recovery_VolumeToUnitsFloor(side.totalLots, step)' not in reserve
-          assert 'Recovery_T17ValidateCrossInputs(recoveryWhy)' in ea
+          assert 'Recovery_ValidateCompleteConfig((long)Magic' in ea
+          complete=dca[dca.index('bool Recovery_ValidateCompleteConfig'):
+                       dca.index('bool Recovery_ReadDcaCoreMetrics')]
+          assert 'Recovery_T17ValidateCrossInputs(detail)' in complete
 
           assert 'DCA min coverage above 100 is valid when Recovery is enabled' in native
           assert 'negative DCA min coverage remains invalid' in native

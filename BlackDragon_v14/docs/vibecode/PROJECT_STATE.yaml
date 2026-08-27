@@ -1,8 +1,8 @@
-project: BlackDragon Adaptive Recovery / T17.11
+project: BlackDragon Adaptive Recovery / T17.13
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
-release_state: DRAFT_T17_11_BUILD_VERIFY
+release_state: DRAFT_T17_13_BUILD_VERIFY
 merge_allowed: false
 ready_for_review: false
 
@@ -10,6 +10,13 @@ methodology: VibeCodeKit-MQL5 Full
 workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
 
 stages:
+  T17_13_nonexclusive_core_growth:
+    status: BUILD_VERIFY
+    contract: read-only Recovery/Overlap yields Core DCA and Pyramid ADD while mutation/reconcile remains exclusive
+    baseline_head: 47ae97f4ebae00beb46c2fa0f8efb49ac142b7c5
+    baseline_tree: 35144eaf9de8d20826b193d212c166cc24fdd46e
+    source_of_truth: owner-chat-2026-08-27
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
   T17_11_runtime_liveness_admission:
     status: BUILD_VERIFY
     contract: per-direction scheduler liveness, terminal-no-Hedge DCA semantics, complete config validation, bounded NO_MONEY admission
@@ -54,8 +61,8 @@ stages:
     contract: Vietnamese level vocabulary, throttled WAIT, human-readable technical reasons, one-time migration summary
   C7_final_verify:
     status: VERIFYING
-    workflow: .github/workflows/verify-t1711-final.yml
-    artifact: blackdragon-t1711-final-owner-qa
+    workflow: .github/workflows/verify-t1713-final.yml
+    artifact: blackdragon-t1713-final-owner-qa
 
 runtime_release_gates:
   deterministic_models: REQUIRED
@@ -67,8 +74,8 @@ runtime_release_gates:
   forward_live: NOT_ELIGIBLE
 
 owner_strategy_tester:
-  status: PENDING_T17_11_OWNER_RERUN
-  checklist: BlackDragon_v14/docs/vibecode/T17_11_OWNER_QA_CHECKLIST.md
+  status: PENDING_T17_13_OWNER_RERUN
+  checklist: BlackDragon_v14/docs/vibecode/T17_13_OWNER_QA_CHECKLIST.md
   required_after_final_artifact: true
 
 known_release_rules:

@@ -9,6 +9,24 @@ void T(const bool ok,const string name)
    else { g_fail++; Print("FAIL: ",name); }
 }
 
+bool DriveCoreDcaIntegrationModel(const eRecoveryMode mode,
+                                  const bool continueAfterHedge,
+                                  const eRecoveryState recoveryState,
+                                  const bool recoveryMutatedThisTick,
+                                  const eOverlapT177State overlapState,
+                                  const bool executionPending,
+                                  const bool spacingDue,
+                                  int &openCalls)
+{
+   if(recoveryMutatedThisTick) return false;
+   if(!Recovery_T1713CoreGrowthStateAllowsPure(mode,continueAfterHedge,recoveryState))
+      return false;
+   if(Overlap_T1713BlocksCoreGrowthPure(overlapState)) return false;
+   if(executionPending || !spacingDue) return false;
+   openCalls++;
+   return true;
+}
+
 void OnStart()
 {
    T(Recovery_T1713CoreGrowthStateAllowsPure(recovery_ACTIVE,true,recovery_HEDGE_BUILDING),
@@ -51,6 +69,25 @@ void OnStart()
    double trigger=4091.635-13.0*0.10;
    T(4049.197<=trigger+1e-12,
      "owner 11-BUY counterexample is DCA due by >13 pip");
+
+   int calls=0;
+   T(DriveCoreDcaIntegrationModel(recovery_ACTIVE,true,recovery_HEDGE_BUILDING,
+                                  false,overlap_T177_PAIR_ARMED,false,true,calls),
+     "11-BUY traverses scheduler admission to execution seam");
+   T(calls==1,"11-BUY emits exactly one broker-open intent");
+
+   calls=0;
+   T(!DriveCoreDcaIntegrationModel(recovery_ACTIVE,true,recovery_HEDGE_BUILDING,
+                                   true,overlap_T177_PAIR_ARMED,false,true,calls) && calls==0,
+     "Recovery mutation preserves one-mutation-per-tick");
+   calls=0;
+   T(!DriveCoreDcaIntegrationModel(recovery_ACTIVE,true,recovery_HEDGE_BUILDING,
+                                   false,overlap_T177_LEG1_SUBMITTED,false,true,calls) && calls==0,
+     "Overlap broker mutation blocks integration execution seam");
+   calls=0;
+   T(!DriveCoreDcaIntegrationModel(recovery_ACTIVE,false,recovery_HEDGE_BUILDING,
+                                   false,overlap_T177_PAIR_ARMED,false,true,calls) && calls==0,
+     "ContinueDca opt-out blocks integration execution seam");
 
    Print("T17.13 native concurrency: ",g_pass," passed, ",g_fail," failed");
    if(g_fail==0) Print("ALL GREEN");

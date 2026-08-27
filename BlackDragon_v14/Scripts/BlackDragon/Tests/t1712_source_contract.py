@@ -39,12 +39,24 @@ for token in ('PrepareRealTpEpoch','ObserveRealTpSettlement','POSITION_IDENTIFIE
     assert token in coord, f'T17.9 regression: missing {token}'
 
 overlap=text(INC/'Overlap'/'OverlapT177Coordinator.mqh')
-for token in ('DriveArmedT1712','t1712pairwait','return overlap_T177_DRIVE_WAIT;'):
-    assert token in overlap, f'RED T17.12 Overlap WAIT integration missing {token}'
-wait_pos=overlap.find('t1712pairwait')
-assert wait_pos>=0
-wait_window=overlap[max(0,wait_pos-700):wait_pos+700]
-assert 'ResetSide(idx)' not in wait_window
+if 'DriveArmedT1713' in overlap:
+    # T17.13 supersedes the durable pre-leg WAIT: before any broker mutation,
+    # PAIR_ARMED is a soft candidate and must release the side for Core growth.
+    for token in ('DriveArmedT1713','SoftReleaseArmedT1713','t1713softrelease',
+                  'Overlap_T1713MayCommitPairPure','BlocksCoreGrowth'):
+        assert token in overlap, f'T17.13 supersession contract missing {token}'
+    release=overlap[overlap.index('SoftReleaseArmedT1713'):
+                    overlap.index('DriveArmedT1713')]
+    assert 'ResetSide(idx)' in release
+    assert 'SaveAll(why)' in release
+    assert 'return overlap_T177_DRIVE_WAIT;' in release
+else:
+    for token in ('DriveArmedT1712','t1712pairwait','return overlap_T177_DRIVE_WAIT;'):
+        assert token in overlap, f'RED T17.12 Overlap WAIT integration missing {token}'
+    wait_pos=overlap.find('t1712pairwait')
+    assert wait_pos>=0
+    wait_window=overlap[max(0,wait_pos-700):wait_pos+700]
+    assert 'ResetSide(idx)' not in wait_window
 
 # Owner correction after Strategy Tester liveness failure:
 # MoneyTPAllAccount is again a direct raw ACCOUNT_PROFIT close threshold.

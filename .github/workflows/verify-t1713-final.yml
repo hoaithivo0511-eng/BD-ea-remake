@@ -54,7 +54,7 @@ jobs:
             "$exe" | tee "$out"
             grep -q 'ALL GREEN' "$out" || grep -Eq '(^|[^0-9])0 failed([^0-9]|$)' "$out"
           done
-          grep -q 'T17.13 concurrency model: 19 passed, 0 failed' build-t1713-model/t1713_concurrency_model.log
+          grep -q 'T17.13 concurrency model: 24 passed, 0 failed' build-t1713-model/t1713_concurrency_model.log
           echo 'FINAL T17.13 MODEL REGRESSION GREEN'
       - name: T17.11 through T17.13 source contracts
         shell: bash
@@ -112,7 +112,7 @@ jobs:
         shell: pwsh
         run: |
           $b="$env:GITHUB_WORKSPACE\build-t1713-final";$ld="$env:MT5_DIR\MQL5\Logs";$tests=@(
-            @{N='RunT1713ConcurrencyTests';P='T17\.13 native concurrency:\s*(\d+) passed,\s*(\d+) failed';E=18},
+            @{N='RunT1713ConcurrencyTests';P='T17\.13 native concurrency:\s*(\d+) passed,\s*(\d+) failed';E=23},
             @{N='RunT1712RuntimeTests';P='T17\.12 runtime tests:\s*(\d+) passed,\s*(\d+) failed';E=21},
             @{N='RunT1711RuntimeTests';P='T17\.11 runtime tests:\s*(\d+) passed,\s*(\d+) failed';E=30},
             @{N='RunT1710UnitSystemTests';P='T17\.10 unit tests:\s*(\d+) passed,\s*(\d+) failed';E=43},

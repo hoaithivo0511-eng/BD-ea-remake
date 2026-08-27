@@ -45,6 +45,35 @@ static long percent_units(long coreUnits, double pct)
     return (long)std::floor(coreUnits * pct / 100.0 + 1e-9);
 }
 
+struct ExecutionSpy {
+    int openCalls = 0;
+    bool openMarket() { ++openCalls; return true; }
+};
+
+struct SchedulerInput {
+    int recoveryMode;
+    bool continueAfterHedge;
+    int recoveryState;
+    bool recoveryMutatedThisTick;
+    int overlapState;
+    bool executionPending;
+    bool spacingDue;
+};
+
+// Independent scheduler-integration oracle. It deliberately owns no strategy
+// implementation details: every admission boundary is explicit and the spy
+// proves whether the final broker-open seam was reached.
+static bool drive_core_dca_once(const SchedulerInput &in, ExecutionSpy &exec)
+{
+    if(in.recoveryMutatedThisTick) return false;
+    if(!recovery_core_growth_allows(in.recoveryMode,
+                                    in.continueAfterHedge,
+                                    in.recoveryState)) return false;
+    if(overlap_blocks_core_growth(in.overlapState)) return false;
+    if(in.executionPending || !in.spacingDue) return false;
+    return exec.openMarket();
+}
+
 int main()
 {
     int pass=0, fail=0;
@@ -96,6 +125,34 @@ int main()
     long newTarget = percent_units(33,120.0);
     ck(newTarget > oldTarget && oldTarget == 31 && newTarget == 39,
        "Core DCA growth forces live Hedge target rebase");
+
+    // Stateful admission proof for the exact owner 11-BUY counterexample.
+    SchedulerInput case11{R_ACTIVE, true, R_HEDGE_BUILDING, false,
+                          O_PAIR_ARMED, false,
+                          buy_dca_due(4091.635, 4049.197, 13.0, 0.10)};
+    ExecutionSpy case11Exec;
+    ck(drive_core_dca_once(case11, case11Exec),
+       "11-BUY traverses Recovery/Overlap/pending/spacing gates to execution seam");
+    ck(case11Exec.openCalls == 1,
+       "11-BUY integration submits exactly one broker-open intent");
+
+    SchedulerInput mutating = case11;
+    mutating.recoveryMutatedThisTick = true;
+    ExecutionSpy mutatingExec;
+    ck(!drive_core_dca_once(mutating, mutatingExec) && mutatingExec.openCalls == 0,
+       "one-mutation-per-tick blocks concurrent Core DCA execution");
+
+    SchedulerInput overlapSubmitted = case11;
+    overlapSubmitted.overlapState = O_LEG1_SUBMITTED;
+    ExecutionSpy overlapExec;
+    ck(!drive_core_dca_once(overlapSubmitted, overlapExec) && overlapExec.openCalls == 0,
+       "in-flight Overlap broker mutation blocks Core DCA execution");
+
+    SchedulerInput optedOut = case11;
+    optedOut.continueAfterHedge = false;
+    ExecutionSpy optedOutExec;
+    ck(!drive_core_dca_once(optedOut, optedOutExec) && optedOutExec.openCalls == 0,
+       "owner continuation opt-out blocks the 11-BUY execution seam");
 
     std::cout << "T17.13 concurrency model: " << pass << " passed, " << fail << " failed\n";
     if(fail==0) std::cout << "ALL GREEN\n";
