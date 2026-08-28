@@ -6,6 +6,7 @@
 #define BD_RECOVERY_ARCS_STACK_T177_HEDGE_LADDER_MQH
 
 #include "RecoveryArcsStackT177Scheduler.mqh"
+#include "RecoveryMutationPolicy.mqh"
 #include "RecoveryT177HedgeLadder.mqh"
 
 class CRecoveryArcsStackT177C4 : public CRecoveryArcsStackT17
@@ -523,6 +524,83 @@ private:
       return true;
    }
 
+   bool RefreshBuildingTargetAfterOverlapC4(
+      const eRecoveryCoreDirection dir,
+      string &why)
+   {
+      why="";
+      int di=C4Idx(dir);
+      if(m_dir[di].phase!=ARCS_BUILDING) return true;
+
+      int li=m_dir[di].activeLayer;
+      SArcsLayer l;
+      GetLayer(dir,li,l);
+      if(!l.used||l.state!=ARCS_LAYER_BUILDING)
+      {
+         why="post-Overlap BUILDING không có active layer hợp lệ";
+         return false;
+      }
+
+      long live=Recovery_ArcsLayerUnits(dir,l.generation,m_volumeStep);
+      long core=Recovery_ArcsCoreUnits(dir,m_volumeStep);
+      long totalHedge=Recovery_ArcsTotalHedgeUnits(dir,m_volumeStep);
+      long retained=totalHedge-live;
+      if(retained<0) retained=0;
+
+      long computed=0;
+      if(HedgePyramidMode_!=hedge_pyramid_TAT)
+      {
+         SRecoveryBundleVolumeMeta meta;
+         string local="";
+         if(!Recovery_ReadBundleVolumeMeta(_Symbol,meta,local))
+         { why="không đọc được broker volume để refresh ladder: "+local; return false; }
+         SRecoveryT177HedgeStage plan[];
+         long plannedCore=0,plannedRetained=0,finalRaw=0;
+         if(!BuildExecutablePlanC4(dir,live,meta,plan,
+                                   plannedCore,plannedRetained,finalRaw))
+         { why="không dựng được ladder từ Core denominator sau Overlap"; return false; }
+         if(plannedCore!=core||plannedRetained!=retained)
+         { why="post-Overlap ladder denominator không nhất quán"; return false; }
+         computed=finalRaw;
+         if(meta.minUnits>0&&computed>0&&computed<meta.minUnits)
+            computed=0; // hard cap wins over broker-min inflation.
+      }
+      else
+      {
+         computed=Recovery_T162PostOverlapGenerationUnitsPure(
+            RecoverySizingPolicy_,core,retained,HedgeVolumePercent_);
+      }
+
+      long refreshed=Recovery_T176RebasedGenerationTargetPure(live,computed);
+      if(refreshed<=0&&live<=0)
+      {
+         why="post-Overlap BUILDING target collapsed to zero; explicit transition proof required";
+         return false;
+      }
+
+      long old=l.targetUnits;
+      l.targetUnits=refreshed;
+      l.openedUnits=live;
+      l.remainingUnits=live;
+      if(live==refreshed&&live>0)
+      {
+         l.state=ARCS_LAYER_ACTIVE;
+         m_dir[di].phase=ARCS_ACTIVE;
+      }
+      PutLayer(dir,li,l);
+      m_dirty=true;
+      if(!Save(why)) return false;
+
+      Log_Info("Recovery","T17.15 post-Overlap target refresh "+
+               Recovery_DirectionName(dir)+" G"+(string)l.generation+
+               " | Core="+DoubleToString(Recovery_UnitsToVolume(core,m_volumeStep),2)+
+               "L retained="+DoubleToString(Recovery_UnitsToVolume(retained,m_volumeStep),2)+
+               "L live="+DoubleToString(Recovery_UnitsToVolume(live,m_volumeStep),2)+
+               "L target cũ="+DoubleToString(Recovery_UnitsToVolume(old,m_volumeStep),2)+
+               "L mới="+DoubleToString(Recovery_UnitsToVolume(refreshed,m_volumeStep),2)+"L");
+      return true;
+   }
+
 public:
    CRecoveryArcsStackT177C4(void) : CRecoveryArcsStackT17()
    {
@@ -547,6 +625,34 @@ public:
                   "% hard cap="+DoubleToString(HedgePyramidMaxCoveragePercent_,2)+
                   "% hiệu lực="+DoubleToString(effective,2)+
                   "% | C5 sẽ đổi tên public input, C4 giữ tương thích .set hiện tại");
+      }
+      return true;
+   }
+
+   bool FinalizeExpectedOverlapMutation(CExecutionLayer &exec,
+                                        const eRecoveryCoreDirection dir,
+                                        const datetime now,
+                                        string &why)
+   {
+      if(!CRecoveryArcsStackT17::FinalizeExpectedOverlapMutation(exec,dir,now,why))
+         return false;
+
+      long core=Recovery_ArcsCoreUnits(dir,m_volumeStep);
+      long hedge=Recovery_ArcsTotalHedgeUnits(dir,m_volumeStep);
+      double hardCap=Recovery_T177EffectiveHedgeAbsoluteMaxCoveragePercent();
+      if(!Recovery_OverlapRetainedWithinHardCapPure(core,hedge,hardCap))
+      {
+         why="post-Overlap retained Hedge vượt hard cap sau broker-confirmed trim";
+         LatchReconcile(dir,why);
+         Save(why);
+         return false;
+      }
+
+      if(!RefreshBuildingTargetAfterOverlapC4(dir,why))
+      {
+         LatchReconcile(dir,"post-Overlap target refresh failed: "+why);
+         Save(why);
+         return false;
       }
       return true;
    }

@@ -721,6 +721,26 @@ public:
       return m_cycle[Index(dir)].reconcileHold;
    }
 
+   eRecoveryOverlapPolicy OverlapCapabilityPolicy(
+      const eRecoveryCoreDirection dir) const
+   {
+      if(RecoveryMode_ != recovery_ACTIVE || m_recovery == NULL || m_exec == NULL)
+         return recovery_OVERLAP_BYPASS;
+
+      SRecoveryCycle cycle;
+      m_recovery.GetCycle(dir, cycle);
+      int idx = Index(dir);
+      bool coordinatorPending = m_accountWidePending ||
+                                m_cycle[idx].active ||
+                                m_cycle[idx].reconcileHold;
+      return Recovery_OverlapCapabilityPolicyPure(
+         cycle.state,
+         m_recovery.ActiveReady(),
+         m_recovery.HasDurableCommand(dir),
+         m_exec.HasPendingMutation(),
+         coordinatorPending);
+   }
+
    void ClearReconcileHold(const eRecoveryCoreDirection dir)
    {
       int idx = Index(dir);
@@ -761,25 +781,22 @@ public:
          return recovery_EXIT_BYPASS;
       int idx = Index(dir);
       if(m_cycle[idx].reconcileHold) return recovery_EXIT_BLOCKED;
+      if(m_cycle[idx].active) return recovery_EXIT_LATCHED;
 
       // T13: Overlap is a non-emergency topology mutation. Let it bypass only
       // before Recovery owns the cycle, coordinate it in stable Recovery
       // states, and DEFER while T4/T5/T6 is mutating/pausing/reconciling.
       if(reason == recovery_EXIT_REASON_LEGACY_OVERLAP)
       {
-         SRecoveryCycle cycle;
-         m_recovery.GetCycle(dir, cycle);
-         eRecoveryOverlapPolicy p = Recovery_OverlapPolicyPure(cycle.state);
+         eRecoveryOverlapPolicy p = OverlapCapabilityPolicy(dir);
          if(p == recovery_OVERLAP_BYPASS) return recovery_EXIT_BYPASS;
-         if(p == recovery_OVERLAP_DEFER || !m_recovery.ActiveReady())
+         if(p == recovery_OVERLAP_DEFER)
             return recovery_EXIT_BLOCKED;
       }
       else if(!CycleRequiresCoordination(dir))
          return recovery_EXIT_BYPASS;
 
       if(firstTicket == 0 && secondTicket == 0) return recovery_EXIT_BLOCKED;
-      if(m_cycle[idx].active) return recovery_EXIT_LATCHED;
-
       long currentCore = CoreMagicUnits(dir);
       long intendedCoreClose = CoreMagicUnitsForTicket(dir, firstTicket);
       if(secondTicket != 0 && secondTicket != firstTicket)

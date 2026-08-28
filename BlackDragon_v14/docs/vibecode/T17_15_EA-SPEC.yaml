@@ -1,0 +1,33 @@
+schema: vibecode-ea-spec/1.0
+id: BLACKDRAGON-T17.15
+mode: Full
+status: approved_build
+source_of_truth: owner-chat-2026-08-28-overlap-capability-approval
+baseline:
+  head: eb9b963cab1ba996f23adf23fa9fe2a366e94fc3
+  tree: 4bd0a542957b80492ca6e6012320f2ad70a04e74
+requirements:
+  - id: R15-01
+    severity: P0
+    text: Overlap may coordinate in HEDGE_BUILDING only when Recovery is ready and durable Recovery, execution-journal and coordinator mutation channels are all quiet.
+  - id: R15-02
+    severity: P0
+    text: Any pending request, journal entry, reconciliation hold or coordinator obligation defers Overlap without a broker mutation.
+  - id: R15-03
+    severity: P0
+    text: Before Core trim, projected exact-Core units and all retained Recovery Hedge must satisfy the effective absolute hard cap.
+  - id: R15-04
+    severity: P0
+    text: After broker-confirmed trim, exact Core and Hedge are reread and the current BUILDING generation target is recomputed and persisted before another ladder child may open.
+  - id: R15-05
+    severity: P1
+    text: The stateful sequence economics-safe to BUILDING coordination to target refresh to ladder continuation is locked in model and native regression tests.
+non_goals:
+  - entry signal, DCA gap, lot, target coverage, hard-cap value or money-guard changes
+  - automatic Hedge reduction when a projected trim would exceed hard cap
+  - changing Overlap economics or execution reserve
+  - live, forward or profitability claims
+release:
+  strategy_tester: PENDING_OWNER_RERUN
+  release_eligible: false
+  merge_allowed: false

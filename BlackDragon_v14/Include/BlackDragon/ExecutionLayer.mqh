@@ -795,6 +795,15 @@ public:
       return false;
    }
 
+   // Read-only capability query. Unlike HasPending(), this never runs journal
+   // reconciliation and is therefore safe inside admission policy evaluation.
+   bool HasPendingMutation() const
+   {
+      for(int i = ArraySize(m_journal) - 1; i >= 0; i--)
+         if(m_journal[i].active) return true;
+      return false;
+   }
+
    bool HasReconcileRequired(const int cycleKey) const
    {
       if(cycleKey == 0) return false;

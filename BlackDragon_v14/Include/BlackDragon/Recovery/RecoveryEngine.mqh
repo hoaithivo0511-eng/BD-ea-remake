@@ -271,6 +271,13 @@ public:
       return UseT16() && m_arcs.HasExposure(dir);
    }
 
+   long T16CurrentHedgeUnits(const eRecoveryCoreDirection dir) const
+   {
+      if(!UseT16()) return 0;
+      double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+      return step > 0.0 ? Recovery_ArcsTotalHedgeUnits(dir, step) : 0;
+   }
+
    bool T16CanOpenFurtherGeneration(const eRecoveryCoreDirection dir) const
    {
       return UseT16() && m_arcs.CanOpenFurtherGeneration(dir);

@@ -1,8 +1,8 @@
-project: BlackDragon Adaptive Recovery / T17.14
+project: BlackDragon Adaptive Recovery / T17.15
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
-release_state: DRAFT_T17_14_BUILD_VERIFY
+release_state: DRAFT_T17_15_BUILD_VERIFY
 merge_allowed: false
 ready_for_review: false
 
@@ -10,6 +10,13 @@ methodology: VibeCodeKit-MQL5 Full
 workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
 
 stages:
+  T17_15_overlap_building_capability:
+    status: BUILD_VERIFY
+    contract: capability-gated HEDGE_BUILDING Overlap; projected retained-Hedge hard cap; broker-fresh post-trim ladder target
+    baseline_head: eb9b963cab1ba996f23adf23fa9fe2a366e94fc3
+    baseline_tree: 4bd0a542957b80492ca6e6012320f2ad70a04e74
+    source_of_truth: owner-chat-2026-08-28-overlap-capability-approval
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
   T17_14_runtime_interleave_liveness:
     status: BUILD_VERIFY
     contract: exact-proven protective-SL ownership refresh precedes Overlap validation; account MoneyGuard preempts Recovery hold through idempotent global flatten
@@ -81,8 +88,8 @@ runtime_release_gates:
   forward_live: NOT_ELIGIBLE
 
 owner_strategy_tester:
-  status: PENDING_T17_14_OWNER_RERUN
-  checklist: BlackDragon_v14/docs/vibecode/T17_14_OWNER_QA_CHECKLIST.md
+  status: PENDING_T17_15_OWNER_RERUN
+  checklist: BlackDragon_v14/docs/vibecode/T17_15_OWNER_QA_CHECKLIST.md
   required_after_final_artifact: true
 
 known_release_rules:

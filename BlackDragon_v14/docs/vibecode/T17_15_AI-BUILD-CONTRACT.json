@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "task": "T17.15",
+  "baseline_head": "eb9b963cab1ba996f23adf23fa9fe2a366e94fc3",
+  "baseline_tree": "4bd0a542957b80492ca6e6012320f2ad70a04e74",
+  "allowed_paths": [
+    "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177CoordinatorT177C3Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryMutationPolicy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT13Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT177Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/*1715*",
+    "BlackDragon_v14/docs/vibecode/T17_15_*",
+    "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+    ".github/workflows/verify-t1713-final.yml"
+  ],
+  "forbidden_changes": [
+    "trading inputs or default values",
+    "Overlap economic threshold or reserve",
+    "Hedge target or hard-cap configuration",
+    "automatic retained-Hedge close",
+    "live trading activation"
+  ],
+  "guards": ["A1", "A2", "A3", "A4", "A5", "A6", "A8", "A9", "A10", "A12"],
+  "required_evidence": {
+    "model": "T17.15 12/0 plus full established regression",
+    "source_contract": "T17.11-T17.15 PASS",
+    "metaeditor": "full EA and 23 scripts 0 errors/0 warnings",
+    "native": "T17.15 10/0 plus established native matrix",
+    "strategy_tester": "PENDING owner rerun with exact-head EX5"
+  },
+  "release": {"merge": false, "release_eligible": false, "live": false}
+}

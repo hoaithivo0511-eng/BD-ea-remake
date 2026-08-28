@@ -1,4 +1,4 @@
-name: Verify T17.14 Final Owner QA
+name: Verify T17.15 Final Owner QA
 
 on:
   push:
@@ -27,9 +27,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          mkdir -p build-t1714-model
-          printf 'HEAD=%s\nTREE=%s\nRUN_ID=%s\nRUN_ATTEMPT=%s\n' "$(git rev-parse HEAD)" "$(git show -s --format=%T HEAD)" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | tee build-t1714-model/PROVENANCE.txt
-      - name: Full established model regression plus T17.14
+          mkdir -p build-t1715-model
+          printf 'HEAD=%s\nTREE=%s\nRUN_ID=%s\nRUN_ATTEMPT=%s\n' "$(git rev-parse HEAD)" "$(git show -s --format=%T HEAD)" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | tee build-t1715-model/PROVENANCE.txt
+      - name: Full established model regression plus T17.15
         shell: bash
         run: |
           set -euo pipefail
@@ -47,28 +47,31 @@ jobs:
             pyramid_t177_hedge_ladder_model.cpp pyramid_t177_migration_model.cpp
             pyramid_t177_journal_model.cpp pyramid_t178_runtime_model.cpp pyramid_t179_realtp_model.cpp
             unit_system_t1710_model.cpp t1711_runtime_model.cpp t1712_runtime_model.cpp
-            t1713_concurrency_model.cpp t1714_runtime_model.cpp)
+            t1713_concurrency_model.cpp t1714_runtime_model.cpp
+            t1715_overlap_capability_model.cpp)
           for src in "${suites[@]}"; do
-            exe="/tmp/${src%.cpp}"; out="build-t1714-model/${src%.cpp}.log"
+            exe="/tmp/${src%.cpp}"; out="build-t1715-model/${src%.cpp}.log"
             g++ -std=c++17 -O2 -Wall -Wextra "$R/$src" -o "$exe"
             "$exe" | tee "$out"
             grep -q 'ALL GREEN' "$out" || grep -Eq '(^|[^0-9])0 failed([^0-9]|$)' "$out"
           done
-          grep -q 'T17.13 concurrency model: 24 passed, 0 failed' build-t1714-model/t1713_concurrency_model.log
-          grep -q 'T17.14 runtime model: 12 passed, 0 failed' build-t1714-model/t1714_runtime_model.log
-          echo 'FINAL T17.14 MODEL REGRESSION GREEN'
-      - name: T17.11 through T17.14 source contracts
+          grep -q 'T17.13 concurrency model: 24 passed, 0 failed' build-t1715-model/t1713_concurrency_model.log
+          grep -q 'T17.14 runtime model: 12 passed, 0 failed' build-t1715-model/t1714_runtime_model.log
+          grep -q 'T17.15 Overlap capability model: 12 passed, 0 failed' build-t1715-model/t1715_overlap_capability_model.log
+          echo 'FINAL T17.15 MODEL REGRESSION GREEN'
+      - name: T17.11 through T17.15 source contracts
         shell: bash
         run: |
           set -euo pipefail
-          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1711_source_contract.py | tee build-t1714-model/t1711-source.log
-          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1712_source_contract.py | tee build-t1714-model/t1712-source.log
-          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1713_source_contract.py | tee build-t1714-model/t1713-source.log
-          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1714_source_contract.py | tee build-t1714-model/t1714-source.log
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1711_source_contract.py | tee build-t1715-model/t1711-source.log
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1712_source_contract.py | tee build-t1715-model/t1712-source.log
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1713_source_contract.py | tee build-t1715-model/t1713-source.log
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1714_source_contract.py | tee build-t1715-model/t1714-source.log
+          python3 BlackDragon_v14/Scripts/BlackDragon/Tests/t1715_source_contract.py | tee build-t1715-model/t1715-source.log
       - uses: actions/upload-artifact@v4
         with:
-          name: blackdragon-t1714-model-source
-          path: build-t1714-model/
+          name: blackdragon-t1715-model-source
+          path: build-t1715-model/
           if-no-files-found: error
 
   final-native-regression:
@@ -102,18 +105,19 @@ jobs:
           foreach($d in @('Experts','Include','Scripts')){New-Item -ItemType Directory -Force -Path "$mql5\$d"|Out-Null;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\$d\*" "$mql5\$d" -Recurse -Force}
           $enc=New-Object System.Text.UnicodeEncoding($false,$true)
           foreach($r in @("$mql5\Experts\BlackDragon","$mql5\Include\BlackDragon","$mql5\Scripts\BlackDragon")){if(Test-Path $r){Get-ChildItem $r -Recurse -File|Where-Object{$_.Extension -in '.mq5','.mqh'}|ForEach-Object{$txt=Get-Content $_.FullName -Raw -Encoding UTF8;[IO.File]::WriteAllText($_.FullName,$txt,$enc)}}}
-      - name: Compile final EA and 22 native suites
+      - name: Compile final EA and 23 native suites
         shell: pwsh
         run: |
-          $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-t1714-final";New-Item -ItemType Directory -Force $b|Out-Null
-          $names=@('RunT1714RuntimeTests','RunT1713ConcurrencyTests','RunT1712RuntimeTests','RunT1711RuntimeTests','RunT1710UnitSystemTests','RunT179RealTpTests','RunT178RuntimeFixTests','RunT177SchedulerTests','RunT177AnchorTests','RunT177OverlapTests','RunT177HedgeLadderTests','RunT177MigrationTests','RunT177JournalTests','RunTests','RunRecoveryMutationTests','RunRecoveryIdentityTests','RunRecoveryArcsTests','RunRecoveryLivenessTests','RunRecoveryReachabilityTests','RunRecoveryT165Tests','RunRecoveryT166Tests','RunT176HardeningTests')
+          $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-t1715-final";New-Item -ItemType Directory -Force $b|Out-Null
+          $names=@('RunT1715OverlapCapabilityTests','RunT1714RuntimeTests','RunT1713ConcurrencyTests','RunT1712RuntimeTests','RunT1711RuntimeTests','RunT1710UnitSystemTests','RunT179RealTpTests','RunT178RuntimeFixTests','RunT177SchedulerTests','RunT177AnchorTests','RunT177OverlapTests','RunT177HedgeLadderTests','RunT177MigrationTests','RunT177JournalTests','RunTests','RunRecoveryMutationTests','RunRecoveryIdentityTests','RunRecoveryArcsTests','RunRecoveryLivenessTests','RunRecoveryReachabilityTests','RunRecoveryT165Tests','RunRecoveryT166Tests','RunT176HardeningTests')
           foreach($n in $names){$src="$mql5\Scripts\BlackDragon\Tests\$n.mq5";$out="$mql5\Scripts\BlackDragon\Tests\$n.ex5";$log="$b\$n-compile.log";Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $out)-or$e.Count-or$w.Count){throw "$n compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $out $b -Force}
           $src="$mql5\Experts\BlackDragon\BlackDragon.mq5";$out="$mql5\Experts\BlackDragon\BlackDragon.ex5";$log="$b\BlackDragon-compile.log";Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $out)-or$e.Count-or$w.Count){throw "BlackDragon compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $out $b -Force
-          $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim();$hash=(Get-FileHash "$b\BlackDragon.ex5" -Algorithm SHA256).Hash.ToLowerInvariant();$size=(Get-Item "$b\BlackDragon.ex5").Length;"HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$hash`nBLACKDRAGON_EX5_SIZE=$size`nRUN_ID=$env:GITHUB_RUN_ID`nRUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT`n"|Out-File "$b\PROVENANCE.txt" -Encoding utf8;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\docs\vibecode\T17_14_OWNER_QA_CHECKLIST.md" $b -Force;Write-Host "FINAL T17.14 MetaEditor PASS 0 errors/0 warnings HEAD=$head TREE=$tree EX5=$hash SIZE=$size"
-      - name: Execute final 22-suite native matrix
+          $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim();$hash=(Get-FileHash "$b\BlackDragon.ex5" -Algorithm SHA256).Hash.ToLowerInvariant();$size=(Get-Item "$b\BlackDragon.ex5").Length;"HEAD=$head`nTREE=$tree`nBLACKDRAGON_EX5_SHA256=$hash`nBLACKDRAGON_EX5_SIZE=$size`nRUN_ID=$env:GITHUB_RUN_ID`nRUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT`n"|Out-File "$b\PROVENANCE.txt" -Encoding utf8;Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\docs\vibecode\T17_15_OWNER_QA_CHECKLIST.md" $b -Force;Write-Host "FINAL T17.15 MetaEditor PASS 0 errors/0 warnings HEAD=$head TREE=$tree EX5=$hash SIZE=$size"
+      - name: Execute final 23-suite native matrix
         shell: pwsh
         run: |
-          $b="$env:GITHUB_WORKSPACE\build-t1714-final";$ld="$env:MT5_DIR\MQL5\Logs";$tests=@(
+          $b="$env:GITHUB_WORKSPACE\build-t1715-final";$ld="$env:MT5_DIR\MQL5\Logs";$tests=@(
+            @{N='RunT1715OverlapCapabilityTests';P='T17\.15 native Overlap capability:\s*(\d+) passed,\s*(\d+) failed';E=10},
             @{N='RunT1714RuntimeTests';P='T17\.14 native runtime:\s*(\d+) passed,\s*(\d+) failed';E=11},
             @{N='RunT1713ConcurrencyTests';P='T17\.13 native concurrency:\s*(\d+) passed,\s*(\d+) failed';E=23},
             @{N='RunT1712RuntimeTests';P='T17\.12 runtime tests:\s*(\d+) passed,\s*(\d+) failed';E=21},
@@ -137,15 +141,15 @@ jobs:
             @{N='RunRecoveryT166Tests';P='Recovery T16\.6 broker-min tests:\s*(\d+) passed,\s*(\d+) failed';E=16},
             @{N='RunT176HardeningTests';P='T17\.6 hardening tests:\s*(\d+) passed,\s*(\d+) failed';E=14})
           foreach($t in $tests){Get-Process terminal64 -ErrorAction SilentlyContinue|Stop-Process -Force;New-Item -ItemType Directory -Force $ld|Out-Null;Get-ChildItem $ld -Filter '*.log' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue;$cfg="$b\$($t.N).ini";$txt="[Common]`r`nNewsEnable=0`r`n[Experts]`r`nAllowLiveTrading=0`r`nAllowDllImport=0`r`nEnabled=1`r`n[StartUp]`r`nScript=BlackDragon\Tests\$($t.N)`r`nSymbol=EURUSD`r`nPeriod=M1`r`nShutdownTerminal=1`r`n";[IO.File]::WriteAllText($cfg,$txt,[Text.Encoding]::Unicode);$p=Start-Process "$env:MT5_DIR\terminal64.exe" -ArgumentList "/portable /config:`"$cfg`"" -PassThru;$dl=(Get-Date).AddMinutes(4);while(-not$p.HasExited-and(Get-Date)-lt$dl){Start-Sleep 2;$p.Refresh()};if(-not$p.HasExited){Stop-Process -Id $p.Id -Force;throw "$($t.N) timeout"};$logs=Get-ChildItem $ld -Filter '*.log'|Sort-Object LastWriteTime;if(-not$logs){throw "$($t.N) log missing"};$raw=Get-Content $logs[-1].FullName -Raw;Copy-Item $logs[-1].FullName "$b\$($t.N)-native.log" -Force;Write-Host $raw;$m=[regex]::Match($raw,$t.P);if(-not$m.Success-or[int]$m.Groups[1].Value-ne$t.E-or[int]$m.Groups[2].Value-ne0-or$raw-notmatch'ALL GREEN'){throw "$($t.N) native mismatch expected $($t.E)/0"}}
-          Write-Host 'FINAL T17.14 NATIVE MATRIX GREEN'
-      - name: Package final T17.14 owner-QA artifact
+          Write-Host 'FINAL T17.15 NATIVE MATRIX GREEN'
+      - name: Package final T17.15 owner-QA artifact
         shell: pwsh
         run: |
-          $b="$env:GITHUB_WORKSPACE\build-t1714-final";$zip="$env:GITHUB_WORKSPACE\BlackDragon-T17.14-FINAL-OWNER-QA.zip";Compress-Archive "$b\*" $zip -Force;$h=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();$z=(Get-Item $zip).Length;"PACKAGE_SHA256=$h`nPACKAGE_SIZE=$z"|Add-Content "$b\PROVENANCE.txt";Write-Host "FINAL_PACKAGE_SHA256=$h SIZE=$z"
+          $b="$env:GITHUB_WORKSPACE\build-t1715-final";$zip="$env:GITHUB_WORKSPACE\BlackDragon-T17.15-FINAL-OWNER-QA.zip";Compress-Archive "$b\*" $zip -Force;$h=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();$z=(Get-Item $zip).Length;"PACKAGE_SHA256=$h`nPACKAGE_SIZE=$z"|Add-Content "$b\PROVENANCE.txt";Write-Host "FINAL_PACKAGE_SHA256=$h SIZE=$z"
       - uses: actions/upload-artifact@v4
         with:
-          name: blackdragon-t1714-final-owner-qa
+          name: blackdragon-t1715-final-owner-qa
           path: |
-            build-t1714-final/
-            BlackDragon-T17.14-FINAL-OWNER-QA.zip
+            build-t1715-final/
+            BlackDragon-T17.15-FINAL-OWNER-QA.zip
           if-no-files-found: error

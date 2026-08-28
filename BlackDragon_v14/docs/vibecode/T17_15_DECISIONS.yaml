@@ -1,0 +1,23 @@
+schema_version: "1.0"
+task: T17.15
+decisions:
+  - id: D1715-01
+    status: ACCEPTED
+    decision: "HEDGE_BUILDING is coordinatable only through a live capability proof, never by state alone."
+    locking_tests: [quiet_building_coordinates, pending_channels_defer]
+  - id: D1715-02
+    status: ACCEPTED
+    decision: "Pending detection is read-only and global across the execution journal; admission must not reconcile as a side effect."
+    locking_tests: [execution_pending_defer, source_read_only_capability]
+  - id: D1715-03
+    status: ACCEPTED
+    decision: "Block a Core trim before mutation when retained Hedge would exceed the effective absolute cap."
+    locking_tests: [projected_68_over_63_blocks, flat_core_retains_no_hedge]
+  - id: D1715-04
+    status: ACCEPTED
+    decision: "Refresh a BUILDING target from broker-observed Core/Hedge after trim and persist it before ladder continuation."
+    locking_tests: [core80_target22, ladder_remaining4]
+  - id: D1715-05
+    status: REJECTED
+    decision: "Do not auto-trim retained Hedge to make an otherwise over-cap Overlap pair admissible."
+    rationale: "That would add a new risk/execution semantic outside owner-approved scope."

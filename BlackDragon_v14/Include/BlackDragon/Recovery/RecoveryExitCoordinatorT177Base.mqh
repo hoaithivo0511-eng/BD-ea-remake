@@ -254,11 +254,12 @@ public:
                return recovery_EXIT_BLOCKED;
             }
             if(m_cycle[idx].reconcileHold) return recovery_EXIT_BLOCKED;
-            eRecoveryOverlapPolicy p = Recovery_OverlapPolicyPure(cycle.state);
-            if(p == recovery_OVERLAP_DEFER || !m_recovery.ActiveReady())
+            if(m_cycle[idx].active) return recovery_EXIT_LATCHED;
+            eRecoveryOverlapPolicy p = OverlapCapabilityPolicy(dir);
+            if(p == recovery_OVERLAP_DEFER)
             {
                Log_Warn("Recovery", "t16overlapdefer" + (string)Recovery_CycleKey(dir),
-                        "T16.2 defer Overlap: Recovery đang ở mutation/lock/global/reconcile state");
+                        "T17.15 defer Overlap: capability chưa quiet (Recovery request/journal/coordinator đang pending)");
                return recovery_EXIT_BLOCKED;
             }
             if(p == recovery_OVERLAP_BYPASS && !m_recovery.T16HasExposure(dir))
@@ -267,19 +268,35 @@ public:
                                                                         secondTicket,
                                                                         reason, now);
             if(firstTicket == 0 && secondTicket == 0) return recovery_EXIT_BLOCKED;
-            if(m_cycle[idx].active) return recovery_EXIT_LATCHED;
 
             long currentCore = CoreMagicUnits(dir);
             long intendedCoreClose = CoreMagicUnitsForTicket(dir, firstTicket);
             if(secondTicket != 0 && secondTicket != firstTicket)
                intendedCoreClose += CoreMagicUnitsForTicket(dir, secondTicket);
 
+            long projectedCore = Recovery_ExitPostCoreUnits(currentCore,
+                                                             intendedCoreClose);
+            long retainedHedge = m_recovery.T16CurrentHedgeUnits(dir);
+            double hardCap = Recovery_T177EffectiveHedgeAbsoluteMaxCoveragePercent();
+            if(!Recovery_OverlapRetainedWithinHardCapPure(projectedCore,
+                                                          retainedHedge,
+                                                          hardCap))
+            {
+               Log_Warn("Recovery", "t1715overcap" + (string)Recovery_CycleKey(dir),
+                        "T17.15 chặn Overlap trước mutation: retained Hedge=" +
+                        DoubleToString(Recovery_UnitsToVolume(retainedHedge,
+                           SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP)), 2) +
+                        " vượt hard cap sau projected Core=" +
+                        DoubleToString(Recovery_UnitsToVolume(projectedCore,
+                           SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP)), 2));
+               return recovery_EXIT_BLOCKED;
+            }
+
             m_cycle[idx].active          = true;
             m_cycle[idx].reconcileHold   = false;
             m_cycle[idx].kind            = recovery_EXIT_COORD_TICKETS;
             m_cycle[idx].reason          = reason;
-            m_cycle[idx].targetCoreUnits = Recovery_ExitPostCoreUnits(currentCore,
-                                                                       intendedCoreClose);
+            m_cycle[idx].targetCoreUnits = projectedCore;
             m_cycle[idx].ticketFirst     = firstTicket;  // Strategy passes last first.
             m_cycle[idx].ticketSecond    = secondTicket;
             m_cycle[idx].ticketCount     = secondTicket != 0 && secondTicket != firstTicket ? 2 : 1;

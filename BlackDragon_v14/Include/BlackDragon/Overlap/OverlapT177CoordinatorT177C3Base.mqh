@@ -363,11 +363,10 @@ private:
       if(RecoveryMode_ != recovery_ACTIVE || m_recovery == NULL ||
          m_recoveryExit == NULL)
          return overlap_T177_ROUTE_DIRECT;
-      SRecoveryCycle cycle;
-      m_recovery.GetCycle(RecoveryDir(dir), cycle);
-      eRecoveryOverlapPolicy p = Recovery_OverlapPolicyPure(cycle.state);
+      eRecoveryOverlapPolicy p =
+         m_recoveryExit.OverlapCapabilityPolicy(RecoveryDir(dir));
       if(p == recovery_OVERLAP_BYPASS) return overlap_T177_ROUTE_DIRECT;
-      if(p == recovery_OVERLAP_DEFER || !m_recovery.ActiveReady())
+      if(p == recovery_OVERLAP_DEFER)
       { defer = true; return overlap_T177_ROUTE_NONE; }
       return overlap_T177_ROUTE_RECOVERY;
    }
