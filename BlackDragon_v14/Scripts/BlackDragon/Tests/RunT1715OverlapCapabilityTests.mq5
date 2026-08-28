@@ -1,6 +1,7 @@
 #property strict
 #include <BlackDragon/Recovery/RecoveryMutationPolicy.mqh>
 #include <BlackDragon/Recovery/RecoveryT16Config.mqh>
+#include <BlackDragon/Recovery/RecoveryT177HedgeLadder.mqh>
 
 int g_pass=0,g_fail=0;
 void T(const bool ok,const string name)
