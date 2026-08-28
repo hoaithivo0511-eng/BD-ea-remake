@@ -26,6 +26,22 @@ private:
       return Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_);
    }
 
+   void ClearBuildingAdmissionC4(SArcsLayer &l) const
+   {
+      l.tpBaselineUnits = 0;
+      l.tpTargetCloseUnits = 0;
+      l.tpObservedCloseUnits = 0;
+   }
+
+   void AdmitBuildingStageC4(SArcsLayer &l,
+                             const int stageNo,
+                             const long stageTargetUnits) const
+   {
+      l.tpBaselineUnits = stageTargetUnits;
+      l.tpTargetCloseUnits = (long)stageNo;
+      l.tpObservedCloseUnits = 0;
+   }
+
    void LogWaitC4(const eRecoveryCoreDirection dir,
                   const int generation,
                   const string reason)
@@ -205,6 +221,7 @@ private:
       l.targetUnits=live;
       l.openedUnits=live;
       l.remainingUnits=live;
+      ClearBuildingAdmissionC4(l);
       l.state=ARCS_LAYER_ACTIVE;
       PutLayer(dir,li,l);
       m_dir[C4Idx(dir)].phase=ARCS_ACTIVE;
@@ -359,6 +376,7 @@ private:
       {
          long old=l.targetUnits;
          l.targetUnits=finalTarget;
+         ClearBuildingAdmissionC4(l);
          PutLayer(dir,li,l);
          m_dirty=true;
          if(!Save(why)) return true;
@@ -371,6 +389,7 @@ private:
 
       if(live==l.targetUnits)
       {
+         ClearBuildingAdmissionC4(l);
          l.state=ARCS_LAYER_ACTIVE;
          PutLayer(dir,li,l);
          m_dir[di].phase=ARCS_ACTIVE;
@@ -396,8 +415,12 @@ private:
          return false;
       }
 
-      bool continuingPartialStage=live>previousTarget;
-      if(!continuingPartialStage&&live>0)
+      int effectiveStageNo=stage+1;
+      bool brokerPartialStage=Recovery_T1716BrokerPartialStagePure(
+         live,previousTarget,effectiveStageNo,
+         plan[stage].generationTargetUnits,
+         (int)l.tpTargetCloseUnits,l.tpBaselineUnits);
+      if(!brokerPartialStage&&live>0)
       {
          SArcsPosition pos[];
          Recovery_ArcsBuildLayerPositions(dir,l.generation,m_volumeStep,pos);
@@ -490,12 +513,18 @@ private:
       double volume=Recovery_UnitsToVolume(child,meta.volumeStep);
       SArcsPosition pos[];
       int childNo=1+Recovery_ArcsBuildLayerPositions(dir,l.generation,m_volumeStep,pos);
-      int effectiveStageNo=stage+1;
       string comment="BDR|C="+(string)key+
                      "|G="+(string)l.generation+
                      "|B="+(string)l.bundleId+
                      "|P="+(string)effectiveStageNo+
                      "|N="+(string)childNo;
+      // Persist the admitted logical stage before the broker mutation. Only
+      // children completing this exact stage/target may bypass the next-stage
+      // timing/gap/profit gates. A Core denominator rebase clears this marker.
+      AdmitBuildingStageC4(l,effectiveStageNo,
+                           plan[stage].generationTargetUnits);
+      PutLayer(dir,li,l);
+      m_dirty=true;
       if(!SaveBeforeMutation(why)) return true;
       bool accepted=exec.OpenMarketOwned(hedgeDir,volume,
                                          (long)RecoveryMagic_,key,
@@ -582,6 +611,7 @@ private:
       l.targetUnits=refreshed;
       l.openedUnits=live;
       l.remainingUnits=live;
+      ClearBuildingAdmissionC4(l);
       if(live==refreshed&&live>0)
       {
          l.state=ARCS_LAYER_ACTIVE;

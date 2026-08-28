@@ -70,6 +70,20 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
 
+   bool anyLossStopEnabled=SL_>0.0 || MoneySLAllAccount<0.0 ||
+                           MoneySLAll<0.0 || MoneySLBuy<0.0 ||
+                           MoneySLSell<0.0 || DailySLMoney<0.0 ||
+                           DailySLPercent<0.0 || EnableGlobalHedgeSL_;
+   if(Recovery_T1716UnsafeGrowthEnvelopePure(
+         RecoveryMode_,ContinueDcaAfterHedge_,CorePyramidMode_,
+         PyramidMaxAdds_,MaxOrdersBuy,MaxOrdersSell,
+         PyramidMaxTotalLots_,PyramidRiskBudgetPercent_,
+         anyLossStopEnabled))
+      Log_Warn("Init","t1716unsafe",
+               "CẢNH BÁO T17.16: Recovery tiếp tục DCA + Pyramid tái kích hoạt "
+               "đang dùng toàn bộ side cap, không lot/risk budget và không SL; "
+               "đây là cấu hình stress có nguy cơ cạn margin");
+
    string unitWhy = "";
    if(!Config_BindUnitProfile(Sym_IsGold(), _Point, _Digits,
                               SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), unitWhy))

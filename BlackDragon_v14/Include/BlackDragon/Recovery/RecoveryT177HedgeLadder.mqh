@@ -9,6 +9,24 @@
 
 #define BD_T177_HEDGE_LADDER_POLICY_REV 1
 
+// T17.16: while a layer is BUILDING, the TP-close ledger fields are not yet
+// active. They durably carry the currently-admitted logical Hedge stage so a
+// broker-split child can continue after restart without letting a later Core
+// denominator rebase impersonate that partial child.
+bool Recovery_T1716BrokerPartialStagePure(const long liveUnits,
+                                           const long previousStageTargetUnits,
+                                           const int currentStageNo,
+                                           const long currentStageTargetUnits,
+                                           const int admittedStageNo,
+                                           const long admittedStageTargetUnits)
+{
+   if(liveUnits <= previousStageTargetUnits ||
+      liveUnits >= currentStageTargetUnits)
+      return false;
+   return admittedStageNo == currentStageNo &&
+          admittedStageTargetUnits == currentStageTargetUnits;
+}
+
 struct SRecoveryT177HedgeStage
 {
    int    sourceIndex;

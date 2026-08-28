@@ -1,8 +1,8 @@
-project: BlackDragon Adaptive Recovery / T17.15
+project: BlackDragon Adaptive Recovery / T17.16
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
-release_state: DRAFT_T17_15_BUILD_VERIFY
+release_state: DRAFT_T17_16_BUILD_VERIFY
 merge_allowed: false
 ready_for_review: false
 
@@ -10,6 +10,13 @@ methodology: VibeCodeKit-MQL5 Full
 workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
 
 stages:
+  T17_16_rebase_capacity_safety:
+    status: BUILD_VERIFY
+    contract: exact-stage broker-partial authority; rebase safety-gate replay; shared restart-durable NO_MONEY embargo
+    baseline_head: 666d56293bdd2a42c972ca09074e359ff7ba6d9d
+    baseline_tree: 5aaecd7987f62a9afc1169312e38ff2ee0b4bf00
+    source_of_truth: owner-log-and-approved-plan-2026-08-28
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
   T17_15_overlap_building_capability:
     status: BUILD_VERIFY
     contract: capability-gated HEDGE_BUILDING Overlap; projected retained-Hedge hard cap; broker-fresh post-trim ladder target
@@ -88,8 +95,8 @@ runtime_release_gates:
   forward_live: NOT_ELIGIBLE
 
 owner_strategy_tester:
-  status: PENDING_T17_15_OWNER_RERUN
-  checklist: BlackDragon_v14/docs/vibecode/T17_15_OWNER_QA_CHECKLIST.md
+  status: PENDING_T17_16_OWNER_RERUN
+  checklist: BlackDragon_v14/docs/vibecode/T17_16_OWNER_QA_CHECKLIST.md
   required_after_final_artifact: true
 
 known_release_rules:

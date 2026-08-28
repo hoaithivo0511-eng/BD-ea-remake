@@ -119,6 +119,24 @@ eExecSubmitDisposition Exec_SubmitDispositionPure(const bool accepted,
    return EXEC_SUBMIT_REJECTED;
 }
 
+// T17.16 account-capacity circuit breaker. A broker NO_MONEY response is an
+// account-wide capacity fact, not a one-bar DCA fact. Risk-increasing opens
+// stay embargoed until free margin covers the rejected request plus a 10%
+// recovery buffer; closes and SL/TP maintenance never pass through this gate.
+double Exec_RiskAddRecoveryThresholdPure(const double requiredMargin)
+{
+   return requiredMargin > 0.0 ? requiredMargin * 1.10 : 0.0;
+}
+
+bool Exec_RiskAddEmbargoBlocksPure(const bool active,
+                                   const double freeMargin,
+                                   const double recoveryThreshold)
+{
+   if(!active) return false;
+   if(recoveryThreshold <= 0.0) return true;
+   return freeMargin + 1e-8 < recoveryThreshold;
+}
+
 bool Exec_AmbiguousRetcode(const uint rc)
 {
    return rc == TRADE_RETCODE_TIMEOUT || rc == TRADE_RETCODE_CONNECTION;
@@ -306,6 +324,104 @@ private:
    datetime m_legacyIntentBar[2];
    double m_legacyIntentRequiredMargin[2];
    SExecSubmitOutcome m_capacityReject[2];
+   bool m_riskAddEmbargoActive;
+   double m_riskAddRecoveryThreshold;
+   double m_riskAddRequiredMargin;
+   double m_riskAddFreeAtReject;
+   string m_riskAddEmbargoKey;
+
+   bool IsRiskAddAction(const eIntent action) const
+   {
+      return action == INTENT_OPEN_BUY || action == INTENT_OPEN_SELL;
+   }
+
+   string RiskAddEmbargoKey() const
+   {
+      string key = "BD_CAP_" + (string)AccountInfoInteger(ACCOUNT_LOGIN) +
+                   "_" + _Symbol + "_" + (string)Magic;
+      return StringSubstr(key,0,63);
+   }
+
+   bool HasSymbolExposure() const
+   {
+      for(int i=PositionsTotal()-1;i>=0;i--)
+      {
+         ulong ticket=PositionGetTicket(i);
+         if(ticket!=0 && PositionGetString(POSITION_SYMBOL)==_Symbol)
+            return true;
+      }
+      return false;
+   }
+
+   double RequiredMarginForOpen(const eIntent action,
+                                const string symbol,
+                                const double volume) const
+   {
+      if(!IsRiskAddAction(action) || symbol=="" || volume<=0.0) return 0.0;
+      MqlTick tick;
+      if(!SymbolInfoTick(symbol,tick)) return 0.0;
+      ENUM_ORDER_TYPE type=action==INTENT_OPEN_BUY?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+      double price=action==INTENT_OPEN_BUY?tick.ask:tick.bid;
+      double required=0.0;
+      if(!OrderCalcMargin(type,symbol,volume,price,required)) return 0.0;
+      return MathMax(0.0,required);
+   }
+
+   void PersistRiskAddEmbargo()
+   {
+      if(m_riskAddEmbargoKey=="") return;
+      if(m_riskAddEmbargoActive && m_riskAddRecoveryThreshold>0.0)
+         GlobalVariableSet(m_riskAddEmbargoKey,m_riskAddRecoveryThreshold);
+      else if(GlobalVariableCheck(m_riskAddEmbargoKey))
+         GlobalVariableDel(m_riskAddEmbargoKey);
+   }
+
+   void ClearRiskAddEmbargo(const string reason)
+   {
+      if(!m_riskAddEmbargoActive) return;
+      m_riskAddEmbargoActive=false;
+      m_riskAddRecoveryThreshold=0.0;
+      m_riskAddRequiredMargin=0.0;
+      m_riskAddFreeAtReject=0.0;
+      PersistRiskAddEmbargo();
+      Log_Info("Exec","T17.16 capacity embargo cleared | "+reason);
+   }
+
+   void LatchRiskAddEmbargo(const eIntent action,
+                            const string symbol,
+                            const double volume)
+   {
+      if(!IsRiskAddAction(action)) return;
+      double required=RequiredMarginForOpen(action,symbol,volume);
+      double threshold=Exec_RiskAddRecoveryThresholdPure(required);
+      // If the broker omitted enough data to calculate margin, keep the
+      // existing stronger threshold; a zero-threshold latch remains fail-closed.
+      if(!m_riskAddEmbargoActive || threshold>m_riskAddRecoveryThreshold)
+      {
+         m_riskAddRecoveryThreshold=threshold;
+         m_riskAddRequiredMargin=required;
+      }
+      m_riskAddEmbargoActive=true;
+      m_riskAddFreeAtReject=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      PersistRiskAddEmbargo();
+      Log_Warn("Exec","t1716capacity",
+               "NO_MONEY: khóa mọi lệnh tăng rủi ro | free="+
+               DoubleToString(m_riskAddFreeAtReject,2)+
+               " required="+DoubleToString(m_riskAddRequiredMargin,2)+
+               " reopenAt="+DoubleToString(m_riskAddRecoveryThreshold,2));
+   }
+
+   bool RiskAddEmbargoBlocks()
+   {
+      if(!m_riskAddEmbargoActive) return false;
+      double free=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      if(!Exec_RiskAddEmbargoBlocksPure(true,free,m_riskAddRecoveryThreshold))
+      {
+         ClearRiskAddEmbargo("free margin="+DoubleToString(free,2));
+         return false;
+      }
+      return true;
+   }
 
    bool RetcodeOk(const uint rc) const
    {
@@ -605,6 +721,9 @@ private:
    {
       if(i < 0 || i >= ArraySize(m_journal) || retcode != TRADE_RETCODE_NO_MONEY)
          return;
+      LatchRiskAddEmbargo(m_journal[i].action,
+                          m_journal[i].symbol,
+                          m_journal[i].volume);
       if(m_journal[i].commandType != EXEC_CMD_LEGACY) return;
       int dir = -1;
       if(m_journal[i].action == INTENT_OPEN_BUY) dir = BD_DIR_BUY;
@@ -652,6 +771,8 @@ private:
       {
          if(!OrderSendAsync(req, res) || res.retcode != TRADE_RETCODE_PLACED)
          {
+            if(res.retcode==TRADE_RETCODE_NO_MONEY)
+               LatchRiskAddEmbargo(action,req.symbol,req.volume);
             outcome.retcode = res.retcode;
             outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
             Log_Warn("Exec", "async" + (string)action, "OrderSendAsync rejected, retcode=" + (string)res.retcode);
@@ -713,6 +834,8 @@ private:
       }
       Log_Warn("Exec", "send" + (string)action,
                "OrderSend failed retcode=" + (string)res.retcode + " comment=" + res.comment);
+      if(res.retcode==TRADE_RETCODE_NO_MONEY)
+         LatchRiskAddEmbargo(action,req.symbol,req.volume);
       outcome.retcode = res.retcode;
       outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
       return false;
@@ -735,6 +858,22 @@ public:
       m_asyncAllowed = !MQLInfoInteger(MQL_TESTER);
       m_busyOpenBuy  = false;
       m_busyOpenSell = false;
+      m_riskAddEmbargoKey=RiskAddEmbargoKey();
+      m_riskAddEmbargoActive=false;
+      m_riskAddRecoveryThreshold=0.0;
+      m_riskAddRequiredMargin=0.0;
+      m_riskAddFreeAtReject=0.0;
+      if(!HasSymbolExposure() && GlobalVariableCheck(m_riskAddEmbargoKey))
+         GlobalVariableDel(m_riskAddEmbargoKey);
+      if(HasSymbolExposure() && GlobalVariableCheck(m_riskAddEmbargoKey))
+      {
+         m_riskAddRecoveryThreshold=GlobalVariableGet(m_riskAddEmbargoKey);
+         m_riskAddEmbargoActive=m_riskAddRecoveryThreshold>0.0;
+         if(m_riskAddEmbargoActive)
+            Log_Warn("Exec","t1716capacityrestore",
+                     "khôi phục capacity embargo | reopenAt="+
+                     DoubleToString(m_riskAddRecoveryThreshold,2));
+      }
       for(int dir=BD_DIR_BUY; dir<=BD_DIR_SELL; dir++)
       {
          m_capacityRejectReady[dir] = false;
@@ -845,6 +984,15 @@ public:
       double requested = volume;
       volume = Grid_NormalizeVolume(volume);
       if(volume <= 0) return false;
+      if(RiskAddEmbargoBlocks())
+      {
+         outcome.disposition=EXEC_SUBMIT_CAPACITY_BLOCKED;
+         outcome.retcode=TRADE_RETCODE_NO_MONEY;
+         outcome.normalizedVolume=volume;
+         outcome.requiredMargin=m_riskAddRecoveryThreshold;
+         outcome.freeMargin=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+         return false;
+      }
       if(MathAbs(volume - requested) > 1e-12)
          Log_Info("Exec", "order #" + IntegerToString(dcaIndex) + " lot adjusted: requested " +
                   DoubleToString(requested, 3) + " -> using " + DoubleToString(volume, 3) +
@@ -896,6 +1044,7 @@ public:
       if(!License_Check() || ownerMagic <= 0 || cycleKey == 0) return false;
       volume = Grid_NormalizeVolume(volume);
       if(volume <= 0) return false;
+      if(RiskAddEmbargoBlocks()) return false;
       MqlTick tick;
       if(!SymbolInfoTick(_Symbol, tick)) return false;
       MqlTradeRequest req; MqlTradeResult res;

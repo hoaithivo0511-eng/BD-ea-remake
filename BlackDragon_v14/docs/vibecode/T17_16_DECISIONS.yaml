@@ -1,0 +1,27 @@
+schema_version: "1.0"
+task: T17.16
+decisions:
+  - id: D1716-01
+    status: ACCEPTED
+    decision: "Preserve dynamic Hedge target rebase; distinguish an admitted broker-partial child by exact persisted stage number and target units."
+    rationale: "Disabling rebase would under-hedge approved Core growth; live > previousTarget alone cannot prove child identity."
+  - id: D1716-02
+    status: ACCEPTED
+    decision: "Use the dormant TP-close ledger fields as BUILDING-only stage admission storage and clear them before ACTIVE/TP semantics begin."
+    rationale: "This keeps v4 persistence byte-compatible while making restart behavior fail-closed for pre-T17.16 states."
+  - id: D1716-03
+    status: ACCEPTED
+    decision: "NO_MONEY creates an EA-wide risk-add embargo released at 110 percent of rejected request margin."
+    rationale: "Margin is account capacity; ten-percent hysteresis prevents immediate reject/reopen churn."
+  - id: D1716-04
+    status: ACCEPTED
+    decision: "Persist the embargo while symbol exposure exists; a flat symbol removes stale embargo state."
+    rationale: "Restart must not bypass a capacity event, while a fresh flat tester pass must remain isolated."
+  - id: D1716-05
+    status: ACCEPTED
+    decision: "Unsafe unbounded growth combinations emit a startup advisory rather than silently rewriting or rejecting the owner .set."
+    rationale: "The risk is visible without inventing new public inputs or changing stress-test semantics."
+  - id: D1716-06
+    status: REJECTED
+    decision: "Do not disable ContinueDcaAfterHedge_, Core Pyramid reactivation, Overlap or approved coverage targets."
+    rationale: "Those are owner-controlled semantics outside this defect fix."

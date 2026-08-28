@@ -207,6 +207,30 @@ bool Recovery_T17CrossInputsValidPure(const eRecoveryMode recoveryMode,
    return true;
 }
 
+// Advisory cross-validator for the exact runaway topology observed in the
+// owner log. It does not silently rewrite an approved .set; startup emits one
+// high-severity warning so an intentionally wide stress fixture remains usable.
+bool Recovery_T1716UnsafeGrowthEnvelopePure(
+   const eRecoveryMode recoveryMode,
+   const bool continueDcaAfterHedge,
+   const eCorePyramidMode corePyramidMode,
+   const int pyramidMaxAdds,
+   const int maxOrdersBuy,
+   const int maxOrdersSell,
+   const double pyramidMaxTotalLots,
+   const double pyramidRiskBudgetPercent,
+   const bool anyLossStopEnabled)
+{
+   int sideCap=MathMax(maxOrdersBuy,maxOrdersSell);
+   bool addCapConsumesWholeSide=sideCap>0 && pyramidMaxAdds>=sideCap;
+   bool noPyramidBudget=pyramidMaxTotalLots<=0.0 &&
+                        pyramidRiskBudgetPercent<=0.0;
+   return recoveryMode==recovery_ACTIVE && continueDcaAfterHedge &&
+          corePyramidMode==pyramid_TAI_KICH_HOAT &&
+          addCapConsumesWholeSide && noPyramidBudget &&
+          !anyLossStopEnabled;
+}
+
 bool Recovery_T17ValidateCrossInputs(string &why)
 {
    why = "";

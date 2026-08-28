@@ -1,0 +1,42 @@
+schema_version: "1.0"
+task: T17.16
+project: BlackDragon Adaptive Recovery / Hedge rebase and capacity safety
+status: CONTRACT_LOCKED
+baseline:
+  branch: feat/t17-full-pyramid
+  head: 666d56293bdd2a42c972ca09074e359ff7ba6d9d
+  tree: 5aaecd7987f62a9afc1169312e38ff2ee0b4bf00
+source_of_truth:
+  owner_log_sha256: 887d7551f798d1a7f9d354d80d288e1cc0eb492067a5379bd83a6e1d32d5cad4
+  owner_approval: chat-2026-08-28-deep-fix-plan
+risk:
+  tier: P0_P1
+  guards: [A1, A2, A3, A4, A5, A6, A8, A9, A10, A12]
+problem:
+  - Core denominator growth raised a previously satisfied Hedge stage target.
+  - live > previousTarget treated the refill as a broker-partial child and bypassed new-bar, gap and Hedge-profit lock.
+  - DCA NO_MONEY latched only one exact DCA intent; smaller Core Pyramid and Recovery opens continued consuming account capacity.
+invariants:
+  - Hedge target continues to track the current economic Core denominator and approved coverage ladder.
+  - Only a child of the exact persisted logical stage and exact persisted target may bypass next-stage timing/gap/profit gates.
+  - Any Core/Overlap target change clears prior stage admission before another Hedge OPEN.
+  - NO_MONEY blocks every subsequent risk-increasing OPEN through the shared execution layer.
+  - A new bar does not clear the shared embargo; free margin must reach 110 percent of the rejected request margin.
+  - CLOSE and SL/TP modification remain eligible while the embargo is active.
+  - Embargo survives restart while symbol exposure exists and clears on a flat symbol.
+  - No entry signal, lot sequence, coverage target, hard cap, Overlap economics or live-trading flag changes.
+acceptance_fixture:
+  sequence: economics-safe -> HEDGE_BUILDING -> coordinated Overlap -> target refresh -> ladder continuation
+  counterexample: stage target 0.34 lot satisfied; Core add rebases same stage to 0.37; losing Hedge must not refill
+  capacity: DCA NO_MONEY -> new bar -> Pyramid/Recovery/DCA remain blocked -> margin recovery -> one fresh admission
+evidence:
+  focused_model_source: REQUIRED
+  metaeditor_focused_and_full: REQUIRED_0_ERRORS_0_WARNINGS
+  native_t1716: REQUIRED
+  full_regression: REQUIRED_EXACT_HEAD
+  ex5_exact_final_head: REQUIRED
+  owner_strategy_tester: REQUIRED_AFTER_HANDOFF
+release:
+  merge: false
+  ready_for_review: false
+  forward_live: false
