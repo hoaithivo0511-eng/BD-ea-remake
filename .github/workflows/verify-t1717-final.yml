@@ -1,4 +1,4 @@
-name: Verify T17.17 Rebase Capacity Final
+name: Verify T17.17 Broker SL Flat Liveness Final
 
 on:
   push:
