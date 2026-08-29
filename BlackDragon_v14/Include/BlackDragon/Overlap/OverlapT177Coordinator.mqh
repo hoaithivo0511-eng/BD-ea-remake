@@ -124,6 +124,52 @@ public:
       return true;
    }
 
+   bool FinalizeConfirmedAccountWideFlat(const bool accountGuardCompleted,
+                                         string &why)
+   {
+      why = "";
+      bool executionPending = m_exec == NULL || m_exec.HasPending();
+      bool recoveryBlocking = m_recoveryExit == NULL ||
+                              m_recoveryExit.HasBlockingWork();
+      if(!Recovery_T1717VerifiedAccountFlatResetPure(accountGuardCompleted,
+                                                      PositionsTotal(),
+                                                      executionPending,
+                                                      recoveryBlocking))
+      {
+         why = "Overlap reset cần account guard complete + account flat + execution/Recovery quiet";
+         return false;
+      }
+
+      SOverlapT177Side oldBuy = m_side[0];
+      SOverlapT177Side oldSell = m_side[1];
+      bool oldLoadedBuy = m_loadedFromDisk[0];
+      bool oldLoadedSell = m_loadedFromDisk[1];
+      bool oldGlobalReconcile = m_globalReconcile;
+
+      ResetSide(0);
+      ResetSide(1);
+      m_globalReconcile = false;
+      bool saved = SaveAll(why);
+      bool persistenceSkipped = MQLInfoInteger(MQL_TESTER) &&
+                                !RecoveryTesterResumeState_;
+      if(saved && !persistenceSkipped &&
+         (FileIsExist(m_file) || FileIsExist(m_temp)))
+      {
+         saved = false;
+         why = "terminal Overlap flat reset còn sót state file";
+      }
+      if(saved)
+         return true;
+
+      m_side[0] = oldBuy;
+      m_side[1] = oldSell;
+      m_loadedFromDisk[0] = oldLoadedBuy;
+      m_loadedFromDisk[1] = oldLoadedSell;
+      m_globalReconcile = oldGlobalReconcile;
+      if(why == "") why = "không persist được terminal Overlap flat reset";
+      return false;
+   }
+
    bool Arm(const int dir, const ulong firstTicket, const ulong lastTicket,
             const datetime now, string &why)
    {

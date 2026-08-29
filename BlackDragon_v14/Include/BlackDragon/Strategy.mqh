@@ -418,6 +418,27 @@ private:
       return Overlap_T177ConsumesStrategyTickPure(od);
    }
 
+   void FinalizeOverlapAfterAccountGuard(const eGuardAction guardBefore,
+                                         const EAContext &ctx)
+   {
+      bool accountGuardCompleted =
+         guardBefore == GUARD_CLOSE_ACCOUNT && m_guardLatched == GUARD_NONE;
+      if(!accountGuardCompleted) return;
+
+      string overlapResetWhy = "";
+      bool overlapReset = m_overlap.FinalizeConfirmedAccountWideFlat(
+         true, overlapResetWhy);
+      if(Recovery_T1717RelatchAccountGuardPure(true, overlapReset))
+      {
+         m_guardLatched = GUARD_CLOSE_ACCOUNT;
+         if(m_guardLatchAt == 0) m_guardLatchAt = ctx.now;
+         Log_Error("Overlap", "T17.17 verified account flat nhưng chưa reset được Overlap; MoneyGuard được relatch để retry: " +
+                   overlapResetWhy);
+         return;
+      }
+      Log_Info("Overlap", "T17.17 verified account-wide flat — cleared obsolete Overlap obligations; Strategy remains closed for completion tick");
+   }
+
 public:
    void Init(CBasketManager *basket, CExecutionLayer *exec, ILotSizer *sizer,
              CMoneyGuard *guard, CDistancePlan *dist,
@@ -478,8 +499,10 @@ public:
          return;
       }
 
+      eGuardAction guardBeforePriority = m_guardLatched;
       if(ApplyGuardPriority(ctx))
       {
+         FinalizeOverlapAfterAccountGuard(guardBeforePriority, ctx);
          if(panelOpenBuy || panelOpenSell)
             Log_Warn("Strategy", "guardclose",
                      "panel open ignored because MoneyGuard close latch owns Strategy");

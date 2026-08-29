@@ -1,0 +1,28 @@
+schema_version: "1.0"
+task: T17.17
+decisions:
+  - id: D1717-01
+    status: ACCEPTED
+    decision: "Let exact ARCS Broker SL proof bypass generic external classification during an ordinary side close-cycle."
+    rationale: "Overlap ownership of a Core close does not invalidate the independently persisted Hedge SL identity."
+  - id: D1717-02
+    status: ACCEPTED
+    decision: "Keep the expected-SL bypass disabled during account-wide close."
+    rationale: "The global emergency owns all settlement and must retain its atomic finalization path."
+  - id: D1717-03
+    status: ACCEPTED
+    decision: "Reset Overlap only from the completed GUARD_CLOSE_ACCOUNT transition after all account/execution/Recovery quiet checks pass."
+    rationale: "Account flat removes every two-leg economic obligation; incidental symbol/side flat is insufficient authority."
+  - id: D1717-04
+    status: ACCEPTED
+    decision: "If Overlap reset persistence fails, restore fail-closed state and relatch the account guard for retry."
+    rationale: "A persistence failure must not reopen Strategy or disappear behind a one-shot completion event."
+  - id: D1717-05
+    status: REJECTED
+    decision: "Do not clear Overlap RECONCILE merely because PositionsTotal is zero on an arbitrary tick."
+    rationale: "That would make startup/callback ambiguity self-healing without a proven global close epoch."
+  - id: D1717-06
+    status: REJECTED
+    decision: "Do not weaken exact expected-SL owner/reason/target/fill evidence or generic external-close fail-closed behavior."
+    rationale: "The defect is concurrency authority, not insufficient strictness of broker-event identity."
+

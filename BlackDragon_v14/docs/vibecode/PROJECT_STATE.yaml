@@ -1,8 +1,8 @@
-project: BlackDragon Adaptive Recovery / T17.16
+project: BlackDragon Adaptive Recovery / T17.17
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
-release_state: DRAFT_T17_16_BUILD_VERIFY
+release_state: DRAFT_T17_17_BUILD_VERIFY
 merge_allowed: false
 ready_for_review: false
 
@@ -10,6 +10,13 @@ methodology: VibeCodeKit-MQL5 Full
 workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
 
 stages:
+  T17_17_broker_sl_overlap_flat_liveness:
+    status: LOCAL_DETERMINISTIC_PASS_EXACT_HEAD_CI_PENDING
+    contract: exact ARCS Broker SL remains internal during side-cycle; verified account guard flat atomically resets obsolete Overlap reconcile
+    baseline_head: 52f10b5c9b2d809dfe60850bb02a0c419b866149
+    baseline_tree: 05b3eb17d3adea935452242eb43ce418c70ae5cd
+    source_of_truth: owner-log-and-deep-audit-2026-08-29
+    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
   T17_16_rebase_capacity_safety:
     status: BUILD_VERIFY
     contract: exact-stage broker-partial authority; rebase safety-gate replay; shared restart-durable NO_MONEY embargo
@@ -95,8 +102,8 @@ runtime_release_gates:
   forward_live: NOT_ELIGIBLE
 
 owner_strategy_tester:
-  status: PENDING_T17_16_OWNER_RERUN
-  checklist: BlackDragon_v14/docs/vibecode/T17_16_OWNER_QA_CHECKLIST.md
+  status: PENDING_T17_17_OWNER_RERUN
+  checklist: BlackDragon_v14/docs/vibecode/T17_17_OWNER_QA_CHECKLIST.md
   required_after_final_artifact: true
 
 known_release_rules:

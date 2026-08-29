@@ -1,0 +1,47 @@
+schema_version: "1.0"
+task: T17.17
+project: BlackDragon Adaptive Recovery / concurrent broker-SL and flat-reset liveness
+status: CONTRACT_LOCKED
+baseline:
+  branch: feat/t17-full-pyramid
+  head: 52f10b5c9b2d809dfe60850bb02a0c419b866149
+  tree: 05b3eb17d3adea935452242eb43ce418c70ae5cd
+source_of_truth:
+  owner_log_sha256: abb6accfe563fc5e07e57e47b5451fec5457cceef1a3c4951320891d787ba713
+  audit_report_sha256: f854630eb3fadc2e828e600fcb352d0a8e8b48a6bd85a99e52af13f21d6af305
+  owner_approval: chat-2026-08-29-deep-fix
+risk:
+  tier: P0_P1
+  guards: [A1, A2, A3, A4, A5, A6, A7, A8, A10, A11, A12]
+problem:
+  - Exact Recovery Hedge broker SL was treated as external only because an Overlap side close-cycle was concurrently active.
+  - The resulting Recovery reconcile propagated into durable Overlap RECONCILE and starved every Strategy tick.
+  - Verified account-wide MoneyGuard flat reset Recovery but did not clear the now-obsolete Overlap obligation.
+invariants:
+  - Exact ARCS Broker SL identity is authoritative during an ordinary side coordinator cycle.
+  - Account-wide emergency remains authoritative and does not take the ordinary expected-SL bypass.
+  - Unknown owner, reason, programmed SL, fill tolerance or durable layer identity remains fail-closed.
+  - The ARCS engine still consumes the expected SL deal and refreshes its persisted layer ledger.
+  - Overlap may reset only on a completed account-wide guard epoch with zero account positions, a quiet execution journal and an idle Recovery exit coordinator.
+  - Reset clears both Overlap sides and global reconcile persistence atomically; failure restores fail-closed state and retries under the account guard latch.
+  - No input, entry, lot, coverage, TP, stop, Overlap economics or live-trading semantics change.
+acceptance_fixture:
+  sequence: Overlap Recovery-route cycle active -> exact ARCS broker SL callback -> MoneyTP account close -> verified flat
+  expected:
+    external_recovery_latch: false
+    arcs_deal_consumed: true
+    account_emergency_preemption: preserved
+    overlap_reconcile_after_verified_flat: false
+    same_tick_reopen: false
+evidence:
+  focused_model_source: REQUIRED
+  metaeditor_focused_and_full: REQUIRED_0_ERRORS_0_WARNINGS
+  native_t1717: REQUIRED
+  full_regression: REQUIRED_EXACT_HEAD
+  ex5_exact_final_head: REQUIRED
+  owner_strategy_tester: REQUIRED_AFTER_HANDOFF
+release:
+  merge: false
+  ready_for_review: false
+  forward_live: false
+

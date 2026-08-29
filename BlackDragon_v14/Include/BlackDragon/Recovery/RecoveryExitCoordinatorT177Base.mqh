@@ -9,6 +9,7 @@
 #include "RecoveryGlobalFlatten.mqh"
 #include "RecoveryMutationPolicy.mqh"
 #include "RecoveryExecutionIdentity.mqh"
+#include "RecoveryT1717StopLivenessPolicy.mqh"
 #include <BlackDragon/BasketManager.mqh>
 
 #define private protected
@@ -367,13 +368,19 @@ public:
             if(mapped && ownerMagic == (long)RecoveryMagic_)
             {
                int idx = Index(dir);
-               bool coordinatorOwned = m_accountWidePending || m_cycle[idx].active;
+               eRecoveryT1717CoordinatorOwner coordinatorOwner =
+                  Recovery_T1717CoordinatorOwnerPure(m_accountWidePending,
+                                                      m_cycle[idx].active);
+               bool coordinatorOwned = coordinatorOwner != RECOVERY_T1717_OWNER_NONE;
 
-               if(IsT16Arcs() && !coordinatorOwned &&
-                  m_recovery.T16ExpectedBrokerSlDeal(trans.deal))
+               bool exactExpectedArcsSl = IsT16Arcs() &&
+                  m_recovery.T16ExpectedBrokerSlDeal(trans.deal);
+               if(Recovery_T1717ExpectedArcsSlBypassPure(IsT16Arcs(),
+                                                         coordinatorOwner,
+                                                         exactExpectedArcsSl))
                {
                   Log_Info("Recovery", "t16sl" + (string)Recovery_CycleKey(dir),
-                           "T16 expected ARCS Broker SL executed — layer ownership retained; external latch skipped");
+                           "T17.17 expected ARCS Broker SL executed — exact Hedge ownership retained during side-cycle; external latch skipped");
                   return false;
                }
 

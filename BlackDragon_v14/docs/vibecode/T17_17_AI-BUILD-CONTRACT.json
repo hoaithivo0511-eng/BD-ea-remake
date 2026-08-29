@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "task": "T17.17",
+  "baseline_head": "52f10b5c9b2d809dfe60850bb02a0c419b866149",
+  "baseline_tree": "05b3eb17d3adea935452242eb43ce418c70ae5cd",
+  "allowed_files": [
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT177Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1717StopLivenessPolicy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Strategy.mqh",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/*1717*",
+    "BlackDragon_v14/docs/vibecode/T17_17_*",
+    "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+    ".github/workflows/verify-t1717-final.yml"
+  ],
+  "forbidden_semantic_changes": [
+    "public inputs or defaults",
+    "entry and sizing rules",
+    "Hedge ladder, target or hard cap",
+    "MoneyGuard threshold semantics",
+    "Overlap pair economics",
+    "live trading activation",
+    "merge or Ready-for-Review"
+  ],
+  "triggered_guards": ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A10", "A11", "A12"],
+  "required_tests": [
+    "exact ARCS SL bypasses external classification with side cycle active",
+    "account-wide pending retains coordinator ownership",
+    "invalid expected-SL proof remains fail-closed",
+    "verified global flat clears side/global Overlap reconcile",
+    "non-flat, pending journal or busy Recovery blocks reset",
+    "reset failure keeps account guard latched for retry",
+    "no reopen on the reset completion tick"
+  ],
+  "forbidden_claims": [
+    "the supplied log used the official T17.16 EX5",
+    "Strategy Tester PASS before exact-artifact owner rerun",
+    "forward/live eligible",
+    "profitability or safety guarantee"
+  ]
+}
+
