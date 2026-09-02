@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon T17 Full Pyramid test build    |
+//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.17 owner-QA build |
 //| Event handlers + module registration ONLY.                       |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14/T17."

@@ -1,96 +1,48 @@
-project: BlackDragon Adaptive Recovery / T17.17
+project: BlackDragon v15.00 / T17.17
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
-release_state: DRAFT_T17_17_BUILD_VERIFY
-merge_allowed: false
-ready_for_review: false
-
+pull_request_state: DRAFT_OPEN_NOT_MERGED
 methodology: VibeCodeKit-MQL5 Full
-workflow: SCAN -> RRI -> SPECIFY -> DECIDE -> CONTRACT -> PLAN -> BUILD -> VERIFY -> EVIDENCE -> RETRO
+
+canonical:
+  entry_point: BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
+  product_version: "15.00"
+  panel_version: "15.00"
+  runtime_lineage: T17.17
+  workflow: .github/workflows/verify-current.yml
+
+locked_cleanup_baseline:
+  remote_head: b87bd3cf3d3a1c23d748ed0b4addb95a8ea376b4
+  remote_tree: 2c1940de27fd6547eee17eb6c34683292c0d189e
+  local_tree_equal: true
+  pr_draft: true
+  repository_rulesets: 0
 
 stages:
   T17_17_broker_sl_overlap_flat_liveness:
-    status: LOCAL_DETERMINISTIC_PASS_EXACT_HEAD_CI_PENDING
-    contract: exact ARCS Broker SL remains internal during side-cycle; verified account guard flat atomically resets obsolete Overlap reconcile
-    baseline_head: 52f10b5c9b2d809dfe60850bb02a0c419b866149
-    baseline_tree: 05b3eb17d3adea935452242eb43ce418c70ae5cd
-    source_of_truth: owner-log-and-deep-audit-2026-08-29
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  T17_16_rebase_capacity_safety:
-    status: BUILD_VERIFY
-    contract: exact-stage broker-partial authority; rebase safety-gate replay; shared restart-durable NO_MONEY embargo
-    baseline_head: 666d56293bdd2a42c972ca09074e359ff7ba6d9d
-    baseline_tree: 5aaecd7987f62a9afc1169312e38ff2ee0b4bf00
-    source_of_truth: owner-log-and-approved-plan-2026-08-28
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  T17_15_overlap_building_capability:
-    status: BUILD_VERIFY
-    contract: capability-gated HEDGE_BUILDING Overlap; projected retained-Hedge hard cap; broker-fresh post-trim ladder target
-    baseline_head: eb9b963cab1ba996f23adf23fa9fe2a366e94fc3
-    baseline_tree: 4bd0a542957b80492ca6e6012320f2ad70a04e74
-    source_of_truth: owner-chat-2026-08-28-overlap-capability-approval
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  T17_14_runtime_interleave_liveness:
-    status: BUILD_VERIFY
-    contract: exact-proven protective-SL ownership refresh precedes Overlap validation; account MoneyGuard preempts Recovery hold through idempotent global flatten
-    baseline_head: e8b5a301db148c9aa797cdfa0772270125d5e036
-    baseline_tree: 24a53f2d19c99178e02ea0332ebb689957304be0
-    source_of_truth: owner-chat-2026-08-27-runtime-log-fix-approval
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  T17_13_nonexclusive_core_growth:
-    status: BUILD_VERIFY
-    contract: read-only Recovery/Overlap yields Core DCA and Pyramid ADD while mutation/reconcile remains exclusive
-    baseline_head: 47ae97f4ebae00beb46c2fa0f8efb49ac142b7c5
-    baseline_tree: 35144eaf9de8d20826b193d212c166cc24fdd46e
-    source_of_truth: owner-chat-2026-08-27
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  T17_11_runtime_liveness_admission:
-    status: BUILD_VERIFY
-    contract: per-direction scheduler liveness, terminal-no-Hedge DCA semantics, complete config validation, bounded NO_MONEY admission
-    baseline_head: e0ad9c59bac25e3e194d7bd917a80864cf4eecd9
-    baseline_tree: 87dff344c2879c9a2019677e10b26e81966614c8
-    source_of_truth: pr-comment-5419070453
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  T17_10_unit_system:
-    status: BUILD_VERIFY
-    contract: canonical price/tick profile with LEGACY_COMPAT default and explicit PIP_UNIFIED migration
-    baseline_head: 1ac8d3fd0080dd6a5ed1cf48b2dc5d43aba6d9f0
-    baseline_tree: 5779e104f00656f3444116a3ce44f13fc7dff8b8
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  T17_9_real_tp_interleave:
-    status: DETERMINISTIC_COMPLETE_OWNER_TESTER_PENDING
-    contract: strict pre-ownership TP proof, durable Recovery-owned exact-ID epoch, same-side settlement barrier, stale-ticket hardening
-    baseline_head: 0f608ef97a1265521ed32443b5d504ceb9b7ef8d
-    baseline_tree: affca27b84038e126ded6f73c373bf02a7fab6c0
-    strategy_tester: PENDING_OWNER_RERUN_AFTER_EX5
-  C1_scheduler:
-    status: COMPLETE
-    contract: Recovery WAIT yields without suppressing valid opposite-side work
-  C2_core_anchor:
-    status: COMPLETE
-    contract: DYNAMIC legacy parity plus FIRST_CORE_CUMULATIVE selectable anchor
-  C3_durable_overlap:
-    status: COMPLETE
-    contract: persist-before-mutate, broker-confirmed leg1, post-fill leg2 revalidation, restart-safe fail-closed
-  C4_hedge_ladder:
-    status: COMPLETE
-    contract: executable broker-unit ladder, staged de-dup, additive gaps, final target/hard-cap invariant
-    verified_head: d8171329556be0a8ca6ed34f9145c341e0876d4d
-    verified_tree: d1dc62dfc2ece9da0bc74a85e7a1acfaa8e25e01
-    native: 20/0
-    ex5_sha256: 054bf65b5daf233bad7d7c4f2aaed0bb6163016d5b4626e768ced84b0976094f
-    artifact_id: 9533056636
-  C5_input_migration:
-    status: COMPLETE_PENDING_FINAL_HEAD_REPLAY
-    contract: consolidated policy selectors, conditional fingerprint, legacy .set compatibility, active-state migration fail-closed
-  C6_vietnamese_journal:
-    status: COMPLETE_PENDING_FINAL_HEAD_REPLAY
-    contract: Vietnamese level vocabulary, throttled WAIT, human-readable technical reasons, one-time migration summary
-  C7_final_verify:
-    status: VERIFYING
-    workflow: .github/workflows/verify-t1713-final.yml
-    artifact: blackdragon-t1713-final-owner-qa
+    status: EXACT_HEAD_DETERMINISTIC_AND_WINDOWS_CI_PASS
+    verified_head: b87bd3cf3d3a1c23d748ed0b4addb95a8ea376b4
+    verified_tree: 2c1940de27fd6547eee17eb6c34683292c0d189e
+    workflow_run: 33270273234
+    model_source_job: 99147403114
+    native_job: 99147403240
+    ex5_sha256: 85db97f43450129f30a5247b78c88a625e11e0fe9f3b6933d1db411428746d55
+    strategy_tester: PENDING_OWNER
+  repository_hygiene:
+    status: LOCAL_BUILD_VERIFY
+    behavior_change: false
+    current_head: PENDING_REMOTE_COMMIT
+    current_tree: PENDING_LOCAL_COMMIT
+    contract: BlackDragon_v14/docs/vibecode/REPOSITORY_CLEANUP_AUDIT.md
+    gates:
+      include_graph: REQUIRED
+      version_parity: REQUIRED
+      all_models: REQUIRED
+      all_source_contracts: REQUIRED
+      metaeditor_full: REQUIRED_0_ERRORS_0_WARNINGS
+      native_scripts: REQUIRED_27_OF_27
+      exact_head_artifact: REQUIRED
 
 runtime_release_gates:
   deterministic_models: REQUIRED
@@ -98,16 +50,16 @@ runtime_release_gates:
   metaeditor_compile: REQUIRED_0_ERRORS_0_WARNINGS
   native_mt5_scripts: REQUIRED
   exact_head_provenance: REQUIRED
-  owner_strategy_tester: PENDING
-  forward_live: NOT_ELIGIBLE
+  owner_strategy_tester: PENDING_OWNER
+  ready_for_review: false
+  merge: false
+  release: false
+  forward: false
+  live: false
 
-owner_strategy_tester:
-  status: PENDING_T17_17_OWNER_RERUN
-  checklist: BlackDragon_v14/docs/vibecode/T17_17_OWNER_QA_CHECKLIST.md
-  required_after_final_artifact: true
-
-known_release_rules:
-  - Native compile PASS is not Strategy Tester PASS.
-  - Missing owner tester evidence remains PENDING, never inferred PASS.
-  - Do not merge or mark Ready-for-Review before explicit owner approval.
-  - Test only EX5 from exact final-owner-QA artifact and match SHA256 provenance.
+known_rules:
+  - Native compile and scripts are not Strategy Tester PASS.
+  - Versioned Base and T17.x wrapper names are live compatibility layers when reachable.
+  - Historical governance is frozen below docs/vibecode/archive.
+  - Remote branch deletion requires a separate owner-approved exact manifest.
+  - Never force-push local divergent ancestry; create a commit on exact remote parent and update ref with force=false.

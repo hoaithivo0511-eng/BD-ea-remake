@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| Config.mqh — BlackDragon v14.9.0                                 |
+//| Config.mqh — BlackDragon v15.00                                  |
 //| Purpose   : ALL user inputs + named constants. No trade logic.   |
 //| Invariants: retained input identifiers/default meanings stay     |
 //|             stable unless explicitly migrated by release notes.  |
@@ -176,7 +176,7 @@ input string FontNameButt = "Verdana";     // Font chữ nút điều khiển
 input color  ColorButt    = clrWhite;      // Màu chữ nút điều khiển
 input color  cCIP         = clrGray;       // Màu nền Panel
 
-#define BD_VERSION            "14.9.0"
+#define BD_VERSION            "15.00"
 #define BD_STATE_FILE_SUFFIX  "_BD_v14.bin"
 #define BD_OBJ_PREFIX         "ke_EA_BD_"
 #define BD_OBJ_PREFIX_REZ     "ke_Rez_EA_BD_"

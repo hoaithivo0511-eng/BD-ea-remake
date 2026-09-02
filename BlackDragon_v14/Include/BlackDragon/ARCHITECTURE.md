@@ -1,11 +1,18 @@
-# EA Black Dragon v14 — ARCHITECTURE.md
+# EA BlackDragon v15.00 / T17.17 — ARCHITECTURE.md
 
-> **Đọc file này trước khi sửa bất kỳ dòng code nào.** Đây là bản đồ module, luồng dữ liệu và các quy tắc bất khả xâm phạm. AI agent: dùng bảng "Tính năng → File" để định vị chỗ sửa; đừng đọc lan man ra ngoài file được chỉ định.
+> **Đọc file này trước khi sửa bất kỳ dòng code nào.** Các tên T16/T17.x
+> trong file/class là lớp compatibility đang được composition hiện hành dùng,
+> không phải nhiều bản EA có thể xóa độc lập.
 
 ## 1. Tổng quan
 
-- **Chiến lược (không đổi so với v13):** RSI(50) so với mức 50 trên nến đóng → hướng mở rổ; grid martingale ×1.5, khoảng cách 200pt cố định rồi ×1.2 động từ lệnh 6; thoát rổ bằng TP ảo (breakeven + 200pt), SL ảo, trailing ảo, Overlap từ lệnh 8; hedge 2 chiều.
-- **v14 thay đổi CÁCH code chạy, không thay đổi CÁI code quyết định** (trừ các bug fix được liệt kê trong CHANGELOG với deviation dự báo).
+- **Composition hiện hành:** signal → Core/DCA/Pyramid → Recovery ARCS/Hedge
+  Pyramid → Overlap/MoneyGuard → ExecutionLayer, với persistence và journal
+  fail-closed.
+- **T17.17:** exact ARCS broker-SL ownership và verified account-flat reset
+  không được làm coordinator starvation; T17.16 giữ shared NO_MONEY embargo
+  và stage-gate replay sau Hedge rebase.
+- Input/default và behavior cũ chỉ được đổi qua spec/decision/contract mới.
 
 ## 2. Luồng dữ liệu một chiều (bất khả xâm phạm)
 

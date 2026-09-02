@@ -1,5 +1,40 @@
 # CHANGELOG — EA Black Dragon (modular)
 
+## Repository hygiene — 2026-09-02
+
+- Khóa canonical identity v15.00 / runtime lineage T17.17.
+- Đồng bộ `BD_VERSION` với `#property version`; thay đổi chỉ ảnh hưởng
+  chuỗi Panel/About, không tham gia trade math hay persistence.
+- Một workflow exact-head thay 26 workflow lịch sử; matrix native mở rộng từ
+  25 lên đủ 27 script có trong repo.
+- Xóa một orphan header, benchmark mô phỏng cũ, generated CI result, bundled
+  skill và guide 14.7.1 sai thời; chuyển governance cũ vào frozen archive.
+- Thêm repository contract khóa include reachability, version parity, test
+  coverage và layout để rác không tái xuất hiện.
+
+## T17.17 — broker-SL ownership and verified-flat liveness
+
+- Exact persisted ARCS protective-SL remains internal during an ordinary
+  side coordinator cycle; account-wide emergency authority remains unchanged.
+- Verified account-wide guard flat clears obsolete Overlap side/global
+  reconcile atomically only after execution and Recovery are quiet.
+- Persistence failure restores fail-closed state and retries under the guard.
+
+## T17.16 — Hedge rebase admission and shared capacity embargo
+
+- Denominator rebase or post-Overlap target refresh invalidates old Hedge
+  stage admission; refill replays timing, gap and Pyramid-lock gates.
+- Broker `NO_MONEY` on any EA open path creates a shared, restart-durable
+  capacity embargo until free margin reaches 110% of rejected required margin.
+
+## T17.12–T17.15 — runtime concurrency/economic hardening
+
+- Preserved immediate raw-account MoneyTP authority and durable campaign debt.
+- Made read-only Recovery/Overlap waits non-exclusive to valid Core growth.
+- Strengthened protective-SL/Overlap/account-guard event ordering.
+- Capability-gated Overlap during Hedge build and capped projected retained
+  Hedge volume against the configured hard cap.
+
 ## T17.11 — Recovery runtime liveness and admission hardening
 
 - Scheduler treats a stable ACTIVE/no-TP wait as side-local and read-only, so
