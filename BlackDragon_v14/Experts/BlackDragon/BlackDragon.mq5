@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.17 owner-QA build |
+//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.18 headless build |
 //| Event handlers + module registration ONLY.                       |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14/T17."
@@ -23,6 +23,7 @@
 #include <BlackDragon/License.mqh>
 #include <BlackDragon/SignalEngine.mqh>
 #include <BlackDragon/WmfSignal.mqh>
+#include <BlackDragon/WmfSignalOverlay.mqh>
 #include <BlackDragon/GridEngine.mqh>
 #include <BlackDragon/EntryFilters.mqh>
 #include <BlackDragon/NewsCalendar.mqh>
@@ -31,13 +32,13 @@
 #include <BlackDragon/ExecutionLayer.mqh>
 #include <BlackDragon/MoneyGuard.mqh>
 #include <BlackDragon/MobileControl.mqh>
-#include <BlackDragon/Panel.mqh>
 #include <BlackDragon/Persistence.mqh>
 #include <BlackDragon/StrategyT1713.mqh>
 #include <BlackDragon/Filters/AdxFilter.mqh>
 
 CRsiStochSignal  g_sigBD;
 CWmfSignal       g_sigWMF;
+CWmfSignalOverlay g_wmfOverlay;
 ISignal         *g_signal = NULL;
 CBasketManager   g_basket;
 CExecutionLayer  g_exec;
@@ -51,7 +52,6 @@ CNewsCalendar    g_news;
 CMoneyGuard      g_guard;
 CTimeSchedule    g_schedule;
 CMobileControl   g_mobile;
-CPanel           g_panel;
 CStrategy        g_strategy;
 CAdxFilter      *g_adx = NULL;
 datetime         g_lastSavedHalt = 0;
@@ -174,7 +174,7 @@ int OnInit()
    g_news.Init();
    g_guard.Init();
    g_basket.SeedDayProfit();
-   g_panel.Init();
+   g_wmfOverlay.Init();
    g_strategy.Init(&g_basket, &g_exec, sizer, &g_guard, &g_distPlan,
                    &g_recovery, &g_recoveryExit, &g_pyramid);
 
@@ -207,8 +207,8 @@ int OnInit()
 
    g_lastSavedHalt = Cfg.HaltUntil;
 
-   EventSetMillisecondTimer(BD_PANEL_TIMER_MS);
-   Log_Info("Init", "EA Black Dragon T17 Pyramid test build started. ExecMode=" +
+   EventSetMillisecondTimer(BD_SERVICE_TIMER_MS);
+   Log_Info("Init", "EA Black Dragon T17.18 headless build started. ExecMode=" +
             (ExecMode == exec_Async ? "Async" : "Sync") +
             "; CorePyramid=" + (string)(int)CorePyramidMode_ +
             "; CoreAnchor=" + Pyramid_T177AnchorModeName(CorePyramidAnchorMode_) +
@@ -225,7 +225,7 @@ void OnDeinit(const int reason)
    g_strategy.Deinit();
    g_sigBD.Deinit();
    g_sigWMF.Deinit();
-   g_panel.Deinit(reason);
+   g_wmfOverlay.Deinit(reason);
 }
 
 //+------------------------------------------------------------------+
@@ -254,17 +254,17 @@ void OnTick()
    if(!BuildContext(ctx)) return;
    g_signal.Compute(ctx);
 
-   if(SignalSource_ == sig_WMF && ShowWmfSignals)
+   if(SignalSource_ == sig_WMF && g_wmfOverlay.Enabled())
    {
       SWmfMark marks[];
       int nMarks = g_sigWMF.TakePendingMarks(marks);
       for(int i = 0; i < nMarks; i++)
-         g_panel.MarkWmfSignal(marks[i].isBuy, marks[i].time, marks[i].price);
+         g_wmfOverlay.Mark(marks[i].isBuy, marks[i].time, marks[i].price);
    }
 
    g_basket.Update(ctx);
    g_recovery.OnTick(ctx);
-   g_strategy.OnTick(ctx, g_panel);
+   g_strategy.OnTick(ctx);
 }
 
 //+------------------------------------------------------------------+
@@ -278,21 +278,14 @@ void OnTimer()
       Log_Warn("Recovery", "exitcoordtimer", "T8 exit coordination: " + exitWhy);
    if(UseMobileControl && !MQLInfoInteger(MQL_TESTER))
       if(g_mobile.Scan(&g_exec))
-      {
-         g_panel.RedrawButtons();
          Persist_Save();
-      }
    g_basket.CheckDayRollover(TimeCurrent());
-   g_panel.ShowHalt(g_guard.HaltUntil(TimeCurrent()));
 
    if(Cfg.HaltUntil != g_lastSavedHalt)
    {
       g_lastSavedHalt = Cfg.HaltUntil;
       Persist_Save();
    }
-
-   g_panel.DrawLevels(g_basket.buy, g_basket.sell);
-   g_panel.Refresh(g_basket.buy.totalProfit, g_basket.sell.totalProfit, g_basket.DayProfit());
 }
 
 //+------------------------------------------------------------------+
@@ -324,9 +317,4 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    }
 }
 
-//+------------------------------------------------------------------+
-void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
-{
-   g_panel.OnEvent(id, lparam, dparam, sparam);
-}
 //+------------------------------------------------------------------+

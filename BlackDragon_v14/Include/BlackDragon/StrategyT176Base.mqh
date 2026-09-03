@@ -12,7 +12,6 @@
 #include "ExecutionLayer.mqh"
 #include "MoneyGuard.mqh"
 #include "StrategyT1714GuardPolicy.mqh"
-#include "Panel.mqh"
 #include "Pyramid/CorePyramid.mqh"
 #include "Recovery/RecoveryExitCoordinator.mqh"
 #include "Recovery/RecoveryT165GuardScope.mqh"
@@ -716,59 +715,12 @@ public:
    void AddNewSeriesFilter(IEntryFilter *f) { m_newSeriesFilters.Add(f); }
    void AddGridFilter(IEntryFilter *f)      { m_gridFilters.Add(f); }
 
-   void OnTick(const EAContext &ctx, CPanel &panel)
+   void OnTick(const EAContext &ctx)
    {
-      bool panelCloseBuy  = panel.TakeCloseBuy();
-      bool panelCloseSell = panel.TakeCloseSell();
-      bool panelOpenBuy   = panel.TakeOpenBuy();
-      bool panelOpenSell  = panel.TakeOpenSell();
-
-      // Explicit owner close remains allowed to short-circuit everything.
-      bool panelClose = false;
-      if(panelCloseBuy && m_basket.buy.count > 0)
-      {
-         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_BUY,
-                                                            recovery_EXIT_REASON_PANEL,
-                                                            ctx.now);
-         if(cr == recovery_EXIT_BYPASS)
-         {
-            m_exec.CloseBasket(m_basket.buy);
-            m_basket.Invalidate();
-         }
-         else if(cr == recovery_EXIT_BLOCKED)
-            Log_Warn("Recovery", "panelclose", "panel Close Buy blocked until Recovery reconciliation is safe");
-         panelClose = true;
-      }
-      if(panelCloseSell && m_basket.sell.count > 0)
-      {
-         eRecoveryExitCoordRequest cr = BeginFullSideClose(BD_DIR_SELL,
-                                                            recovery_EXIT_REASON_PANEL,
-                                                            ctx.now);
-         if(cr == recovery_EXIT_BYPASS)
-         {
-            m_exec.CloseBasket(m_basket.sell);
-            m_basket.Invalidate();
-         }
-         else if(cr == recovery_EXIT_BLOCKED)
-            Log_Warn("Recovery", "panelclose", "panel Close Sell blocked until Recovery reconciliation is safe");
-         panelClose = true;
-      }
-      if(panelClose)
-      {
-         DriveRecoveryExit(ctx.now);
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "panelclosewins", "panel open ignored because a panel close is active");
-         return;
-      }
-
       // P0: absolute floating-money guard is evaluated BEFORE any pending-open
       // short-circuit, Recovery mutation, Pyramid mutation, Seed or DCA.
       if(ApplyGuardPriority(ctx))
-      {
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "guardclose", "panel open ignored because MoneyGuard close latch owns Strategy");
          return;
-      }
 
       if(m_pyramid != NULL &&
          (m_pyramid.HasPending(BD_DIR_BUY) || m_pyramid.HasPending(BD_DIR_SELL)))
@@ -780,28 +732,18 @@ public:
       }
 
       if(m_exec.HasAnyPendingClose())
-      {
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "pendingclose", "panel open ignored while an async close is pending");
          return;
-      }
 
       RefreshPyramidCampaigns(ctx);
 
       // Daily/PctDiff are secondary to absolute-money guards but still precede
       // Recovery/legacy exits and all new risk mutations.
       if(ApplyGuardSecondary(ctx))
-      {
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Strategy", "guardsecondary", "panel open ignored because secondary MoneyGuard close latch owns Strategy");
          return;
-      }
 
       if(m_recoveryExit != NULL && m_recoveryExit.HasBlockingWork())
       {
          DriveRecoveryExit(ctx.now);
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Recovery", "cleanupactive", "panel open ignored while Recovery exit cleanup/reconciliation is active");
          return;
       }
 
@@ -813,8 +755,6 @@ public:
             if(recoveryWhy != "")
                Log_WarnEvery("Recovery", "activedrive", "ACTIVE mutation chain: " + recoveryWhy,
                              Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
-            if(panelOpenBuy || panelOpenSell)
-               Log_Warn("Recovery", "activewins", "panel open ignored because an ACTIVE Recovery mutation is in flight");
             return;
          }
       }
@@ -824,25 +764,8 @@ public:
       if(exitBuy || exitSell)
       {
          DriveRecoveryExit(ctx.now);
-         if(panelOpenBuy || panelOpenSell)
-            Log_Warn("Recovery", "basketclose", "panel open ignored because a basket exit fired");
          return;
       }
-
-      bool panelMutation = false;
-      if(panelOpenBuy)
-      {
-         if(m_exec.BusyOpen(BD_DIR_BUY)) Log_Warn("Strategy", "panelbusy", "panel Open Buy ignored: async open in flight");
-         else if(m_exec.OpenMarket(BD_DIR_BUY, Cfg.EditLot, m_basket.buy.count + 1))
-         { m_basket.Invalidate(); panelMutation = true; }
-      }
-      if(panelOpenSell)
-      {
-         if(m_exec.BusyOpen(BD_DIR_SELL)) Log_Warn("Strategy", "panelbusy", "panel Open Sell ignored: async open in flight");
-         else if(m_exec.OpenMarket(BD_DIR_SELL, Cfg.EditLot, m_basket.sell.count + 1))
-         { m_basket.Invalidate(); panelMutation = true; }
-      }
-      if(panelMutation) return;
 
       // Pyramid risk exit/add is evaluated before adverse DCA. ADD cannot hit
       // on the same adverse geometry; Peel remains urgent and may win the tick.

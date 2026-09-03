@@ -102,3 +102,10 @@ to make the PR tree reviewable.
 - Cleanup is accepted only after local contracts/models, exact-head Windows
   MetaEditor, all 27 native suites and artifact provenance pass.
 - Strategy Tester remains `PENDING_OWNER`.
+
+## Current follow-on
+
+T17.18 subsequently removes the legacy dashboard/button composition and its
+11 display inputs while retaining `ShowWmfSignals` and the WMF arrow overlay.
+The cleanup inventory above remains the exact T17.17 baseline audit; current
+runtime authority is `T17_18_*` plus `PROJECT_STATE.yaml`.

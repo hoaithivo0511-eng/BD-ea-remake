@@ -1,0 +1,50 @@
+schema_version: "1.0"
+task: T17.18
+project: BlackDragon v15.00 headless dashboard baseline
+status: CONTRACT_LOCKED
+baseline:
+  branch: feat/t17-full-pyramid
+  remote_head: 525f2f8b1e084c03aa655d17c83e65428a59503d
+  remote_tree: af95472247ae1d007429ada4411db29ed02fdfc4
+source_of_truth:
+  owner_approval: chat-2026-09-02-remove-dashboard-and-buttons
+  clarification: keep-ShowWmfSignals-and-WMF-arrows
+risk:
+  tier: P1_ARCHITECTURE
+  guards: [A1, A3, A4, A5, A10, A11, A12, A13, A14]
+scope:
+  remove:
+    - Panel.mqh and CPanel composition
+    - dashboard background, title, P/L labels and basket level lines
+    - chart buttons for trade toggles, pause, close, open and new-cycle
+    - chart edit-lot control and chart-event handler
+    - 11 dashboard layout/font/color inputs
+  preserve:
+    - ShowWmfSignals input and WMF BUY/SELL arrows
+    - WMF signal calculations and entry semantics
+    - Mobile Control commands, pause flags and persistence
+    - service timer cadence and all non-visual timer duties
+    - every automatic entry, exit, lot, DCA, Pyramid, Recovery, Overlap and risk rule
+invariants:
+  - No dashboard or button chart object exists in the production composition.
+  - No OnChartEvent or ChartRedraw exists in the EA.
+  - WMF chart APIs are isolated in WmfSignalOverlay.mqh and create arrows only.
+  - ShowWmfSignals=false allocates no WMF marks and clears the overlay on init.
+  - Strategy OnTick consumes no UI/manual chart request and retains the same automatic ordering.
+  - BD_SERVICE_TIMER_MS remains 500 and retains News, watchdog, Recovery persistence, exit coordination, Mobile Control, day rollover and halt persistence.
+  - Existing persisted struct offsets remain unchanged through explicit retired slots; chart-mutated trade/edit-lot values no longer override owner inputs.
+  - Product version remains 15.00; runtime lineage advances to T17.18.
+performance_budget:
+  dashboard_timer_render_calls: 0
+  dashboard_chart_objects: 0
+  chart_redraw_calls: 0
+  chart_event_handlers: 0
+  wmf_arrow_limit_when_enabled: 200
+  non_visual_tester_ui_work: 0
+release:
+  strategy_tester: PENDING_OWNER
+  ready_for_review: false
+  merge: false
+  forward: false
+  live: false
+

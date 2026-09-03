@@ -12,7 +12,7 @@
 //|   Buy Stop  888888 -> New Cycle OFF   (Cfg.NewCycle = false)     |
 //|   Sell Limit 888888 -> New Cycle ON   (Cfg.NewCycle = true)      |
 //|   Buy Stop  555555 -> STOP BUY  (Cfg.PauseBuy = true — chan moi  |
-//|                       lenh Buy ke ca DCA, nhu nut panel)         |
+//|                       lenh Buy ke ca DCA)                        |
 //|   Sell Limit 555555 -> STOP SELL (Cfg.PauseSell = true)          |
 //| Invariants: Scan chi DOC order pool; lenh xoa di qua             |
 //|             ExecutionLayer.DeleteOrder (quy tac 4). Volume cua   |
@@ -25,8 +25,8 @@
 //| BD-R5     : Scan() reports only real flag TRANSITIONS. Before    |
 //|             v14.7.2 it returned true on every scan while an      |
 //|             undeletable pending sat in the pool, so OnTimer      |
-//|             redrew the panel and rewrote the state file twice a  |
-//|             second and spammed the journal.                      |
+//|             rewrote the state file twice a second and spammed    |
+//|             the journal.                                        |
 //| Depends on: Config.mqh, Types.mqh, Logger.mqh, ExecutionLayer    |
 //+------------------------------------------------------------------+
 #ifndef BD_MOBILECONTROL_MQH
@@ -62,7 +62,7 @@ eMcCommand MC_Command(const int orderType, const double price)
 }
 
 //--- PURE: apply a command to the runtime flags. Returns true when any
-//    flag actually changed (caller redraws panel + persists).
+//    flag actually changed (caller persists the transition).
 bool MC_Apply(const eMcCommand cmd, bool &remoteStop, bool &pauseBuy, bool &pauseSell, bool &newCycle)
 {
    bool r = remoteStop, pb = pauseBuy, ps = pauseSell, nc = newCycle;
@@ -102,8 +102,8 @@ public:
    CMobileControl() : m_nextDeleteTry(0) {}
 
    //--- Call from OnTimer (500ms). Returns true ONLY when a runtime flag
-   //    actually changed, so the caller redraws the panel and persists on
-   //    transitions instead of twice per second (BD-R5). The command itself
+   //    actually changed, so the caller persists only on transitions instead
+   //    of twice per second (BD-R5). The command itself
    //    is still re-applied every scan — MC_Apply is idempotent — so an
    //    undeletable pending keeps enforcing its state without side effects.
    bool Scan(CExecutionLayer *exec)

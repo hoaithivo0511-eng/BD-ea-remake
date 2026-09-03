@@ -1,4 +1,4 @@
-# BlackDragon v15.00 / T17.17 — handoff hiện hành
+# BlackDragon v15.00 / T17.18 — handoff hiện hành
 
 ## Trạng thái khóa
 
@@ -7,8 +7,8 @@
 | Repo | `hoaithivo0511-eng/BD-ea-remake` |
 | Branch | `feat/t17-full-pyramid` |
 | PR | `#28`, Draft, open, not merged |
-| Runtime | `BlackDragon.mq5` v15.00, lineage T17.17 |
-| Baseline trước cleanup | HEAD `b87bd3cf3d3a1c23d748ed0b4addb95a8ea376b4`, TREE `2c1940de27fd6547eee17eb6c34683292c0d189e` |
+| Runtime | `BlackDragon.mq5` v15.00, lineage T17.18 |
+| T17.18 baseline | HEAD `525f2f8b1e084c03aa655d17c83e65428a59503d`, TREE `af95472247ae1d007429ada4411db29ed02fdfc4` |
 | Strategy Tester | `PENDING_OWNER` |
 | Release / forward / live | `false / false / false` |
 
@@ -19,19 +19,27 @@ local ancestry.
 
 ## Runtime mới nhất
 
+T17.18 xóa toàn bộ dashboard, P/L/level/halt labels, edit lot và chart
+buttons. `Panel.mqh`, `CPanel` và `OnChartEvent` không còn trong composition;
+Strategy cũng không còn đọc manual chart request trên mỗi tick. Mười một input
+layout/font/color của dashboard đã bị loại khỏi optimizer. Theo xác nhận của
+owner, `ShowWmfSignals` và mũi tên WMF vẫn được giữ trong module overlay riêng.
+
+Timer 500 ms tiếp tục chạy News, execution watchdog, Recovery persistence,
+exit coordination, Mobile Control, day rollover và halt persistence. Không có
+entry/exit/lot/DCA/Pyramid/Recovery/Overlap/risk semantic nào được đổi.
+
 T17.17 giữ quyền sở hữu exact broker protective-SL của ARCS trong side-cycle,
 không biến nó thành external close chỉ vì Overlap đang hoạt động. Sau account
 MoneyGuard đóng phẳng đã được xác minh, Recovery/Overlap lifecycle được reset
 atomically; failure tiếp tục fail-closed. T17.16 phía dưới giữ stage-admission
 replay sau Hedge rebase và embargo `NO_MONEY` dùng chung, bền qua restart.
 
-Không có input/default, công thức lot, khoảng cách, target, hard cap,
-MoneyGuard threshold hoặc live-trading semantic nào được thay đổi bởi cleanup
-repo. `BD_VERSION` được đồng bộ từ 14.9.0 thành 15.00 chỉ để Panel khớp
-`#property version "15.00"`; nó không được dùng trong persistence hay logic
-giao dịch.
+T17.18 chỉ thay đổi public input surface bằng việc xóa 11 input dashboard đã
+được owner phê duyệt. Các input/default giao dịch, công thức lot, khoảng cách,
+target, hard cap, MoneyGuard và live-trading semantic giữ nguyên.
 
-## Evidence T17.17 trước cleanup
+## Evidence baseline trước T17.18
 
 - Workflow: `Verify T17.17 Broker SL Flat Liveness Final`
 - Run: `33270273234`
@@ -41,19 +49,20 @@ giao dịch.
 - Artifact ZIP SHA256: `25cfa95cdfe2891b613fccc7d0d76baef70002935724887599ac0196522a8fed`
 - EX5: 668824 bytes, SHA256 `85db97f43450129f30a5247b78c88a625e11e0fe9f3b6933d1db411428746d55`
 
-Đây là evidence cho exact baseline trước cleanup. Exact-head cleanup CI và
-artifact mới phải được ghi vào verify report trước khi handoff owner.
+Repository-cleanup exact-head run `33657941993` đã PASS 37/37 models,
+repository contract 9/9, MetaEditor 0/0 và native 27/27 = 915/0. T17.18 phải
+chạy lại exact-head CI và tạo artifact mới vì source/EX5 đã thay đổi.
 
 ## Thứ tự đọc
 
 1. `docs/vibecode/CURRENT_VERSION.md`
 2. `docs/vibecode/REPOSITORY_CLEANUP_AUDIT.md`
 3. `Include/BlackDragon/ARCHITECTURE.md`
-4. `docs/vibecode/T17_17_EA-SPEC.yaml`
-5. `docs/vibecode/T17_17_DECISIONS.yaml`
-6. `docs/vibecode/T17_17_VERIFY_REPORT.md`
-7. `docs/vibecode/T17_17_OWNER_QA_CHECKLIST.md`
+4. `docs/vibecode/T17_18_EA-SPEC.yaml`
+5. `docs/vibecode/T17_18_DECISIONS.yaml`
+6. `docs/vibecode/T17_18_VERIFY_REPORT.md`
+7. `docs/vibecode/T17_18_OWNER_QA_CHECKLIST.md`
 
-Tài liệu trước T17.17 nằm trong `docs/vibecode/archive/pre-t1717/`. Chỉ dùng
+Tài liệu trước T17.18 nằm trong `docs/vibecode/archive/`. Chỉ dùng
 để truy nguyên quyết định; không lấy version/status/test claim trong đó làm
 trạng thái hiện hành.

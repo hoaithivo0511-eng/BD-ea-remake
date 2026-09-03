@@ -37,7 +37,7 @@ jobs:
             "$(git rev-parse HEAD)" "$(git show -s --format=%T HEAD)" \
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_REPOSITORY" \
             | tee build-current-model/PROVENANCE.txt
-      - name: Established model regression plus T17.17
+      - name: Established model regression through T17.18
         shell: bash
         run: |
           set -euo pipefail
@@ -66,7 +66,7 @@ jobs:
           grep -q 'T17.16 rebase/capacity model: 22 passed, 0 failed' build-current-model/t1716_rebase_capacity_model.log
           grep -q 'T17.17 stop/liveness model: 17 passed, 0 failed' build-current-model/t1717_stop_liveness_model.log
           echo 'CURRENT MODEL REGRESSION GREEN'
-      - name: T17.11 through T17.17 source contracts
+      - name: T17.11 through T17.18 source contracts
         shell: bash
         run: |
           set -euo pipefail
@@ -74,6 +74,8 @@ jobs:
             python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/t${n}_source_contract.py" \
               | tee "build-current-model/t${n}-source.log"
           done
+          python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/t1718_headless_source_contract.py" \
+            | tee "build-current-model/t1718-source.log"
           python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/repository_contract.py" \
             | tee "build-current-model/repository-contract.log"
       - uses: actions/upload-artifact@v4
@@ -133,7 +135,7 @@ jobs:
           Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $out)-or$e.Count-or$w.Count){throw "BlackDragon compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $out $b -Force
           $head=(git rev-parse HEAD).Trim();$tree=(git show -s --format=%T HEAD).Trim();$hash=(Get-FileHash "$b\BlackDragon.ex5" -Algorithm SHA256).Hash.ToLowerInvariant();$size=(Get-Item "$b\BlackDragon.ex5").Length
           "REPOSITORY=$env:GITHUB_REPOSITORY`nHEAD=$head`nTREE=$tree`nJOB=$env:GITHUB_JOB`nRUN_ID=$env:GITHUB_RUN_ID`nRUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT`nRUNNER_OS=$env:RUNNER_OS`nORIGINAL_MQ5_SHA256=$originalHash`nSTAGED_MQ5_SHA256=$stagedHash`nSTAGING_TRANSFORM=UTF16LE_BOM`nBLACKDRAGON_EX5_SHA256=$hash`nBLACKDRAGON_EX5_SIZE=$size"|Out-File "$b\PROVENANCE.txt" -Encoding utf8
-          Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\docs\vibecode\T17_17_OWNER_QA_CHECKLIST.md" $b -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\docs\vibecode\T17_18_OWNER_QA_CHECKLIST.md" $b -Force
           Write-Host "CURRENT MetaEditor PASS 0 errors/0 warnings HEAD=$head TREE=$tree EX5=$hash SIZE=$size"
       - name: Execute complete 27-suite native matrix
         shell: pwsh

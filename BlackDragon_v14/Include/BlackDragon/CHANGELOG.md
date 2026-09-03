@@ -1,5 +1,22 @@
 # CHANGELOG — EA Black Dragon (modular)
 
+## T17.18 — dashboard-free baseline — 2026-09-02
+
+- Xóa `Panel.mqh`, dashboard, labels P/L/halt, tám level-line/text pairs,
+  edit-lot, chín chart buttons và `OnChartEvent`.
+- Xóa 11 input layout/font/color của dashboard; optimizer surface giảm từ
+  154 xuống 143 tham số.
+- Giữ `ShowWmfSignals` theo xác nhận owner; tách mũi tên BUY/SELL WMF sang
+  `WmfSignalOverlay.mqh`, tối đa 200 arrows và không chứa dashboard/button.
+- Xóa toàn bộ manual chart request khỏi current/base Strategy; automatic
+  execution order không đổi. Mobile Control tiếp tục hoạt động.
+- Đổi tên timer thành `BD_SERVICE_TIMER_MS=500` và giữ nguyên toàn bộ News,
+  watchdog, Recovery, Mobile, rollover và persistence duties.
+- Giữ layout file state bằng reserved retired slots; explicit enum values
+  ngăn các reason sau chart-control slot bị shift.
+- Thêm source contract T17.18 và exact-head CI gate; Strategy Tester vẫn
+  `PENDING_OWNER`, forward/live/release false.
+
 ## Repository hygiene — 2026-09-02
 
 - Khóa canonical identity v15.00 / runtime lineage T17.17.

@@ -1,0 +1,37 @@
+schema_version: "1.0"
+task: T17.18
+decisions:
+  - id: D1718-01
+    status: ACCEPTED
+    decision: "Delete the existing dashboard, information labels, level lines, edit field and every chart button."
+    rationale: "Owner requires a clean composition before designing the replacement dashboard."
+    locking_test: t1718_headless_source_contract.py
+  - id: D1718-02
+    status: ACCEPTED
+    decision: "Retain ShowWmfSignals and the WMF BUY/SELL arrow overlay as a separate module."
+    rationale: "Owner clarified that signal visualization is not part of the dashboard removal."
+    locking_test: t1718_headless_source_contract.py
+  - id: D1718-03
+    status: ACCEPTED
+    decision: "Remove chart-triggered Open, Close, Pause, Trade-side, NewCycle and EditLot paths from Strategy."
+    rationale: "Buttons are removed completely; automatic and Mobile Control paths remain authoritative."
+    locking_test: t1718_headless_source_contract.py
+  - id: D1718-04
+    status: ACCEPTED
+    decision: "Keep persisted state byte-compatible by retaining zeroed retired chart-control slots."
+    rationale: "Removing obsolete runtime fields must not shift persisted RemoteStop/HaltUntil offsets."
+    locking_test: t1718_headless_source_contract.py
+  - id: D1718-05
+    status: ACCEPTED
+    decision: "Keep the 500 ms timer and all non-visual service duties unchanged."
+    rationale: "The timer also owns safety and liveness work unrelated to rendering."
+    locking_test: t1718_headless_source_contract.py
+  - id: D1718-06
+    status: REJECTED
+    decision: "Do not remove ShowWmfSignals or fold WMF arrows into the future dashboard."
+    rationale: "Owner explicitly requires the current signal overlay to remain."
+  - id: D1718-07
+    status: REJECTED
+    decision: "Do not optimize the service cadence or alter trading/risk behavior in this task."
+    rationale: "Performance improvement is bounded to removing dashboard work and dead manual-chart branches."
+

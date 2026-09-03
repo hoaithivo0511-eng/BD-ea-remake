@@ -66,7 +66,7 @@ property_match = re.search(r'#property\s+version\s+"([^"]+)"', entry_text)
 define_match = re.search(r'#define\s+BD_VERSION\s+"([^"]+)"', config_text)
 property_version = property_match.group(1) if property_match else ""
 display_version = define_match.group(1) if define_match else ""
-check("binary and panel versions match",
+check("binary and canonical versions match",
       bool(property_version) and property_version == display_version,
       f"#property={property_version!r}, BD_VERSION={display_version!r}")
 
@@ -102,7 +102,7 @@ allowed_top_docs = {
     "CURRENT_VERSION.md",
     "REPOSITORY_CLEANUP_AUDIT.md",
 }
-allowed_top_docs.update(p.name for p in current_docs.glob("T17_17_*"))
+allowed_top_docs.update(p.name for p in current_docs.glob("T17_18_*"))
 unexpected_docs = sorted(
     p.name for p in current_docs.iterdir()
     if p.is_file() and p.name not in allowed_top_docs

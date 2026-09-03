@@ -163,29 +163,15 @@ input bool      AutoGoldPip = true;       // Chỉ áp dụng trong LEGACY_COMPA
 input group "14 — Điều khiển từ MT5 Mobile"
 input bool UseMobileControl = true; // Bật điều khiển EA từ MT5 Mobile
 
-input group "15 — Panel & hiển thị chart"
-input int    X1_          = 10;            // Vị trí Panel theo trục X
-input int    Y1_          = 25;            // Vị trí Panel theo trục Y
-input bool   fDraw        = true;          // Hiển thị Panel và đối tượng trên chart
-input int    FontSizeMark = 13;            // Cỡ chữ thông tin
-input string FontNameMark = "Verdana";     // Font chữ thông tin
-input color  ColorText    = clrWhite;      // Màu chữ thông tin
-input color  ColorFonRec  = clrDarkViolet; // Màu nền nút Pause khi bình thường
-input int    FontSizeButt = 11;            // Cỡ chữ nút điều khiển
-input string FontNameButt = "Verdana";     // Font chữ nút điều khiển
-input color  ColorButt    = clrWhite;      // Màu chữ nút điều khiển
-input color  cCIP         = clrGray;       // Màu nền Panel
-
 #define BD_VERSION            "15.00"
 #define BD_STATE_FILE_SUFFIX  "_BD_v14.bin"
-#define BD_OBJ_PREFIX         "ke_EA_BD_"
-#define BD_OBJ_PREFIX_REZ     "ke_Rez_EA_BD_"
+#define BD_WMF_OBJ_PREFIX     "ke_EA_BD_wmf"
 #define BD_MAX_SEND_RETRIES   3
 #define BD_ASYNC_TIMEOUT_SEC  5
 #define BD_ASYNC_HARD_TIMEOUT_SEC 30
 #define BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC 10
 #define BD_NEWS_REFRESH_SEC   3600
-#define BD_PANEL_TIMER_MS     500
+#define BD_SERVICE_TIMER_MS   500
 #define BD_MAX_LOT_STEPS      200
 #define BD_WMF_MARKS_MAX      200
 #define BD_MC_DELETE_RETRY_SEC 5
@@ -220,9 +206,6 @@ struct SConfig
    double MaxSpreadPrice;
    double SlippagePrice;
    double DcaInputUnitPrice;
-   int    X1;
-   int    Y1;
-   double EditLot;
    int    PointScale;
    bool   RemoteStop;
    datetime HaltUntil;
@@ -256,9 +239,6 @@ void Config_Init()
    Cfg.MaxSpreadPrice = 0.0;
    Cfg.SlippagePrice = 0.0;
    Cfg.DcaInputUnitPrice = 0.0;
-   Cfg.X1            = X1_;
-   Cfg.Y1            = Y1_;
-   Cfg.EditLot       = Lot_Init_;
    Cfg.PointScale    = 1;
    Cfg.RemoteStop    = false;
    Cfg.HaltUntil     = 0;

@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| Persistence.mqh — BlackDragon v14.0.0                            |
-//| Purpose   : Save/restore panel-changeable runtime state across   |
-//|             restarts (v13 .bin state file, fixed layout).        |
+//| Purpose   : Save/restore Mobile Control and daily-halt state     |
+//|             across restarts (v13 .bin state file, fixed layout). |
 //| Invariants: Versioned header; unreadable file -> defaults, never |
 //|             crash.                                               |
 //| Depends on: Config.mqh, Logger.mqh                               |
@@ -18,10 +18,10 @@ struct SPersistedState
    uint     magic;
    bool     pauseBuy;
    bool     pauseSell;
-   bool     tradeBuy;
-   bool     tradeSell;
+   bool     reservedTradeBuy;  // retired chart-control slot; keep byte layout
+   bool     reservedTradeSell; // retired chart-control slot; keep byte layout
    bool     newCycle;
-   double   editLot;
+   double   reservedEditLot;   // retired chart-control slot; keep byte layout
    bool     remoteStop;   // FE-404 (v14.5)
    datetime haltUntil;    // BD-R4 (v14.7.2): daily SL/TP halt deadline
 };
@@ -38,13 +38,11 @@ void Persist_Save()
    // baseline reproducibility. Live/demo behavior is unchanged.
    if(MQLInfoInteger(MQL_TESTER)) return;
    SPersistedState st;
+   ZeroMemory(st);
    st.magic     = BD_STATE_MAGIC;
    st.pauseBuy  = Cfg.PauseBuy;
    st.pauseSell = Cfg.PauseSell;
-   st.tradeBuy  = Cfg.TradeBuy;
-   st.tradeSell = Cfg.TradeSell;
    st.newCycle  = Cfg.NewCycle;
-   st.editLot   = Cfg.EditLot;
    st.remoteStop = Cfg.RemoteStop;   // FE-404
    st.haltUntil  = Cfg.HaltUntil;    // BD-R4: daily halt must survive restart
    int h = FileOpen(Persist_FileName(), FILE_WRITE | FILE_BIN);
@@ -70,10 +68,7 @@ void Persist_Load()
    }
    Cfg.PauseBuy  = st.pauseBuy;
    Cfg.PauseSell = st.pauseSell;
-   Cfg.TradeBuy  = st.tradeBuy;
-   Cfg.TradeSell = st.tradeSell;
    Cfg.NewCycle  = st.newCycle;
-   Cfg.EditLot   = st.editLot;
    Cfg.RemoteStop = st.remoteStop;   // FE-404: mobile STOP ALL survives restart
    Cfg.HaltUntil  = st.haltUntil;    // BD-R4: daily halt survives restart
 }

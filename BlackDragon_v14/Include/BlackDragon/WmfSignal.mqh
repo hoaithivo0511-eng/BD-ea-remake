@@ -89,14 +89,14 @@ void WMF_Step(SWmfState &st, const double src, const double atrM, const double e
    }
 }
 
-//--- FE-406 (14.6.1): a chart marker for a WMF BUY/SELL cross ---------
+//--- Optional WMF BUY/SELL chart signal payload ----------------------
 struct SWmfMark
 {
    datetime time;
    bool     isBuy;
-   double   price;    // bar low (buy, arrow below) / bar high (sell, arrow above)
+   double   price;
 };
-#define BD_WMF_SEED_MARKS 100   // history markers kept from a seed walk
+#define BD_WMF_SEED_MARKS 100
 
 class CWmfSignal : public ISignal
 {
@@ -110,7 +110,7 @@ private:
    int       m_pendingCross; // AU-14-11: +1 buy / -1 sell cross awaiting evaluation
                              // (persists across copy-fail retries so a cross is
                              // never lost when the stoch buffer lags one tick)
-   SWmfMark  m_marks[];      // FE-406: pending chart marks (seed history + live)
+   SWmfMark  m_marks[];
    datetime  m_lastClosed;  // open time of the last processed closed WmfTF bar
    datetime  m_barFlags;    // reset signal flags each new chart bar (v13 pattern)
    datetime  m_barSignal;   // evaluated once per chart bar; retry on copy fail
@@ -119,10 +119,10 @@ private:
 
    double Alpha() const { return 2.0 / (WmfEmaLength + 1.0); }
 
-   //--- FE-406: record a cross for the Panel to draw (only when enabled)
    void AddMark(const bool isBuy, const datetime t, const double lo, const double hi)
    {
-      if(!ShowWmfSignals) return;
+      if(!ShowWmfSignals ||
+         (MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_VISUAL_MODE))) return;
       int n = ArraySize(m_marks);
       ArrayResize(m_marks, n + 1);
       m_marks[n].time  = t;
@@ -130,7 +130,7 @@ private:
       m_marks[n].price = isBuy ? lo : hi;
    }
 
-   //--- AU-14-11 + FE-406: after a step, detect the cross once
+   //--- AU-14-11: after a step, detect the cross once
    void NoteCross(const datetime t, const double lo, const double hi)
    {
       if(!m_havePrev) { m_pendingCross = 0; return; }
@@ -159,7 +159,7 @@ private:
       double atr[];
       if(CopyBuffer(m_hAtr, 0, 1, got, atr) != got) return false;
       // CopyRates/CopyBuffer (non-series arrays): index 0 = OLDEST element
-      ArrayResize(m_marks, 0);   // FE-406: seed rebuilds the history markers too
+      ArrayResize(m_marks, 0);
       for(int i = 0; i < got; i++)
       {
          if(m_st.seeded) { m_prevEma = m_st.ema; m_prevStop = m_st.stop; m_havePrev = true; }
@@ -168,11 +168,11 @@ private:
                   AtrOf(atr[i], rates[i].high, rates[i].low), Alpha());
          NoteCross(rates[i].time, rates[i].low, rates[i].high);
       }
-      // keep only the most recent history markers (chart stays tidy)
       int nm = ArraySize(m_marks);
       if(nm > BD_WMF_SEED_MARKS)
       {
-         for(int i = 0; i < BD_WMF_SEED_MARKS; i++) m_marks[i] = m_marks[nm - BD_WMF_SEED_MARKS + i];
+         for(int i = 0; i < BD_WMF_SEED_MARKS; i++)
+            m_marks[i] = m_marks[nm - BD_WMF_SEED_MARKS + i];
          ArrayResize(m_marks, BD_WMF_SEED_MARKS);
       }
       m_lastClosed = rates[got - 1].time;
@@ -186,7 +186,6 @@ public:
                   m_sigBuy(false), m_sigSell(false)
    { WMF_Reset(m_st); }
 
-   //--- FE-406: hand pending chart marks to the composition root (one-shot)
    int TakePendingMarks(SWmfMark &out[])
    {
       int n = ArraySize(m_marks);

@@ -1,4 +1,4 @@
-project: BlackDragon v15.00 / T17.17
+project: BlackDragon v15.00 / T17.18
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
@@ -8,16 +8,16 @@ methodology: VibeCodeKit-MQL5 Full
 canonical:
   entry_point: BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
   product_version: "15.00"
-  panel_version: "15.00"
-  runtime_lineage: T17.17
+  runtime_lineage: T17.18
+  dashboard: REMOVED
+  signal_overlay: WMF_OPTIONAL_PRESERVED
   workflow: .github/workflows/verify-current.yml
 
-locked_cleanup_baseline:
-  remote_head: b87bd3cf3d3a1c23d748ed0b4addb95a8ea376b4
-  remote_tree: 2c1940de27fd6547eee17eb6c34683292c0d189e
+locked_baseline:
+  remote_head: 525f2f8b1e084c03aa655d17c83e65428a59503d
+  remote_tree: af95472247ae1d007429ada4411db29ed02fdfc4
   local_tree_equal: true
   pr_draft: true
-  repository_rulesets: 0
 
 stages:
   T17_17_broker_sl_overlap_flat_liveness:
@@ -25,24 +25,21 @@ stages:
     verified_head: b87bd3cf3d3a1c23d748ed0b4addb95a8ea376b4
     verified_tree: 2c1940de27fd6547eee17eb6c34683292c0d189e
     workflow_run: 33270273234
-    model_source_job: 99147403114
-    native_job: 99147403240
-    ex5_sha256: 85db97f43450129f30a5247b78c88a625e11e0fe9f3b6933d1db411428746d55
     strategy_tester: PENDING_OWNER
   repository_hygiene:
+    status: EXACT_HEAD_WINDOWS_CI_PASS
+    verified_head: 525f2f8b1e084c03aa655d17c83e65428a59503d
+    verified_tree: af95472247ae1d007429ada4411db29ed02fdfc4
+    workflow_run: 33657941993
+    native_matrix: 27_OF_27_915_OF_0
+  T17_18_dashboard_free:
     status: LOCAL_BUILD_VERIFY
-    behavior_change: false
+    behavior_change: chart_controls_and_11_dashboard_inputs_removed
+    trading_logic_change: false
+    show_wmf_signals: PRESERVED
     current_head: PENDING_REMOTE_COMMIT
     current_tree: PENDING_LOCAL_COMMIT
-    contract: BlackDragon_v14/docs/vibecode/REPOSITORY_CLEANUP_AUDIT.md
-    gates:
-      include_graph: REQUIRED
-      version_parity: REQUIRED
-      all_models: REQUIRED
-      all_source_contracts: REQUIRED
-      metaeditor_full: REQUIRED_0_ERRORS_0_WARNINGS
-      native_scripts: REQUIRED_27_OF_27
-      exact_head_artifact: REQUIRED
+    contract: BlackDragon_v14/docs/vibecode/T17_18_AI-BUILD-CONTRACT.json
 
 runtime_release_gates:
   deterministic_models: REQUIRED
@@ -58,8 +55,7 @@ runtime_release_gates:
   live: false
 
 known_rules:
+  - ShowWmfSignals and WMF arrows are not part of the removed dashboard.
   - Native compile and scripts are not Strategy Tester PASS.
-  - Versioned Base and T17.x wrapper names are live compatibility layers when reachable.
   - Historical governance is frozen below docs/vibecode/archive.
-  - Remote branch deletion requires a separate owner-approved exact manifest.
   - Never force-push local divergent ancestry; create a commit on exact remote parent and update ref with force=false.

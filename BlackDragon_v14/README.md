@@ -1,10 +1,12 @@
-# EA BlackDragon v15.00 — runtime lineage T17.17
+# EA BlackDragon v15.00 — runtime lineage T17.18
 
 Đây là **một EA hiện hành**, không phải nhiều bản EA song song.
 
 - Composition root: `Experts/BlackDragon/BlackDragon.mq5`
 - Version hiển thị và binary: `15.00`
-- Runtime lineage mới nhất: `T17.17`
+- Runtime lineage mới nhất: `T17.18`
+- Dashboard, nhãn thông tin và button chart cũ: đã xóa
+- Mũi tên WMF: giữ nguyên qua input `ShowWmfSignals`
 - Nhánh làm việc: `feat/t17-full-pyramid`
 - Pull request: `#28`, luôn giữ **Draft**
 - Trạng thái phát hành: owner Strategy Tester còn `PENDING`; forward/live không đủ điều kiện
@@ -14,16 +16,16 @@
 | Khu vực | Vai trò |
 |---|---|
 | `Experts/BlackDragon/` | Entry point duy nhất của EA |
-| `Include/BlackDragon/` | Module runtime; mọi `.mqh` tại đây đều reachable từ entry point |
+| `Include/BlackDragon/` | Module runtime; dashboard cũ không còn, WMF overlay tách riêng |
 | `Scripts/BlackDragon/Tests/` | 27 native MQL suites, 37 C++ model suites, source/repository contracts |
 | `Sets/` | Baseline setting được version-control |
-| `docs/vibecode/` | Chỉ tài liệu T17.17 hiện hành và trạng thái dự án |
+| `docs/vibecode/` | Chỉ tài liệu T17.18 hiện hành và trạng thái dự án |
 | `docs/vibecode/archive/` | Governance/evidence lịch sử, frozen; không phải hướng dẫn hiện hành |
 | `.github/workflows/verify-current.yml` | Workflow CI duy nhất |
 
 Các tên như `T176Base`, `T177C4Base`, `T1713` là lớp tương thích trong
 composition hiện hành. Chúng **không phải các EA cũ độc lập** và không được
-xóa chỉ vì tên task nhỏ hơn T17.17.
+xóa chỉ vì tên task nhỏ hơn T17.18.
 
 ## Điểm đọc cho review/update
 
@@ -32,8 +34,8 @@ xóa chỉ vì tên task nhỏ hơn T17.17.
 3. `Include/BlackDragon/ARCHITECTURE.md`
 4. `Include/BlackDragon/Config.mqh`
 5. `Experts/BlackDragon/BlackDragon.mq5`
-6. `docs/vibecode/T17_17_EA-SPEC.yaml`
-7. `docs/vibecode/T17_17_DECISIONS.yaml`
+6. `docs/vibecode/T17_18_EA-SPEC.yaml`
+7. `docs/vibecode/T17_18_DECISIONS.yaml`
 
 ## Gate build hiện hành
 
@@ -41,7 +43,7 @@ Workflow canonical bắt buộc:
 
 - exact HEAD/TREE provenance;
 - 37/37 C++ model suites;
-- source contracts T17.11–T17.17;
+- source contracts T17.11–T17.18;
 - repository layout/include/version contract;
 - ProbeEA, full EA và toàn bộ 27 native scripts: 0 error / 0 warning;
 - chạy toàn bộ 27 native scripts và yêu cầu `ALL GREEN`;

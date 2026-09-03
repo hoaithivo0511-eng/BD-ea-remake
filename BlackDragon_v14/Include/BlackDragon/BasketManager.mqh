@@ -12,7 +12,7 @@
 //|             C4 incremental trail extreme (no CopyHigh per tick), |
 //|             AU-14-01 floating profit/swap refreshed EVERY tick   |
 //|             (C1 caches only event-static data; profit moves with |
-//|             price -> stale cache killed Overlap + panel P/L),    |
+//|             price -> stale cache killed Overlap + guard P/L),    |
 //|             BD-R7 vanished tickets compacted out immediately,    |
 //|             BD-R3 trail extreme is session state, re-anchored    |
 //|             only by a NEWER leg (v14.7.2),                       |
@@ -210,7 +210,7 @@ private:
    //    price, open time). Floating profit and swap change with every tick,
    //    so they are re-read here — one PositionSelectByTicket per cached
    //    ticket, the same per-tick API cost as the SwapSum() this replaces.
-   //    Consumers: Exit_OverlapHit (pos[].profit) and the panel (totalProfit).
+   //    Consumers: Exit_OverlapHit (pos[].profit) and money guards (totalProfit).
    //    BD-R7: a ticket that no longer exists is compacted out of the array
    //    IN PLACE (write index w) and count/totalLots/totalProfit/swapSum are
    //    rebuilt from the survivors, so no consumer downstream in this tick

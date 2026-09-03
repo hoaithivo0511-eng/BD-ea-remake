@@ -163,7 +163,7 @@ double Recovery_DcaPositionEntryCosts(const ulong positionIdentifier,
 }
 
 // T17.6 exact Core-Magic metrics. BasketManager may intentionally include
-// managed magic-0 positions for panel/legacy basket behavior, but Recovery
+// managed magic-0 positions for legacy basket behavior, but Recovery
 // sizing, coverage and corridor ownership remain exact Core Magic only.
 bool Recovery_ReadDcaCoreMetrics(const string symbol,
                                  const long coreMagic,

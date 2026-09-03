@@ -26,10 +26,9 @@ public:
    }
 };
 
-//--- Panel pause buttons + FE-404 mobile STOP ALL --------------------
+//--- FE-404 Mobile Control directional pause + STOP ALL --------------
 //    RemoteStop (Buy Stop 999999 from mobile) blocks every automated
-//    open on both chains — same gate class as the pause buttons since
-//    the semantics are identical (management/exits keep running).
+//    open on both chains; management/exits keep running.
 class CPauseFilter : public IEntryFilter
 {
 public:
@@ -61,7 +60,6 @@ public:
 //    Exits keep running, so the basket is frozen at its worst average
 //    with no way to average down.
 //    Two-sided exposure IS reachable with Flag_Use_hedge = false:
-//      - panel Open Buy / Open Sell bypass the hedge test entirely;
 //      - flag_Hand_Ord = true counts manual magic-0 orders into both
 //        sides (see Basket_OwnsMagic).
 //    A grid add cannot CREATE opposite exposure — its own side is

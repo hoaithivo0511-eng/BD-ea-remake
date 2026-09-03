@@ -24,16 +24,16 @@ enum eRecoveryExitCoordKind
 enum eRecoveryExitCoordReason
 {
    recovery_EXIT_REASON_NONE = 0,
-   recovery_EXIT_REASON_PANEL,
-   recovery_EXIT_REASON_LEGACY_TP,
-   recovery_EXIT_REASON_LEGACY_SL,
-   recovery_EXIT_REASON_LEGACY_TRAIL,
-   recovery_EXIT_REASON_LEGACY_OVERLAP,
-   recovery_EXIT_REASON_GUARD_SIDE,
-   recovery_EXIT_REASON_GUARD_MAGIC,
-   recovery_EXIT_REASON_GUARD_DAILY,
-   recovery_EXIT_REASON_EXTERNAL_CORE,
-   recovery_EXIT_REASON_EXTERNAL_RECOVERY
+   recovery_EXIT_REASON_RETIRED_CHART_CONTROL = 1,
+   recovery_EXIT_REASON_LEGACY_TP = 2,
+   recovery_EXIT_REASON_LEGACY_SL = 3,
+   recovery_EXIT_REASON_LEGACY_TRAIL = 4,
+   recovery_EXIT_REASON_LEGACY_OVERLAP = 5,
+   recovery_EXIT_REASON_GUARD_SIDE = 6,
+   recovery_EXIT_REASON_GUARD_MAGIC = 7,
+   recovery_EXIT_REASON_GUARD_DAILY = 8,
+   recovery_EXIT_REASON_EXTERNAL_CORE = 9,
+   recovery_EXIT_REASON_EXTERNAL_RECOVERY = 10
 };
 
 enum eRecoveryExitCoordRequest
