@@ -6,6 +6,7 @@
 #define BD_PYRAMID_CONFIG_MQH
 
 #include <BlackDragon/GridEngine.mqh>
+#include <BlackDragon/OrderCommentCodec.mqh>
 
 enum eCorePyramidMode
 {
@@ -57,11 +58,17 @@ input bool HedgePyramidLockBeforeAdd_ = true; // Chỉ tăng bậc khi phần He
 
 bool Pyramid_IsComment(const string comment)
 {
-   return StringFind(comment, BD_PYRAMID_COMMENT_PREFIX) == 0;
+   return OC_IsPyramid(comment);
 }
 
 int Pyramid_CommentFieldInt(const string comment, const string key)
 {
+   if(StringFind(comment, "PYR-") == 0)
+   {
+      if(key == "D=") return OC_PyramidDirection(comment);
+      if(key == "L=") return OC_PyramidLevel(comment);
+      return -1;
+   }
    int p = StringFind(comment, key);
    if(p < 0) return -1;
    int start = p + StringLen(key);
@@ -80,7 +87,7 @@ int Pyramid_LevelFromComment(const string comment)
 
 string Pyramid_BuildComment(const int dir, const int level)
 {
-   return "BDP|D=" + (string)dir + "|L=" + (string)level + "|R=" + (string)BD_PYRAMID_POLICY_REV;
+   return OC_BuildPyramid(dir, level);
 }
 
 bool Pyramid_ParsePositiveSequence(const string seq, double &values[])

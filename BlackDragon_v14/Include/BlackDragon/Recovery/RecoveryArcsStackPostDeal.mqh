@@ -138,10 +138,9 @@ private:
       SArcsPosition pos[];
       childNo += Recovery_ArcsBuildLayerPositions(dir, l.generation,
                                                   m_volumeStep, pos);
-      string comment = "BDR|C=" + (string)key +
-                       "|G=" + (string)l.generation +
-                       "|B=" + (string)l.bundleId +
-                       "|N=" + (string)childNo;
+      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,
+                                      0, childNo,
+                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);
       if(!SaveBeforeMutation(why)) return true;
 
       bool accepted = exec.OpenMarketOwned(hedgeDir, volume,

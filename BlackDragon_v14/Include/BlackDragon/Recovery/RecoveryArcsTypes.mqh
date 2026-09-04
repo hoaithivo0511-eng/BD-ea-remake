@@ -6,6 +6,7 @@
 #define BD_RECOVERY_ARCS_TYPES_MQH
 
 #include "RecoveryT16Config.mqh"
+#include <BlackDragon/OrderCommentCodec.mqh>
 
 enum eArcsLayerState
 {
@@ -187,14 +188,12 @@ int Recovery_ArcsCommentFieldInt(const string comment, const string key)
 
 int Recovery_ArcsGenerationFromComment(const string comment)
 {
-   if(StringFind(comment, "BDR|C=") != 0) return -1;
-   return Recovery_ArcsCommentFieldInt(comment, "|G=");
+   return OC_RhGeneration(comment);
 }
 
 int Recovery_ArcsCycleFromComment(const string comment)
 {
-   if(StringFind(comment, "BDR|C=") != 0) return -1;
-   return Recovery_ArcsCommentFieldInt(comment, "BDR|C=");
+   return OC_RhCycle(comment);
 }
 
 bool Recovery_ArcsLayerStateHasExposure(const eArcsLayerState s)

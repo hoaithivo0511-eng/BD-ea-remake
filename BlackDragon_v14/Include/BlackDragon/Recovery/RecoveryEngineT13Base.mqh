@@ -10,6 +10,7 @@
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/ExecutionLayer.mqh>
 #include "RecoveryOpenBarGate.mqh"
+#include "RecoveryOrderComment.mqh"
 #include "RecoveryRegistry.mqh"
 #include "RecoveryMutationPolicy.mqh"
 #include "RecoveryExit.mqh"
@@ -1574,10 +1575,8 @@ public:
       }
 
       int childNo = cycle.bundleSubmittedChildren + 1;
-      string comment = "BDR|C=" + (string)cycleKey +
-                       "|G=" + (string)cycle.hedgeGeneration +
-                       "|B=" + (string)cycle.bundleId +
-                       "|N=" + (string)childNo;
+      string comment = Recovery_BuildReadableComment(cycleKey, cycle.hedgeGeneration,
+                                      cycle.bundleId, 0, childNo, false);
       if(!ArmDurableCommand(dir, EXEC_CMD_RECOVERY_OPEN, m_cfg.recoveryMagic,
                             0, childUnits, RawRecoveryUnits(dir), 0.0,
                             cycle.hedgeGeneration, cycle.bundleId, why))

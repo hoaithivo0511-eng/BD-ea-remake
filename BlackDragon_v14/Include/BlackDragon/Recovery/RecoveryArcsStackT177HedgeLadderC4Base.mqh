@@ -519,11 +519,9 @@ private:
       double volume=Recovery_UnitsToVolume(child,meta.volumeStep);
       SArcsPosition pos[];
       int childNo=1+Recovery_ArcsBuildLayerPositions(dir,l.generation,m_volumeStep,pos);
-      string comment="BDR|C="+(string)key+
-                     "|G="+(string)l.generation+
-                     "|B="+(string)l.bundleId+
-                     "|P="+(string)effectiveStageNo+
-                     "|N="+(string)childNo;
+      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,
+                                      effectiveStageNo, childNo,
+                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);
       // Persist the admitted logical stage before the broker mutation. Only
       // children completing this exact stage/target may bypass the next-stage
       // timing/gap/profit gates. A Core denominator rebase clears this marker.

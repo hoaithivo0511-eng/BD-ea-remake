@@ -1,0 +1,127 @@
+{
+  "baseline_remote_head": "2e8bfe11fd67afb725731f3b1f79b958080a4555",
+  "baseline_tree": "ee653a3f9060f54e6be3e89a2fa2dbf5316ea1c7",
+  "original_sha256": {
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh": "3e7207ac959ab14309c499912abe46a8ca01ba83118f6ed9db08f340cf45211d",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngineT13Base.mqh": "4c48070c4bd47df0ee2cfe839c07caf8cad705eb963ab3ef63746bc27a8509ea",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh": "9f864c96de7420dec02f045ffd61f59f3217d45e14bd7b566db209ce36a43a2c",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT17Pyramid.mqh": "544aa4de520d141bd1be79775e142bc663065508a03089854873364d1257f24d",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh": "730d9c5fc99575f93115e238635a42b81b5ffbb8ae4d9550e74aeb4ef57ff8a4",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsTypes.mqh": "c82278b634071581c237d7790704b799596616feaea5845c27d4757095ccf455",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh": "06f69cf7a61271c3d8884e77039167c02ab219fbb7ce9b6f7e18896cb1c75af0",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh": "bcd3a33dc7f07139ef49c4263b4f9fd9222632b7c79778b3e3675fd286fc61f1",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh": "30fe36958a66ba3b1882fc0b47f703f92c2e266bf45586b0654b2e176a94e981"
+  },
+  "replacements": [
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh",
+      "old": "#include \"RecoveryOpenBarGate.mqh\"",
+      "new": "#include \"RecoveryOpenBarGate.mqh\"\n#include \"RecoveryOrderComment.mqh\""
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngineT13Base.mqh",
+      "old": "#include \"RecoveryOpenBarGate.mqh\"",
+      "new": "#include \"RecoveryOpenBarGate.mqh\"\n#include \"RecoveryOrderComment.mqh\""
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh",
+      "old": "      string comment = \"BDR|C=\" + (string)key +\n                       \"|G=\" + (string)l.generation +\n                       \"|B=\" + (string)l.bundleId +\n                       \"|N=\" + (string)childNo;",
+      "new": "      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,\n                                      0, childNo,\n                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh",
+      "old": "      string comment = \"BDR|C=\" + (string)key +\n                       \"|G=\" + (string)l.generation +\n                       \"|B=\" + (string)l.bundleId +\n                       \"|N=\" + (string)childNo;",
+      "new": "      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,\n                                      0, childNo,\n                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT17Pyramid.mqh",
+      "old": "      string comment = \"BDR|C=\" + (string)key +\n                       \"|G=\" + (string)l.generation +\n                       \"|B=\" + (string)l.bundleId +\n                       \"|P=\" + (string)(stage + 1) +\n                       \"|N=\" + (string)childNo;",
+      "new": "      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,\n                                      (stage + 1), childNo,\n                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh",
+      "old": "      string comment=\"BDR|C=\"+(string)key+\n                     \"|G=\"+(string)l.generation+\n                     \"|B=\"+(string)l.bundleId+\n                     \"|P=\"+(string)effectiveStageNo+\n                     \"|N=\"+(string)childNo;",
+      "new": "      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,\n                                      effectiveStageNo, childNo,\n                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngineT13Base.mqh",
+      "old": "      string comment = \"BDR|C=\" + (string)cycleKey +\n                       \"|G=\" + (string)cycle.hedgeGeneration +\n                       \"|B=\" + (string)cycle.bundleId +\n                       \"|N=\" + (string)childNo;",
+      "new": "      string comment = Recovery_BuildReadableComment(cycleKey, cycle.hedgeGeneration,\n                                      cycle.bundleId, 0, childNo, false);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsTypes.mqh",
+      "old": "#include \"RecoveryT16Config.mqh\"",
+      "new": "#include \"RecoveryT16Config.mqh\"\n#include <BlackDragon/OrderCommentCodec.mqh>"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsTypes.mqh",
+      "old": "   if(StringFind(comment, \"BDR|C=\") != 0) return -1;\n   return Recovery_ArcsCommentFieldInt(comment, \"|G=\");",
+      "new": "   return OC_RhGeneration(comment);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsTypes.mqh",
+      "old": "   if(StringFind(comment, \"BDR|C=\") != 0) return -1;\n   return Recovery_ArcsCommentFieldInt(comment, \"BDR|C=\");",
+      "new": "   return OC_RhCycle(comment);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh",
+      "old": "#include \"RecoveryT165GuardScope.mqh\"",
+      "new": "#include \"RecoveryT165GuardScope.mqh\"\n#include <BlackDragon/OrderCommentCodec.mqh>"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh",
+      "old": "   string prefix = \"BDR|C=\" + (string)p.cycleKey +\n                   \"|G=\" + (string)p.generation +\n                   \"|B=\" + (string)p.bundleId + \"|\";",
+      "new": "   // T17.21: exact legacy/new comment identity; remaining proof gates unchanged."
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh",
+      "old": "      if(StringFind(comment, prefix) != 0) continue;",
+      "new": "      if(!OC_RhMatchesBundle(comment, p.cycleKey, p.generation, p.bundleId)) continue;"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "old": "      string prefix = \"BDR|C=\" + (string)Recovery_CycleKey(dir) + \"|\";\n      return StringFind(openingComment, prefix) == 0;",
+      "new": "      return OC_RhMatchesCycle(openingComment, Recovery_CycleKey(dir));"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "old": "      long wanted = dir == recovery_CORE_BUY ? DEAL_TYPE_SELL : DEAL_TYPE_BUY;\n      string prefix = \"BDR|C=\" + (string)Recovery_CycleKey(dir) + \"|\";\n      long oldestMsc = 0;",
+      "new": "      long wanted = dir == recovery_CORE_BUY ? DEAL_TYPE_SELL : DEAL_TYPE_BUY;\n      long oldestMsc = 0;"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "old": "         if(StringFind(HistoryDealGetString(deal, DEAL_COMMENT), prefix) != 0)",
+      "new": "         if(!OC_RhMatchesCycle(HistoryDealGetString(deal, DEAL_COMMENT), Recovery_CycleKey(dir)))"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "old": "      string prefix = \"BDR|C=\" + (string)Recovery_CycleKey(dir) + \"|\";\n      int matched = 0;",
+      "new": "      int matched = 0;"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "old": "            StringFind(openingComment, prefix) != 0)",
+      "new": "            !OC_RhMatchesCycle(openingComment, Recovery_CycleKey(dir)))"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh",
+      "old": "#include <BlackDragon/GridEngine.mqh>",
+      "new": "#include <BlackDragon/GridEngine.mqh>\n#include <BlackDragon/OrderCommentCodec.mqh>"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh",
+      "old": "   return StringFind(comment, BD_PYRAMID_COMMENT_PREFIX) == 0;",
+      "new": "   return OC_IsPyramid(comment);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh",
+      "old": "   int p = StringFind(comment, key);",
+      "new": "   if(StringFind(comment, \"PYR-\") == 0)\n   {\n      if(key == \"D=\") return OC_PyramidDirection(comment);\n      if(key == \"L=\") return OC_PyramidLevel(comment);\n      return -1;\n   }\n   int p = StringFind(comment, key);"
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh",
+      "old": "   return \"BDP|D=\" + (string)dir + \"|L=\" + (string)level + \"|R=\" + (string)BD_PYRAMID_POLICY_REV;",
+      "new": "   return OC_BuildPyramid(dir, level);"
+    }
+  ]
+}

@@ -10,6 +10,7 @@
 #include "RecoveryArcsBook.mqh"
 #include <BlackDragon/ExecutionLayer.mqh>
 #include "RecoveryOpenBarGate.mqh"
+#include "RecoveryOrderComment.mqh"
 #include <BlackDragon/Logger.mqh>
 
 class CRecoveryArcsStack
@@ -557,10 +558,9 @@ private:
       int childNo = 1;
       SArcsPosition pos[];
       childNo += Recovery_ArcsBuildLayerPositions(dir, l.generation, m_volumeStep, pos);
-      string comment = "BDR|C=" + (string)key +
-                       "|G=" + (string)l.generation +
-                       "|B=" + (string)l.bundleId +
-                       "|N=" + (string)childNo;
+      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,
+                                      0, childNo,
+                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);
       if(!SaveBeforeMutation(why)) return false;
       if(!exec.OpenMarketOwned(hedgeDir, volume,
                                (long)RecoveryMagic_, key,

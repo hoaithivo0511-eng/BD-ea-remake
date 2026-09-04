@@ -392,11 +392,9 @@ private:
       double volume = Recovery_UnitsToVolume(child, meta.volumeStep);
       SArcsPosition pos[];
       int childNo = 1 + Recovery_ArcsBuildLayerPositions(dir, l.generation, m_volumeStep, pos);
-      string comment = "BDR|C=" + (string)key +
-                       "|G=" + (string)l.generation +
-                       "|B=" + (string)l.bundleId +
-                       "|P=" + (string)(stage + 1) +
-                       "|N=" + (string)childNo;
+      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,
+                                      (stage + 1), childNo,
+                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);
       if(!SaveBeforeMutation(why)) return true;
       bool accepted = exec.OpenMarketOwned(hedgeDir, volume,
                                            (long)RecoveryMagic_, key,

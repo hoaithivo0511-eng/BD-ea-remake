@@ -1,59 +1,33 @@
-project: BlackDragon v15.00 / T17.20
+project: BlackDragon v15.00 / T17.21
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
 pull_request_state: DRAFT_OPEN_NOT_MERGED
 methodology: VibeCodeKit-MQL5 Full
-
 canonical:
   entry_point: BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
-  product_version: "15.00"
-  runtime_lineage: T17.20
+  product_version: '15.00'
+  runtime_lineage: T17.21
   dashboard: REMOVED
   signal_overlay: WMF_OPTIONAL_PRESERVED
   workflow: .github/workflows/verify-current.yml
-
 locked_baseline:
-  remote_head: 4ea008a1b16bd0cf3b520628d127abed5ed7c563
-  remote_tree: 91fe36c3969ac4ae7dda65b0d7f3d2b02ac0077a
+  remote_head: 2e8bfe11fd67afb725731f3b1f79b958080a4555
+  remote_tree: ee653a3f9060f54e6be3e89a2fa2dbf5316ea1c7
   local_tree_equal: true
   pr_draft: true
-
 stages:
-  T17_20_optional_rh_bar_gate:
-    status: LOCAL_AND_VPS_PASS_EXACT_HEAD_CI_PENDING
-    contract: BlackDragon_v14/docs/vibecode/T17_20_one_bar/AI-BUILD-CONTRACT.json
-    input: RecoveryOneOrderPerBar_
-    default: false
-    scope: PER_CHART_BAR_RECOVERY_DIRECTION_INCLUDING_BE_SL_REENTRY
-    prior_audit_fixes: NOT_AUTHORIZED_NOT_IMPLEMENTED
-    model_suites: 39_OF_39_PASS
-    source_contract: 36_OF_36_PASS
-  T17_18_dashboard_free:
-    status: EXACT_REMOTE_TREE_AND_WINDOWS_CI_PASS
-    verified_head: b971f41fc92ac8b084ccfa6748a59ae166d5f939
-    verified_tree: 6da21b0dbaeda85ce66f12825064521be40e75c5
-    workflow_run: 33740436856
-    provenance_note: workflow used a synthetic PR merge SHA; T17.19 fixes exact branch-head binding
-  T17_19_terminal_reentry:
-    status: LOCAL_AND_VPS_VERIFY
-    contract: BlackDragon_v14/docs/vibecode/T17_19_AI-BUILD-CONTRACT.json
-    owner_policy: WAIT_RESET_AND_ARMED_BLOCK_DCA_ONLY
-    max_reentry_cycles_default: 2
-    arcs_v4_layout_changed: false
-    local_model_suites: 38_OF_38_PASS
-    local_source_contracts: T17_11_THROUGH_T17_19_PASS
-    local_repository_contract: PASS
-    deep_review: BASELINE_CRITICAL_ERROR_UNCHANGED
-    metaeditor: TUNNEL_STAGED_0_ERRORS_0_WARNINGS_EXACT_HEAD_CI_PENDING
-    tunnel_vps: BD_BIDIRECTIONAL_REENTRY_PATH_PASS_OWNER_MATRIX_PENDING
-    strategy_tester: PENDING_OWNER
-
+  T17_21_readable_comments:
+    status: VERIFICATION_REQUIRED
+    contract: BlackDragon_v14/docs/vibecode/T17_21_comments/AI-BUILD-CONTRACT.json
+    separator: '|'
+    legacy_readers: true
+    trade_logic_changes: false
 runtime_release_gates:
   deterministic_models: REQUIRED
   source_invariants: REQUIRED
   metaeditor_compile: REQUIRED_0_ERRORS_0_WARNINGS
-  native_mt5_scripts: REQUIRED_29_OF_29_972_PASS_0_FAIL
+  native_mt5_scripts: REQUIRED_30_OF_30_1030_PASS_0_FAIL
   exact_head_provenance: REQUIRED
   owner_strategy_tester: PENDING_OWNER
   ready_for_review: false
@@ -61,11 +35,11 @@ runtime_release_gates:
   release: false
   forward: false
   live: false
-
 known_rules:
-  - WAIT_RESET and ARMED block Core DCA only; Core Pyramid ADD remains settings-driven.
-  - EXHAUSTED blocks DCA and Pyramid ADD but not risk-reducing Peel/close.
-  - ShowWmfSignals and WMF arrows are not part of the removed dashboard.
-  - Native compile and scripts are not Strategy Tester PASS.
-  - Historical governance is frozen below docs/vibecode/archive.
-  - Never force-push local divergent ancestry; create a commit on exact remote parent and update ref with force=false.
+- WAIT_RESET and ARMED block Core DCA only; Core Pyramid ADD remains settings-driven.
+- EXHAUSTED blocks DCA and Pyramid ADD but not risk-reducing Peel/close.
+- ShowWmfSignals and WMF arrows are not part of the removed dashboard.
+- Native compile and scripts are not Strategy Tester PASS.
+- Historical governance is frozen below docs/vibecode/archive.
+- Never force-push local divergent ancestry; create a commit on exact remote parent
+  and update ref with force=false.

@@ -139,8 +139,7 @@ private:
       const long openingTimeMsc) const
    {
       if(owner != (long)RecoveryMagic_ || openingTimeMsc <= 0) return false;
-      string prefix = "BDR|C=" + (string)Recovery_CycleKey(dir) + "|";
-      return StringFind(openingComment, prefix) == 0;
+      return OC_RhMatchesCycle(openingComment, Recovery_CycleKey(dir));
    }
 
    bool ProtectiveLayerStateT1719(const eArcsLayerState state) const
@@ -242,7 +241,6 @@ private:
       datetime from = m_dir[di].anchorTime > 2 ? m_dir[di].anchorTime - 2 : 0;
       if(!HistorySelect(from, TimeCurrent())) return 0;
       long wanted = dir == recovery_CORE_BUY ? DEAL_TYPE_SELL : DEAL_TYPE_BUY;
-      string prefix = "BDR|C=" + (string)Recovery_CycleKey(dir) + "|";
       long oldestMsc = 0;
       for(int i = 0; i < HistoryDealsTotal(); i++)
       {
@@ -253,7 +251,7 @@ private:
             continue;
          long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
          if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
-         if(StringFind(HistoryDealGetString(deal, DEAL_COMMENT), prefix) != 0)
+         if(!OC_RhMatchesCycle(HistoryDealGetString(deal, DEAL_COMMENT), Recovery_CycleKey(dir)))
             continue;
          long tmsc = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
          if(tmsc > 0 && (oldestMsc == 0 || tmsc < oldestMsc)) oldestMsc = tmsc;
@@ -297,7 +295,6 @@ private:
          closeDeals[n] = deal;
       }
 
-      string prefix = "BDR|C=" + (string)Recovery_CycleKey(dir) + "|";
       int matched = 0;
       for(int i = 0; i < ArraySize(closeDeals); i++)
       {
@@ -313,7 +310,7 @@ private:
                                            generation, openingComment,
                                            openingMsc) ||
             ownedDir != dir || openingMsc < cycleStartTimeMsc ||
-            StringFind(openingComment, prefix) != 0)
+            !OC_RhMatchesCycle(openingComment, Recovery_CycleKey(dir)))
             continue;
          if(!HistoryDealSelect(deal)) continue;
          cash += Recovery_DealCashPure(HistoryDealGetDouble(deal, DEAL_PROFIT),

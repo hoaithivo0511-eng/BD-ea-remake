@@ -1,0 +1,36 @@
+schema_version: '1.0'
+task: T17.21
+mode: Full
+status: OWNER_REQUEST_AUTHORIZED
+baseline_head: 2e8bfe11fd67afb725731f3b1f79b958080a4555
+baseline_tree: ee653a3f9060f54e6be3e89a2fa2dbf5316ea1c7
+formats:
+  recovery: RH-S|G1|P2|N1
+  protective_reentry: RHSL1-S|G1|P1|N1
+  pyramid: PYR-B#3
+  core_dca: unchanged sOrdComm + |ordinal
+semantics:
+  separator: '|, as amended by owner'
+  side: B BUY or S SELL is actual order direction
+  G: existing RH generation
+  P: optional existing Hedge Pyramid stage
+  N: child opening ordinal within generation/bundle, not trade size
+  RHSL: display count of protective BE/SL reset rounds within the Core direction campaign;
+    not the T17.19 completedCycles cap
+  migration: RHSL? when old labels or unavailable history cannot prove prior ordinal
+  bundle: implicit B=G for ARCS; explicit |B if different
+  length: at most 31 characters; preserve exact ownership identity before optional
+    P/N display details
+  persistence: no schema changes or ordinal-based trading decisions; derive display
+    from owned broker opening history
+  compatibility: new writes; both old BDR/BDP and new readers; existing orders remain
+    unchanged
+preserve:
+- lot/price/coverage/NewCycle and SL calculations
+- T17.20 disabled-by-default one-bar input and all admission paths
+- Core DCA comments
+- all owner/magic/symbol/direction/pending proof constraints
+release:
+  merge: false
+  forward: false
+  live: false

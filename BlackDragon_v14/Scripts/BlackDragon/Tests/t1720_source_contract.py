@@ -2,6 +2,7 @@
 """Bind the additive gate to all RH opens and byte-preserve unrelated logic."""
 from pathlib import Path
 import hashlib,json,re
+from t1721_comment_baseline import before_comments
 ROOT=Path(__file__).resolve().parents[3]
 REPO=ROOT.parent
 C=ROOT/'docs/vibecode/T17_20_one_bar/AI-BUILD-CONTRACT.json'
@@ -22,9 +23,9 @@ ck('wantedPosition' in gate and 'wantedDeal' in gate,'independent directional sc
 ck(not any(x in gate for x in ['OrderSend(', 'OrderSendAsync(', 'FileWrite', 'GlobalVariableSet', 'LatchReconcile(', 'TesterStop(']),'data WAIT gate has no trading/persistence/error latch side effects')
 ck('static ' not in gate,'no generation-local/transient bar counter')
 for p,sha in contract['protected_source_sha256'].items():
- ck(hashlib.sha256((REPO/p).read_bytes()).hexdigest()==sha,'protected '+p.split('/')[-1])
+ ck(hashlib.sha256(before_comments(p,read(p)).encode()).hexdigest()==sha,'protected '+p.split('/')[-1])
 for p,sha in contract['additive_source_sha256'].items():
- text=read(p)
+ text=before_comments(p,read(p))
  if p.endswith('RecoveryTypes.mqh'):
   text=re.sub(r'^input bool\s+RecoveryOneOrderPerBar_.*\n','',text,flags=re.M)
  else:

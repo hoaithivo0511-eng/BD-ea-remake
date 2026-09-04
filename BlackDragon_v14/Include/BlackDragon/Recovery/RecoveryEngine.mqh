@@ -9,6 +9,7 @@
 #include "RecoveryPersistence.mqh"
 #include "RecoveryT16Config.mqh"
 #include "RecoveryT165GuardScope.mqh"
+#include <BlackDragon/OrderCommentCodec.mqh>
 
 bool Recovery_T14HistoryOpenProof(const eRecoveryCoreDirection dir,
                                   const SRecoveryPersistPending &p)
@@ -30,9 +31,7 @@ bool Recovery_T14HistoryOpenProof(const eRecoveryCoreDirection dir,
    datetime from = p.startedAt > 2 ? p.startedAt - 2 : 0;
    if(!HistorySelect(from, TimeCurrent())) return false;
 
-   string prefix = "BDR|C=" + (string)p.cycleKey +
-                   "|G=" + (string)p.generation +
-                   "|B=" + (string)p.bundleId + "|";
+   // T17.21: exact legacy/new comment identity; remaining proof gates unchanged.
    long expectedType = Recovery_HedgeDirection(dir) == 0 ? DEAL_TYPE_BUY : DEAL_TYPE_SELL;
    int matches = 0;
    double matchedVolume = 0.0;
@@ -50,7 +49,7 @@ bool Recovery_T14HistoryOpenProof(const eRecoveryCoreDirection dir,
       long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
       string comment = HistoryDealGetString(deal, DEAL_COMMENT);
-      if(StringFind(comment, prefix) != 0) continue;
+      if(!OC_RhMatchesBundle(comment, p.cycleKey, p.generation, p.bundleId)) continue;
       if((ulong)HistoryDealGetInteger(deal, DEAL_ORDER) == 0) continue;
       matches++;
       matchedVolume += HistoryDealGetDouble(deal, DEAL_VOLUME);
