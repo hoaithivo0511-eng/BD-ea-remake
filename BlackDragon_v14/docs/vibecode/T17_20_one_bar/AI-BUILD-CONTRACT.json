@@ -1,0 +1,281 @@
+{
+  "schema_version": "1.0",
+  "task": "T17.20",
+  "mode": "Full",
+  "authorization": "Current owner request; no additional audit fixes authorized",
+  "baseline_head": "4ea008a1b16bd0cf3b520628d127abed5ed7c563",
+  "baseline_tree": "91fe36c3969ac4ae7dda65b0d7f3d2b02ac0077a",
+  "allowed_files": [
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryTypes.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT17Pyramid.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngineT13Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryOpenBarPolicy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryOpenBarGate.mqh",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/t1720*",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/RunT1720RhOneBarTests.mq5",
+    "BlackDragon_v14/docs/vibecode/T17_20_one_bar/**",
+    "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+    "BlackDragon_v14/docs/vibecode/CURRENT_VERSION.md",
+    "BlackDragon_v14/README.md",
+    "BlackDragon_v14/HANDOFF.md",
+    ".github/workflows/verify-current.yml",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/t1718_headless_source_contract.py"
+  ],
+  "protected_source_sha256": {
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh": "bcd3a33dc7f07139ef49c4263b4f9fd9222632b7c79778b3e3675fd286fc61f1",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1719ReentryPolicy.mqh": "939276cac0c1bbf9e12ad312d0e0c6ac010f8d74623e58dc8050423a3583a652",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh": "3bcb35d65ce665187cf394345d7e29ed12609cbc22c9d690b4c7b22a3f316220",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExecutionIdentity.mqh": "0d6e0308eac4f19f46b2e4d677f87bf3485926ca2e3044d0a520a2f8924eaf00",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16ConfigT177C5Impl.mqh": "d33e56752be22cb40c468efaef04f6f407efe2dbdb9d5b9e6ffbb6cd8394dea6",
+    "BlackDragon_v14/Include/BlackDragon/GridEngine.mqh": "a8498d4829668e79359ac8d3e3ee187811e66febb8aacbac6bce864e14b34efa",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh": "5abffc5d931bd54d02460985ff5a7f059c56eb339a3552f167f890670bb19e85",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh": "ae15ee4555c5a5c8b7958cec4eeef63181f20e746896d7a38551d783ae6c5b84",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramidT1713.mqh": "bd0454eb8be85599c79e5265c6dfd60ca7a238757989ca1d87f0d59a71801a98"
+  },
+  "additive_source_sha256": {
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryTypes.mqh": "b284d56bf7940e724ee2534395bc2fd18913039cecd49ecd99a2ff377b12f1b8",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh": "c525e6e70540886bb1a446580e956087c9ec13933db53ec163884e13fb9fbd18",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh": "6c1687435cdb74135018f8844f3282bd4594a115660f0d76c97514a1a002cae5",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT17Pyramid.mqh": "1eaac496e056c401da2df9baec74cbdc56858fc09305ef007221633eba5f72c2",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh": "cd5af4d31f4c159375b8b7e1fb402a716db12d42371ac3be7e89c085e23db260",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngineT13Base.mqh": "fa88af1879728f26463e5cfce7a1292f72a487ce246677875d0d55aa76647c5b"
+  },
+  "triggered_guards": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "A10",
+    "A12"
+  ],
+  "behavioral_guards": [
+    {
+      "id": "A1",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "per-bar counting and boundaries"
+      ],
+      "rule": "per-bar counting and boundaries",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A2",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "history/series failure waits"
+      ],
+      "rule": "history/series failure waits",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A3",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "owner-authorized default OFF and first RH"
+      ],
+      "rule": "owner-authorized default OFF and first RH",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A4",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "independent fixture/oracle and actual runtime code"
+      ],
+      "rule": "independent fixture/oracle and actual runtime code",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A5",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "fresh current-bar broker evidence; no cache"
+      ],
+      "rule": "fresh current-bar broker evidence; no cache",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A6",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "existing in-flight execution journal; no duplicate opens"
+      ],
+      "rule": "existing in-flight execution journal; no duplicate opens",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A7",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "restart uses broker history; isolated tester sets"
+      ],
+      "rule": "restart uses broker history; isolated tester sets",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A8",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "bar gate before durable admission"
+      ],
+      "rule": "bar gate before durable admission",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A9",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "chart candle and milliseconds"
+      ],
+      "rule": "chart candle and milliseconds",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A10",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "Windows native and actual-code adapter parity"
+      ],
+      "rule": "Windows native and actual-code adapter parity",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A12",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "exact multi-file gate insertion and protected hashes"
+      ],
+      "rule": "exact multi-file gate insertion and protected hashes",
+      "required_evidence": [
+        "t1720_one_bar_model.log",
+        "t1720-source.log",
+        "native compile/scripts",
+        "targeted tester"
+      ],
+      "checker": "t1720_source_contract.py + t1720_one_bar_model.cpp + RunT1720RhOneBarTests.mq5",
+      "remediation": "Correct implementation against authorized semantics; do not rewrite expected evidence",
+      "waiver_allowed": false
+    }
+  ],
+  "forbidden_changes": [
+    "RH DD remediation",
+    "protective SL identity fixes",
+    "generation limits/lot/price changes",
+    "ARCS v4 or re-entry v1 schema changes",
+    "Core DCA/Pyramid gate changes",
+    "merge/live activation"
+  ],
+  "required_evidence": [
+    "39 C++ model suites",
+    "T17.11–T17.20 source + repository contracts",
+    "Windows MetaEditor 0 errors/0 warnings",
+    "29 native suites / 972 assertions / 0 failures",
+    "targeted OFF/ON Strategy Tester evidence",
+    "exact source/EX5 artifact provenance"
+  ],
+  "release_flags": {
+    "release": false,
+    "forward": false,
+    "live": false,
+    "merge": false
+  }
+}

@@ -9,6 +9,7 @@
 
 #include "RecoveryArcsBook.mqh"
 #include <BlackDragon/ExecutionLayer.mqh>
+#include "RecoveryOpenBarGate.mqh"
 #include <BlackDragon/Logger.mqh>
 
 class CRecoveryArcsStack
@@ -546,6 +547,12 @@ private:
          LatchReconcile(dir, why);
          return false;
       }
+      if(!Recovery_OneOrderPerBarAllows(hedgeDir, TimeCurrent(), why))
+      {
+         Log_WarnEvery("Recovery", "t1720bar" + (string)key, why, 60);
+         return false;
+      }
+
       double volume = Recovery_UnitsToVolume(child, meta.volumeStep);
       int childNo = 1;
       SArcsPosition pos[];

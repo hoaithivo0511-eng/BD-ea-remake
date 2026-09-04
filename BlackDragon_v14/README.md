@@ -1,10 +1,11 @@
-# EA BlackDragon v15.00 — runtime lineage T17.19
+# EA BlackDragon v15.00 — runtime lineage T17.20
 
 Đây là **một EA hiện hành**, không phải nhiều bản EA song song.
 
 - Composition root: `Experts/BlackDragon/BlackDragon.mq5`
 - Version hiển thị và binary: `15.00`
-- Runtime lineage mới nhất: `T17.19`
+- Runtime lineage mới nhất: `T17.20`
+- `RecoveryOneOrderPerBar_ = false`: bật để giới hạn mỗi hướng RH một lệnh mở/nến chart, kể cả mở lại sau BE/SL; Core DCA không chiếm lượt RH.
 - Terminal Recovery Hedge positive-BE/SL re-entry: tối đa 2 chu kỳ mặc định
 - Dashboard, nhãn thông tin và button chart cũ: đã xóa
 - Mũi tên WMF: giữ nguyên qua input `ShowWmfSignals`
@@ -18,9 +19,9 @@
 |---|---|
 | `Experts/BlackDragon/` | Entry point duy nhất của EA |
 | `Include/BlackDragon/` | Module runtime; dashboard cũ không còn, WMF overlay tách riêng |
-| `Scripts/BlackDragon/Tests/` | 28 native MQL suites, 38 C++ model suites, source/repository contracts |
+| `Scripts/BlackDragon/Tests/` | 29 native MQL suites, 39 C++ model suites, source/repository contracts |
 | `Sets/` | Baseline setting được version-control |
-| `docs/vibecode/` | Chỉ tài liệu T17.19 hiện hành và trạng thái dự án |
+| `docs/vibecode/` | Baseline T17.19, bổ sung T17.20 và trạng thái dự án |
 | `docs/vibecode/archive/` | Governance/evidence lịch sử, frozen; không phải hướng dẫn hiện hành |
 | `.github/workflows/verify-current.yml` | Workflow CI duy nhất |
 
@@ -35,8 +36,8 @@ xóa chỉ vì tên task nhỏ hơn T17.19.
 3. `Include/BlackDragon/ARCHITECTURE.md`
 4. `Include/BlackDragon/Config.mqh`
 5. `Experts/BlackDragon/BlackDragon.mq5`
-6. `docs/vibecode/T17_19_EA-SPEC.yaml`
-7. `docs/vibecode/T17_19_DECISIONS.yaml`
+6. `docs/vibecode/T17_20_one_bar/EA-SPEC.yaml`
+7. `docs/vibecode/T17_20_one_bar/DECISIONS.yaml`
 
 ## Gate build hiện hành
 

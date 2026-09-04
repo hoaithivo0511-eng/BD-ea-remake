@@ -1,4 +1,25 @@
-# BlackDragon v15.00 / T17.19 — handoff hiện hành
+# BlackDragon v15.00 / T17.20 — handoff hiện hành
+
+The owner requested one additive bool, `RecoveryOneOrderPerBar_ = false`.
+OFF preserves T17.19 admission. ON permits at most one RH opening per chart
+candle, symbol, RecoveryMagic and direction. A Core DCA in this candle does
+not consume the RH slot, so the first RH keeps its existing trigger.
+Closed RH opening deals remain counted after BE/SL, generation reset or
+restart. The next candle still requires all existing lot/price/cap/timing gates.
+
+No RH DD, NewCycle/lot/price, coverage or protective-SL identity fix is included.
+See `docs/vibecode/T17_20_one_bar/VERIFY_REPORT.md` for scope, tests and native
+job IDs; `OWNER_QA_CHECKLIST.md` contains remaining broker/restart checks.
+Local models: 39/39; new actual-runtime adapter 35/35; new source contract 36/36.
+Windows CI must compile full EA and 29 native suites at 0 errors/0 warnings and
+run 972 assertions on the exact branch head. Native tester and owner acceptance
+are distinct gates. Release/forward/live/merge remain false; PR #28 stays Draft.
+
+Publication must use Git-data on exact remote parent
+`4ea008a1b16bd0cf3b520628d127abed5ed7c563`, tree
+`91fe36c3969ac4ae7dda65b0d7f3d2b02ac0077a`, with `force=false`.
+
+# T17.19 — historical handoff (superseded by T17.20 above)
 
 ## Trạng thái khóa
 

@@ -9,6 +9,7 @@
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/ExecutionLayer.mqh>
+#include "RecoveryOpenBarGate.mqh"
 #include "RecoveryRegistry.mqh"
 #include "RecoveryMutationPolicy.mqh"
 #include "RecoveryExit.mqh"
@@ -1563,6 +1564,12 @@ public:
       {
          why = "legacy execution normalization would alter exact bundle child volume";
          m_registry.MarkBundleChildRejected(dir);
+         return false;
+      }
+
+      if(!Recovery_OneOrderPerBarAllows(hedgeDir, TimeCurrent(), why))
+      {
+         Log_WarnEvery("Recovery", "t1720bar" + (string)cycleKey, why, 60);
          return false;
       }
 

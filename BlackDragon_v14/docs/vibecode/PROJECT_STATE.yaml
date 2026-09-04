@@ -1,4 +1,4 @@
-project: BlackDragon v15.00 / T17.19
+project: BlackDragon v15.00 / T17.20
 repository: hoaithivo0511-eng/BD-ea-remake
 branch: feat/t17-full-pyramid
 pull_request: 28
@@ -8,18 +8,27 @@ methodology: VibeCodeKit-MQL5 Full
 canonical:
   entry_point: BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
   product_version: "15.00"
-  runtime_lineage: T17.19
+  runtime_lineage: T17.20
   dashboard: REMOVED
   signal_overlay: WMF_OPTIONAL_PRESERVED
   workflow: .github/workflows/verify-current.yml
 
 locked_baseline:
-  remote_head: b971f41fc92ac8b084ccfa6748a59ae166d5f939
-  remote_tree: 6da21b0dbaeda85ce66f12825064521be40e75c5
+  remote_head: 4ea008a1b16bd0cf3b520628d127abed5ed7c563
+  remote_tree: 91fe36c3969ac4ae7dda65b0d7f3d2b02ac0077a
   local_tree_equal: true
   pr_draft: true
 
 stages:
+  T17_20_optional_rh_bar_gate:
+    status: LOCAL_AND_VPS_PASS_EXACT_HEAD_CI_PENDING
+    contract: BlackDragon_v14/docs/vibecode/T17_20_one_bar/AI-BUILD-CONTRACT.json
+    input: RecoveryOneOrderPerBar_
+    default: false
+    scope: PER_CHART_BAR_RECOVERY_DIRECTION_INCLUDING_BE_SL_REENTRY
+    prior_audit_fixes: NOT_AUTHORIZED_NOT_IMPLEMENTED
+    model_suites: 39_OF_39_PASS
+    source_contract: 36_OF_36_PASS
   T17_18_dashboard_free:
     status: EXACT_REMOTE_TREE_AND_WINDOWS_CI_PASS
     verified_head: b971f41fc92ac8b084ccfa6748a59ae166d5f939
@@ -44,7 +53,7 @@ runtime_release_gates:
   deterministic_models: REQUIRED
   source_invariants: REQUIRED
   metaeditor_compile: REQUIRED_0_ERRORS_0_WARNINGS
-  native_mt5_scripts: REQUIRED_28_OF_28_948_PASS_0_FAIL
+  native_mt5_scripts: REQUIRED_29_OF_29_972_PASS_0_FAIL
   exact_head_provenance: REQUIRED
   owner_strategy_tester: PENDING_OWNER
   ready_for_review: false

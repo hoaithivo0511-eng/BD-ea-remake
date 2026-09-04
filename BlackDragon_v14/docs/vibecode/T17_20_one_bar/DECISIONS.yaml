@@ -1,0 +1,25 @@
+schema_version: "1.0"
+task: T17.20
+authorization: current owner request to retain existing logic and add optional RH one-bar admission
+decisions:
+  - id: D1720-01
+    decision: Disabled by default; first RH trigger and all prior gates remain.
+    example: A Core DCA at 10:00 does not stop the first RH at 10:00.
+    tests: [off_skips_reads, first_rh_after_core]
+  - id: D1720-02
+    decision: Each Recovery direction has an independent slot per chart candle.
+    example: RH SELL at 10:00 blocks another RH SELL until the next bar; RH BUY has its own slot.
+    tests: [same_direction_blocked, opposite_direction_independent, next_bar]
+  - id: D1720-03
+    decision: Opening history counts after BE/SL close, generation reset and restart.
+    example: RH opens at 10:00:05 and closes at 10:00:20; reopened G1 waits until 10:01 on M1.
+    tests: [closed_sl_counts, closed_be_counts, restart_history, generation_reset]
+  - id: D1720-04
+    decision: Apply before each broker child; multiple fills of the same order are not separate admission attempts.
+    tests: [bundle_child_waits, partial_fill_history]
+  - id: D1720-05
+    decision: Missing bar/history waits without marking a broker rejection; definite unfilled rejection leaves no historical slot.
+    tests: [missing_bar, history_failure, rejected_without_fill]
+  - id: D1720-06
+    decision: Do not implement previously proposed DD/SL-identity fixes.
+    tests: [protected_source_hashes, off_preservation]

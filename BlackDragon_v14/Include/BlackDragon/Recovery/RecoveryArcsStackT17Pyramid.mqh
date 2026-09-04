@@ -383,6 +383,12 @@ private:
       if(!Recovery_ChildMarginPreflight(_Symbol, hedgeDir, child, meta.volumeStep, preflight))
       { LogWait(dir, l.generation, preflight); return true; }
 
+      if(!Recovery_OneOrderPerBarAllows(hedgeDir, TimeCurrent(), why))
+      {
+         Log_WarnEvery("Recovery", "t1720bar" + (string)key, why, 60);
+         return true;
+      }
+
       double volume = Recovery_UnitsToVolume(child, meta.volumeStep);
       SArcsPosition pos[];
       int childNo = 1 + Recovery_ArcsBuildLayerPositions(dir, l.generation, m_volumeStep, pos);

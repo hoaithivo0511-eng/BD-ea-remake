@@ -127,6 +127,12 @@ private:
          return true;
       }
 
+      if(!Recovery_OneOrderPerBarAllows(hedgeDir, TimeCurrent(), why))
+      {
+         Log_WarnEvery("Recovery", "t1720bar" + (string)key, why, 60);
+         return true;
+      }
+
       double volume = Recovery_UnitsToVolume(child, meta.volumeStep);
       int childNo = 1;
       SArcsPosition pos[];
