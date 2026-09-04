@@ -21,6 +21,9 @@ input eOverlapPolicyT177 OverlapPolicy_ = OVERLAP_LEGACY_AUTO; // AUTO: đọc O
 input double HedgeTargetCoveragePercent_ = 0.0; // Target cuối TOTAL Hedge/Core (%); 0 = dùng HedgeVolumePercent_ cũ
 input double HedgeAbsoluteMaxCoveragePercent_ = -1.0; // Hard cap (%); -1 = dùng cap cũ, 0 = không thêm hard cap
 
+input group "24C — T17.19: TÁI VÀO RECOVERY SAU BE/SL DƯƠNG"
+input int MaxRecoveryReentryCycles_ = 2; // Số chu kỳ RH được mở lại sau terminal BE/SL dương; 0=tắt, tối đa 20
+
 #define BD_T177_CONFIG_POLICY_REV       1
 #define BD_T177_PERSIST_MIGRATION_REV   1
 
@@ -365,6 +368,10 @@ bool Recovery_T177ValidateConfigC5(string &why)
    { why = "Số vòng Hedge tối đa vượt capacity ARCS=" + (string)BD_ARCS_MAX_LAYERS; return false; }
    if(RecoveryWaitLogSeconds_ < 0 || RecoveryWaitLogSeconds_ > 86400)
    { why = "Chu kỳ heartbeat log Recovery phải trong [0,86400] giây"; return false; }
+   if(MaxRecoveryReentryCycles_ < 0 || MaxRecoveryReentryCycles_ > 20)
+   { why = "Số chu kỳ Recovery tái vào phải trong [0,20]"; return false; }
+   if(MaxRecoveryReentryCycles_ > 0 && RecoveryReentryBufferPips_ <= 0.0)
+   { why = "Buffer tái vào Recovery phải > 0 pip khi số chu kỳ tái vào > 0"; return false; }
    if(!Recovery_T177ValidateCrossInputsC5(why)) return false;
    if(!Recovery_T164ValidateReachability(RecoveryMode_, Flag_Trade_Buy_, Flag_Trade_Sell_,
                                          MaxOrdersBuy, MaxOrdersSell,
@@ -393,6 +400,7 @@ bool Recovery_T177UseStackEngineC5()
                                              RecoveryStartAfterDca_))
       return true;
    if(HedgePyramidMode_ != hedge_pyramid_TAT) return true;
+   if(MaxRecoveryReentryCycles_ > 0) return true;
    if(RecoverySizingPolicy_ == ARCS_XEP_LOP) return true;
    if(MathAbs(Recovery_T177EffectiveHedgeTargetCoveragePercent() - 100.0) > 1e-12) return true;
    if(HedgeSLMode_ == SL_VIRTUAL) return true;

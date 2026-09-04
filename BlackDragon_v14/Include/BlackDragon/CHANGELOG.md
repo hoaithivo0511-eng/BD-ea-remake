@@ -1,5 +1,20 @@
 # CHANGELOG — EA Black Dragon (modular)
 
+## T17.19 — terminal Recovery-Hedge re-entry — 2026-09-03
+
+- Sau terminal generation, thu cohort exact Recovery-owned BE/SL và chỉ arm
+  re-entry khi toàn bộ Hedge đã đóng, net cash cả chuỗi không âm.
+- Thêm outer FSM persist riêng v1: `COLLECTING → WAIT_RESET → ARMED →
+  TRIGGER_PENDING → IN_CYCLE/EXHAUSTED`; giữ nguyên ARCS persistence v4.
+- Khi giá reset thuận Core qua `RecoveryReentryBufferPips_` rồi quay lại exact
+  anchor, tạo G1 mới và tái dùng Hedge Pyramid ladder với fresh Core volume.
+- Thêm `MaxRecoveryReentryCycles_=2` (`0` tắt, tối đa `20`). Optimizer surface
+  hiện là 144: baseline headless 143 cộng một input risk T17.19.
+- Theo quyết định owner, WAIT_RESET/ARMED chỉ khóa Core DCA; Core Pyramid ADD
+  vẫn qua settings/gates hiện hữu. EXHAUSTED khóa ADD/DCA nhưng không khóa Peel.
+- Thêm model/source/native gates T17.19 và sửa PR CI dùng exact branch-head SHA
+  thay cho synthetic merge SHA. Strategy Tester vẫn `PENDING_OWNER`.
+
 ## T17.18 — dashboard-free baseline — 2026-09-02
 
 - Xóa `Panel.mqh`, dashboard, labels P/L/halt, tám level-line/text pairs,

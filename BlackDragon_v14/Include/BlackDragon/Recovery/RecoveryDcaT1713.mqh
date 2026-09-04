@@ -39,6 +39,13 @@ public:
 
       eRecoveryCoreDirection recoveryDir =
          dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;
+      if(m_recovery.T1719BlocksCoreDca(recoveryDir))
+      {
+         Log_WarnEvery("Recovery", "t1719dcawait" + (string)dir,
+                       "T17.19 Core DCA blocked while terminal Recovery re-entry waits/resumes/exhausts; Core Pyramid ADD remains settings-driven in WAIT_RESET/ARMED",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return false;
+      }
       SRecoveryCycle cycle;
       m_recovery.GetCycle(recoveryDir, cycle);
 

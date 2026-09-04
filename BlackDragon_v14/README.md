@@ -1,10 +1,11 @@
-# EA BlackDragon v15.00 — runtime lineage T17.18
+# EA BlackDragon v15.00 — runtime lineage T17.19
 
 Đây là **một EA hiện hành**, không phải nhiều bản EA song song.
 
 - Composition root: `Experts/BlackDragon/BlackDragon.mq5`
 - Version hiển thị và binary: `15.00`
-- Runtime lineage mới nhất: `T17.18`
+- Runtime lineage mới nhất: `T17.19`
+- Terminal Recovery Hedge positive-BE/SL re-entry: tối đa 2 chu kỳ mặc định
 - Dashboard, nhãn thông tin và button chart cũ: đã xóa
 - Mũi tên WMF: giữ nguyên qua input `ShowWmfSignals`
 - Nhánh làm việc: `feat/t17-full-pyramid`
@@ -17,15 +18,15 @@
 |---|---|
 | `Experts/BlackDragon/` | Entry point duy nhất của EA |
 | `Include/BlackDragon/` | Module runtime; dashboard cũ không còn, WMF overlay tách riêng |
-| `Scripts/BlackDragon/Tests/` | 27 native MQL suites, 37 C++ model suites, source/repository contracts |
+| `Scripts/BlackDragon/Tests/` | 28 native MQL suites, 38 C++ model suites, source/repository contracts |
 | `Sets/` | Baseline setting được version-control |
-| `docs/vibecode/` | Chỉ tài liệu T17.18 hiện hành và trạng thái dự án |
+| `docs/vibecode/` | Chỉ tài liệu T17.19 hiện hành và trạng thái dự án |
 | `docs/vibecode/archive/` | Governance/evidence lịch sử, frozen; không phải hướng dẫn hiện hành |
 | `.github/workflows/verify-current.yml` | Workflow CI duy nhất |
 
 Các tên như `T176Base`, `T177C4Base`, `T1713` là lớp tương thích trong
 composition hiện hành. Chúng **không phải các EA cũ độc lập** và không được
-xóa chỉ vì tên task nhỏ hơn T17.18.
+xóa chỉ vì tên task nhỏ hơn T17.19.
 
 ## Điểm đọc cho review/update
 
@@ -34,19 +35,19 @@ xóa chỉ vì tên task nhỏ hơn T17.18.
 3. `Include/BlackDragon/ARCHITECTURE.md`
 4. `Include/BlackDragon/Config.mqh`
 5. `Experts/BlackDragon/BlackDragon.mq5`
-6. `docs/vibecode/T17_18_EA-SPEC.yaml`
-7. `docs/vibecode/T17_18_DECISIONS.yaml`
+6. `docs/vibecode/T17_19_EA-SPEC.yaml`
+7. `docs/vibecode/T17_19_DECISIONS.yaml`
 
 ## Gate build hiện hành
 
 Workflow canonical bắt buộc:
 
 - exact HEAD/TREE provenance;
-- 37/37 C++ model suites;
-- source contracts T17.11–T17.18;
+- 38/38 C++ model suites;
+- source contracts T17.11–T17.19;
 - repository layout/include/version contract;
-- ProbeEA, full EA và toàn bộ 27 native scripts: 0 error / 0 warning;
-- chạy toàn bộ 27 native scripts và yêu cầu `ALL GREEN`;
+- ProbeEA, full EA và toàn bộ 28 native scripts: 0 error / 0 warning;
+- chạy toàn bộ 28 native scripts và yêu cầu `ALL GREEN` (948/0);
 - artifact owner-QA có `BlackDragon.ex5`, toolchain và `PROVENANCE.txt`.
 
 CI/native compile không thay thế Strategy Tester. Không merge PR, không bật

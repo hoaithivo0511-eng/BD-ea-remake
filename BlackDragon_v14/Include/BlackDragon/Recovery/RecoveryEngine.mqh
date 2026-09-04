@@ -84,11 +84,12 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
 
 #include "RecoveryArcsStackT177Scheduler.mqh"
 #include "RecoveryArcsStackT177HedgeLadder.mqh"
+#include "RecoveryArcsStackT1719Reentry.mqh"
 
 class CRecoveryEngine : public CRecoveryEngineT15Base
 {
 private:
-   CRecoveryArcsStackT177C4 m_arcs;
+   CRecoveryArcsStackT1719 m_arcs;
    bool m_initialized;
 
    bool UseT16() const
@@ -286,6 +287,26 @@ public:
    bool TerminalNoHedge(const eRecoveryCoreDirection dir) const
    {
       return UseT16() && m_arcs.TerminalNoHedge(dir);
+   }
+
+   bool T1719BlocksCoreDca(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719BlocksCoreDca(dir);
+   }
+
+   bool T1719BlocksCorePyramidAdd(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719BlocksCorePyramidAdd(dir);
+   }
+
+   bool T1719AllowsCorePyramidAdd(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719AllowsCorePyramidAdd(dir);
+   }
+
+   bool T1719AllowsCorePyramidPeel(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719AllowsCorePyramidPeel(dir);
    }
 
    bool T16ExpectedBrokerSlDeal(const ulong deal)

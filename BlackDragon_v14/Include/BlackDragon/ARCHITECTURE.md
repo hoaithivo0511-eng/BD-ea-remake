@@ -1,4 +1,4 @@
-# EA BlackDragon v15.00 / T17.18 — ARCHITECTURE.md
+# EA BlackDragon v15.00 / T17.19 — ARCHITECTURE.md
 
 > **Đọc file này trước khi sửa bất kỳ dòng code nào.** Các tên T16/T17.x
 > trong file/class là lớp compatibility đang được composition hiện hành dùng,
@@ -9,7 +9,9 @@
 - **Composition hiện hành:** signal → Core/DCA/Pyramid → Recovery ARCS/Hedge
   Pyramid → Overlap/MoneyGuard → ExecutionLayer, với persistence và journal
   fail-closed.
-- **T17.18:** dashboard/button cũ đã được gỡ; WMF signal arrows được tách vào
+- **T17.19:** terminal RH sau exact positive BE/SL dùng outer FSM persist riêng:
+  WAIT_RESET → ARMED → G1 mới; WAIT/ARMED chỉ khóa Core DCA và vẫn cho Core
+  Pyramid ADD qua settings hiện hữu. **T17.18:** dashboard/button cũ đã được gỡ; WMF signal arrows được tách vào
   overlay riêng. T17.17 exact ARCS broker-SL ownership và verified account-flat reset
   không được làm coordinator starvation; T17.16 giữ shared NO_MONEY embargo
   và stage-gate replay sau Hedge rebase.
@@ -53,6 +55,7 @@ Quy tắc cứng:
 | Gửi/đóng lệnh, retry, async journal | `ExecutionLayer.mqh` | Async mặc định live/demo; tester tự fallback sync; lifecycle SENT→ACCEPTED→state observed; hard-timeout theo intent (`Exec_HardTimeoutSec`) |
 | Lịch tin (MQL5 Calendar) | `NewsCalendar.mqh` | Refresh trong OnTimer, không block tick |
 | WMF signal arrows | `WmfSignalOverlay.mqh` | Overlay tùy chọn qua `ShowWmfSignals`; không dashboard/button/event |
+| Terminal RH re-entry T17.19 | `Recovery/RecoveryArcsStackT1719Reentry.mqh` + `RecoveryT1719ReentryPersistence.mqh` | Exact Recovery protective close, chain-level cash, two-stage price latch; ARCS v4 không đổi |
 | Lưu/khôi phục trạng thái runtime | `Persistence.mqh` | Mobile pause/NewCycle/RemoteStop + halt; giữ reserved slot byte-compatible |
 | Khóa tài khoản | `License.mqh` | Giữ nguyên semantics v13 (mặc định mở) |
 | Điều phối tổng | `Strategy.mqh` | Composition root; nơi đăng ký mọi behavior |

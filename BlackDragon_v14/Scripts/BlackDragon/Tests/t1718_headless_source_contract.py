@@ -53,8 +53,8 @@ check("all 11 dashboard inputs are absent", not present_inputs,
 
 input_rows = re.findall(r"^\s*input\s+([^\n]+)", production_text, re.MULTILINE)
 parameter_rows = [row for row in input_rows if not row.lstrip().startswith("group")]
-check("optimizer parameter surface is reduced from 154 to 143",
-      len(parameter_rows) == 143, f"found {len(parameter_rows)}")
+check("dashboard removal remains 143 parameters plus one T17.19 risk input",
+      len(parameter_rows) == 144, f"found {len(parameter_rows)}")
 
 check("ShowWmfSignals remains an owner-selectable signal overlay input",
       re.search(r"^\s*input\s+bool\s+ShowWmfSignals\s*=\s*true\s*;", config,

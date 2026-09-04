@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.18 headless build |
+//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.19 RH re-entry   |
 //| Event handlers + module registration ONLY.                       |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14/T17."
@@ -208,7 +208,7 @@ int OnInit()
    g_lastSavedHalt = Cfg.HaltUntil;
 
    EventSetMillisecondTimer(BD_SERVICE_TIMER_MS);
-   Log_Info("Init", "EA Black Dragon T17.18 headless build started. ExecMode=" +
+   Log_Info("Init", "EA Black Dragon T17.19 Recovery re-entry build started. ExecMode=" +
             (ExecMode == exec_Async ? "Async" : "Sync") +
             "; CorePyramid=" + (string)(int)CorePyramidMode_ +
             "; CoreAnchor=" + Pyramid_T177AnchorModeName(CorePyramidAnchorMode_) +

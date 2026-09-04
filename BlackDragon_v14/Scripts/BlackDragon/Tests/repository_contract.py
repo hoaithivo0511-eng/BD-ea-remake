@@ -102,7 +102,7 @@ allowed_top_docs = {
     "CURRENT_VERSION.md",
     "REPOSITORY_CLEANUP_AUDIT.md",
 }
-allowed_top_docs.update(p.name for p in current_docs.glob("T17_18_*"))
+allowed_top_docs.update(p.name for p in current_docs.glob("T17_19_*"))
 unexpected_docs = sorted(
     p.name for p in current_docs.iterdir()
     if p.is_file() and p.name not in allowed_top_docs

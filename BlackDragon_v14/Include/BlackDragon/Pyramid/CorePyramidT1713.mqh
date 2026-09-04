@@ -29,8 +29,11 @@ private:
    {
       if(RecoveryMode_ != recovery_ACTIVE) return true;
       if(recovery == NULL || !recovery.ActiveReady()) return false;
+      eRecoveryCoreDirection recoveryDir =
+         dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;
+      if(recovery.T1719AllowsCorePyramidAdd(recoveryDir)) return true;
       SRecoveryCycle c;
-      recovery.GetCycle(dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL, c);
+      recovery.GetCycle(recoveryDir, c);
       return Recovery_T1713CoreGrowthStateAllowsPure(RecoveryMode_,
                                                       ContinueDcaAfterHedge_,
                                                       c.state);
@@ -322,8 +325,12 @@ public:
       if(RecoveryMode_ == recovery_ACTIVE && recovery != NULL && recovery.ActiveReady())
       {
          SRecoveryCycle c;
-         recovery.GetCycle(dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL, c);
+         eRecoveryCoreDirection recoveryDir =
+            dir == BD_DIR_BUY ? recovery_CORE_BUY : recovery_CORE_SELL;
+         recovery.GetCycle(recoveryDir, c);
          recoveryOwns = c.state != recovery_CORE_ONLY;
+         if(recoveryOwns && recovery.T1719AllowsCorePyramidPeel(recoveryDir))
+            recoveryOwns = false;
       }
 
       // T17.13 only opens ADD concurrency. Risk-reducing Peel retains the

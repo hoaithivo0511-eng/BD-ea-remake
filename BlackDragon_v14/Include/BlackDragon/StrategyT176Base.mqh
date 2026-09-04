@@ -774,6 +774,9 @@ public:
          string pyrWhy = "";
          datetime buyLastBar = m_basket.LastBuyBar();
          bool allowPyramidAddBuy = m_newSeriesFilters.Allow(ctx, BD_DIR_BUY);
+         if(m_recovery != NULL &&
+            m_recovery.T1719BlocksCorePyramidAdd(recovery_CORE_BUY))
+            allowPyramidAddBuy = false;
          if(m_basket.buy.count > 0)
          {
             bool changed = m_pyramid.Drive(ctx, m_basket.buy, BD_DIR_BUY, MaxOrdersBuy,
@@ -793,6 +796,9 @@ public:
          pyrWhy = "";
          datetime sellLastBar = m_basket.LastSellBar();
          bool allowPyramidAddSell = m_newSeriesFilters.Allow(ctx, BD_DIR_SELL);
+         if(m_recovery != NULL &&
+            m_recovery.T1719BlocksCorePyramidAdd(recovery_CORE_SELL))
+            allowPyramidAddSell = false;
          if(m_basket.sell.count > 0)
          {
             bool changed = m_pyramid.Drive(ctx, m_basket.sell, BD_DIR_SELL, MaxOrdersSell,

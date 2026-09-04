@@ -1,0 +1,47 @@
+schema_version: "1.0"
+task: T17.19
+decisions:
+  - id: D1719-01
+    status: ACCEPTED
+    decision: "Re-arm Recovery only after the terminal generation has fully closed through exact Recovery-owned positive BE/SL protection."
+    rationale: "The supplied tester log shows MAXED_NO_HEDGE followed by continued adverse Core DCA and margin exhaustion."
+  - id: D1719-02
+    status: ACCEPTED
+    decision: "Use aggregate realized cash for the complete terminal RH chain, not an individual child deal, to classify a positive close."
+    rationale: "A child may close negative while the multi-child chain is net positive."
+  - id: D1719-03
+    status: ACCEPTED
+    decision: "Use the final exact programmed protective price as the re-entry anchor and store the actual fill separately."
+    rationale: "The structural price is deterministic across slippage and restart."
+  - id: D1719-04
+    status: ACCEPTED
+    decision: "Require a favorable reset beyond the existing RecoveryReentryBufferPips_ before a return through the anchor can start G1."
+    rationale: "The two-stage latch prevents same-event and price-chatter reopen."
+  - id: D1719-05
+    status: ACCEPTED
+    decision: "MaxRecoveryReentryCycles_ defaults to 2; zero disables and the hard range is 0 through 20."
+    rationale: "An outer cap prevents unbounded repeated Recovery campaigns."
+  - id: D1719-06
+    status: ACCEPTED
+    decision: "WAIT_RESET and ARMED block only Core DCA; Core Pyramid ADD remains governed by its existing settings and filters."
+    rationale: "Owner explicitly amended and approved this admission rule."
+  - id: D1719-07
+    status: ACCEPTED
+    decision: "EXHAUSTED blocks Core DCA and Core Pyramid ADD but never blocks risk-reducing Pyramid Peel or closes."
+    rationale: "After the outer cap, fail-safe growth must stop without suppressing exits."
+  - id: D1719-08
+    status: ACCEPTED
+    decision: "Persist T17.19 in a separate atomic v1 record; do not modify ARCS v4 structs or payload size."
+    rationale: "Protects restart idempotency and legacy persistence compatibility."
+  - id: D1719-09
+    status: ACCEPTED
+    decision: "A re-entry starts a fresh ARCS G1 and reuses the current Hedge Pyramid scheduler with fresh Core exposure."
+    rationale: "The requested RH ladder is already implemented and broker-hardened."
+  - id: D1719-10
+    status: REJECTED
+    decision: "Do not classify external/manual closes, non-positive chain cash, or approximate price-only matches as an eligible trigger."
+    rationale: "These cases cannot prove Recovery ownership or positive protection."
+  - id: D1719-11
+    status: REJECTED
+    decision: "Do not infer Strategy Tester PASS from model, native-script or compile evidence."
+    rationale: "A true tester run is an independent runtime gate."
