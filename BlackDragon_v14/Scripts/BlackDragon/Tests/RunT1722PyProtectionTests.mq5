@@ -9,4 +9,5 @@ void OnStart()
 {
    T1722_RunCases();
    Print("T17.22 PY protection: ",passed," passed, ",failed," failed");
+   if(failed==0) Print("ALL GREEN"); else Print("TESTS FAILED");
 }
