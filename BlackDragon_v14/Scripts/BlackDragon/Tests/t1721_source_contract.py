@@ -18,6 +18,9 @@ superseded_t1722={
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh',
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDealT162Base.mqh',
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT177Base.mqh',
+ # T17.23 F07 intentionally supersedes the legacy sample filter's fail-open
+ # policy; t1723_source_contract.py now owns its exact fail-closed invariant.
+ 'BlackDragon_v14/Include/BlackDragon/Filters/AdxFilter.mqh',
 }
 def ck(ok,name): checks.append((bool(ok),name))
 for path,sha in MANIFEST['original_sha256'].items():
