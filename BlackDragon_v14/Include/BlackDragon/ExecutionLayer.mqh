@@ -1256,8 +1256,8 @@ public:
                   // durable PY operation is an integrity fault, not permission
                   // to silently drop the journal and spin forever.
                   m_journal[i].reconcileRequired=true;
-                  Log_Error("Exec","pyreject",
-                            "definitive PY reject did not match durable operation; giữ fail-closed journal");
+                  Log_Error("Exec",
+                            "T17.23 pyreject: definitive PY reject did not match durable operation; giữ fail-closed journal");
                }
                if(result.retcode != 0)
                   Log_Warn("Exec", "txrej", "async request rejected retcode=" + (string)result.retcode);
