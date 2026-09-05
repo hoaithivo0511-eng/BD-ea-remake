@@ -46,6 +46,16 @@ ck('g_pyramidProtection.OnDefinitiveReject' in execution and
 types=rd(INC/'Types.mqh')
 ck('virtual bool OnDefinitiveReject' in types,
    'F02 reject callback is explicit in the optional PY adapter interface')
+arcs=rd(INC/'Recovery/RecoveryArcsStack.mqh')
+replay=arcs[arcs.index('bool ReplayAfterCursor('):arcs.index('bool ValidateLiveBook(')]
+ck('eRecoveryCoreDirection dealDir=DirectionForClose(owner,type,mapped);' in replay and
+   'if(!mapped || dealDir!=dir) continue;' in replay and
+   replay.index('if(!mapped || dealDir!=dir) continue;') < replay.index('ArrayResize(replay, n + 1);'),
+   'F03 replay filters exact direction before the deal can enter the batch')
+ck('TrackCursor(dir, deal);' in arcs and
+   'ReplayAfterCursor(recovery_CORE_BUY,why)' in arcs and
+   'ReplayAfterCursor(recovery_CORE_SELL,why)' in arcs,
+   'F03 retains durable per-direction cursors and both callback replay paths')
 ck(all(x in wf for x in ['t1723_audit_regression_model.cpp',
                          't1723_source_contract.py',
                          'RunT1723AuditRegressionTests']),

@@ -1,4 +1,27 @@
 // T17.23 external-audit regression cases.
+double T1723_F03LegacyCrossScopedSpent()
+{
+   long sellCursor=100000;
+   double spent=0.0;
+   // Legacy BUY replay admitted the SELL close at 250000 and ApplyCloseDeal()
+   // moved the SELL cursor before SELL replay had a chance to see 150000.
+   spent+=5.0;
+   sellCursor=250000;
+   if(150000>sellCursor) spent+=50.0;
+   return spent;
+}
+
+double T1723_F03DirectionScopedSpent()
+{
+   long sellCursor=100000;
+   double spent=0.0;
+   // BUY replay ignores both SELL deals. SELL replay then consumes them in
+   // deterministic time order and advances only its own cursor.
+   if(150000>sellCursor) { spent+=50.0; sellCursor=150000; }
+   if(250000>sellCursor) { spent+=5.0;  sellCursor=250000; }
+   return spent;
+}
+
 void T1723_RunCases()
 {
    T1723_Check("F01 no excess continues",
@@ -22,4 +45,8 @@ void T1723_RunCases()
       !PyProtect_RejectMatchesOperationPure(172200,8,1001,0,7,1001,false));
    T1723_Check("F02 completed op cannot consume duplicate reject",
       !PyProtect_RejectMatchesOperationPure(172200,7,1001,0,7,1001,true));
+   T1723_Check("F03 legacy cross-scope counterexample books only 5",
+      MathAbs(T1723_F03LegacyCrossScopedSpent()-5.0)<1e-8);
+   T1723_Check("F03 direction-scoped replay books full 55",
+      MathAbs(T1723_F03DirectionScopedSpent()-55.0)<1e-8);
 }

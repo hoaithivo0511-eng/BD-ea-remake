@@ -322,6 +322,20 @@ private:
                          m_dir[di].lastDealTicket)) continue;
          long magic = HistoryDealGetInteger(deal, DEAL_MAGIC);
          if(magic != (long)Magic && magic != (long)RecoveryMagic_ && magic != 0) continue;
+
+         // T17.23 F03: the cursor above belongs to exactly one Recovery Core
+         // direction. Never place a close from the opposite direction into this
+         // replay batch, otherwise ApplyCloseDeal() can advance that other
+         // direction's cursor before its own replay begins.
+         long entry=HistoryDealGetInteger(deal,DEAL_ENTRY);
+         if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) continue;
+         long owner=ResolveClosedOwnerMagic(deal);
+         if(owner!=(long)Magic && owner!=(long)RecoveryMagic_) continue;
+         long type=HistoryDealGetInteger(deal,DEAL_TYPE);
+         bool mapped=false;
+         eRecoveryCoreDirection dealDir=DirectionForClose(owner,type,mapped);
+         if(!mapped || dealDir!=dir) continue;
+
          int n = ArraySize(replay);
          ArrayResize(replay, n + 1);
          replay[n] = deal;
