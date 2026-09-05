@@ -528,6 +528,17 @@ public:
          return;
       }
 
+      // T17.23 F05: if commission-aware BE is requested but history cannot be
+      // bound by immutable position identifier, exits/guards above remain
+      // available while all later risk-increasing Core/Pyramid mutations wait.
+      if(!m_basket.CommissionHistoryReady())
+      {
+         Log_WarnEvery("Basket","becommissionhistorywait",
+                       "UseCommissionInBE đang chờ history hợp lệ; khóa mutation tăng rủi ro, vẫn giữ guard/exit",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return;
+      }
+
       if(m_pyramid != NULL)
       {
          string pyrWhy = "";

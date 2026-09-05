@@ -62,6 +62,8 @@ private:
    datetime m_lastSellBar;   // v13: tLastSell
    double   m_commissionBuy;
    double   m_commissionSell;
+   bool     m_commissionBuyValid;
+   bool     m_commissionSellValid;
    double   m_dayStartBalance;   // FE-402: balance at day start (for % daily targets)
    double   m_extremeBuy;        // BD-R3 (v14.7.2): trailing extreme, survives Rebuild()
    double   m_extremeSell;
@@ -74,6 +76,7 @@ public:
    CBasketManager() : m_dirty(true), m_revision(0), m_dayProfit(0), m_dayStart(0),
                       m_lastBuyBar(0), m_lastSellBar(0),
                       m_commissionBuy(0), m_commissionSell(0),
+                      m_commissionBuyValid(true), m_commissionSellValid(true),
                       m_dayStartBalance(0),
                       m_extremeBuy(0), m_extremeSell(DBL_MAX),
                       m_anchorBuy(0), m_anchorSell(0) {}
@@ -82,6 +85,8 @@ public:
    datetime LastSellBar() const { return m_lastSellBar; }
    double   DayProfit()   const { return m_dayProfit;   }
    double   DayStartBalance() const { return m_dayStartBalance; }   // FE-402
+   bool CommissionHistoryReady() const
+   { return !UseCommissionInBE || (m_commissionBuyValid && m_commissionSellValid); }
 
    void Invalidate() { m_dirty = true; }
    ulong Revision() const { return m_revision; }
@@ -158,6 +163,8 @@ private:
       ResetSide(sell);
       m_commissionBuy  = 0;
       m_commissionSell = 0;
+      m_commissionBuyValid = true;
+      m_commissionSellValid = true;
 
       int total = PositionsTotal();
       for(int i = 0; i < total; i++)
@@ -195,10 +202,13 @@ private:
       SortSide(buy);   // fix #5: never rely on pool ordering
       SortSide(sell);
 
-      if(UseCommissionInBE)   // rebuild-only history lookups (cheap: event-driven)
+      if(UseCommissionInBE)   // rebuild-only history lookups (event-driven)
       {
-         m_commissionBuy  = SumCommission(buy);
-         m_commissionSell = SumCommission(sell);
+         m_commissionBuyValid  = TrySumCommission(buy,m_commissionBuy);
+         m_commissionSellValid = TrySumCommission(sell,m_commissionSell);
+         if(!m_commissionBuyValid || !m_commissionSellValid)
+            Log_Warn("Basket","becommissionhistory",
+                     "T17.23 UseCommissionInBE history/position identifier chưa sẵn sàng; BE/TP/trail và mutation tăng rủi ro fail-closed");
       }
       SeedExtreme(buy,  ctx, true);
       SeedExtreme(sell, ctx, false);
@@ -291,17 +301,23 @@ private:
       }
    }
 
-   double SumCommission(const BasketSide &s)
+   bool TrySumCommission(const BasketSide &s,double &sum)
    {
-      double sum = 0;
+      sum = 0.0;
       for(int i = 0; i < s.count; i++)
-         if(HistorySelectByPosition(s.pos[i].ticket))
-            for(int d = HistoryDealsTotal() - 1; d >= 0; d--)
-            {
-               ulong dt = HistoryDealGetTicket(d);
-               if(dt != 0) sum += HistoryDealGetDouble(dt, DEAL_COMMISSION);
-            }
-      return sum;
+      {
+         // HistorySelectByPosition requires the immutable POSITION_IDENTIFIER,
+         // not the mutable broker position ticket.
+         if(s.pos[i].positionId==0 || !HistorySelectByPosition(s.pos[i].positionId))
+            return false;
+         for(int d = HistoryDealsTotal() - 1; d >= 0; d--)
+         {
+            ulong dt = HistoryDealGetTicket(d);
+            if(dt == 0) return false;
+            sum += HistoryDealGetDouble(dt, DEAL_COMMISSION);
+         }
+      }
+      return true;
    }
 
    //--- BD-R3 (v14.7.2, quyet dinh Chu nha 11/08/2026) -----------------
@@ -383,13 +399,14 @@ private:
    {
       double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
       double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-      ComputeSide(buy,  ctx, tickValue, tickSize, true,  m_commissionBuy);
-      ComputeSide(sell, ctx, tickValue, tickSize, false, m_commissionSell);
+      ComputeSide(buy,  ctx, tickValue, tickSize, true,  m_commissionBuy, m_commissionBuyValid);
+      ComputeSide(sell, ctx, tickValue, tickSize, false, m_commissionSell, m_commissionSellValid);
    }
 
    void ComputeSide(BasketSide &s, const EAContext &ctx, const double tickValue,
                     const double tickSize,
-                    const bool isBuy, const double commission)
+                    const bool isBuy, const double commission,
+                    const bool commissionValid)
    {
       s.breakeven = 0; s.tpLevel = 0; s.slLevel = 0;
       s.trailLevel = 0; s.trailArmed = false;
@@ -402,6 +419,17 @@ private:
 
       if(s.totalLots <= 0) return;
       double avg = wsum / s.totalLots;
+
+      // Unknown commission history must never be interpreted as zero cost.
+      // Keep the configured loss stop available, but suppress cost-derived
+      // positive BE/TP/trailing authority until history becomes valid.
+      if(UseCommissionInBE && !commissionValid)
+      {
+         s.breakeven = avg;
+         if(Cfg.SLPrice != 0) s.slLevel = isBuy ? s.pos[0].openPrice - Cfg.SLPrice
+                                                : s.pos[0].openPrice + Cfg.SLPrice;
+         return;
+      }
 
       if(tickValue <= 0 || tickSize <= 0)
          Log_Warn("Basket", "tickmeta", "tick value/size unavailable, skipping cost shift this tick");

@@ -56,6 +56,22 @@ ck('TrackCursor(dir, deal);' in arcs and
    'ReplayAfterCursor(recovery_CORE_BUY,why)' in arcs and
    'ReplayAfterCursor(recovery_CORE_SELL,why)' in arcs,
    'F03 retains durable per-direction cursors and both callback replay paths')
+basket=rd(INC/'BasketManager.mqh')
+ck('HistorySelectByPosition(s.pos[i].positionId)' in basket and
+   'HistorySelectByPosition(s.pos[i].ticket)' not in basket and
+   'bool TrySumCommission' in basket,
+   'F05 commission history uses immutable position identifier')
+ck('CommissionHistoryReady() const' in basket and
+   'm_commissionBuyValid' in basket and 'm_commissionSellValid' in basket and
+   'UseCommissionInBE && !commissionValid' in basket,
+   'F05 history failure is explicit and cannot degrade to zero commission')
+strategy=rd(INC/'Strategy.mqh')
+ck('if(!m_basket.CommissionHistoryReady())' in strategy and
+   strategy.index('if(!m_basket.CommissionHistoryReady())') >
+   strategy.index('if(ApplyExitT177(ctx, m_basket.sell, BD_DIR_SELL))') and
+   strategy.index('if(!m_basket.CommissionHistoryReady())') <
+   strategy.index('if(m_pyramid != NULL)'),
+   'F05 keeps risk-reducing exits ahead of fail-closed risk-add gate')
 ck(all(x in wf for x in ['t1723_audit_regression_model.cpp',
                          't1723_source_contract.py',
                          'RunT1723AuditRegressionTests']),
