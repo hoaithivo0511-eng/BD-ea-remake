@@ -70,6 +70,17 @@ ePyProtectPrepareDecision PyProtect_PrepareDecisionPure(const long excess,
    return fundedArmable ? PY_PREPARE_TRIM_READY : PY_PREPARE_WAIT_UNFUNDED;
 }
 
+// T17.23 F02: a definitive async reject may settle only the exact persisted
+// PY operation. cycleKey is side-scoped, command and ticket are exact.
+bool PyProtect_RejectMatchesOperationPure(const int cycleKey,const int commandType,
+                                          const long ticket,const int opDir,
+                                          const int opKind,const long opTicket,
+                                          const bool opComplete)
+{
+   if(opComplete || opDir<0 || opDir>1 || ticket<=0 || opTicket<=0) return false;
+   return cycleKey==172200+opDir && commandType==opKind && ticket==opTicket;
+}
+
 bool PyProtect_AddFundedPure(const int dir,const double stop,const double fill,
                             const double lots,const double slope,const double existingNet,
                             const double floor,const double costs)

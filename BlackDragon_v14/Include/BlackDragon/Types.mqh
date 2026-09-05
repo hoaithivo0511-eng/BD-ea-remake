@@ -117,6 +117,8 @@ public:
    virtual bool ExpectedPySl(const ulong deal) { return false; }
    virtual bool OwnsSl(const ulong ticket) { return false; }
    virtual double PreserveSl(const ulong ticket,const double legacy) { return legacy; }
+   virtual bool OnDefinitiveReject(const int cycleKey,const int commandType,
+                                   const ulong ticket,const uint retcode) { return false; }
    virtual bool Drive(const EAContext &ctx) { return false; }
 };
 IPyramidProtection *g_pyramidProtection=NULL;

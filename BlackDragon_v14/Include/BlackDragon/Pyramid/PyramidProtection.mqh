@@ -950,6 +950,37 @@ public:
       if(!OwnsSl(ticket)) return legacy;
       return PositionGetDouble(POSITION_SL);
    }
+   bool OnDefinitiveReject(const int cycleKey,const int commandType,
+                           const ulong ticket,const uint retcode)
+   {
+      if(!Enabled() || ticket==0) return false;
+      int found=-1;
+      for(int i=ArraySize(m_ops)-1;i>=0;i--)
+         if(PyProtect_RejectMatchesOperationPure(cycleKey,commandType,(long)ticket,
+                                                m_ops[i].dir,m_ops[i].kind,
+                                                (long)m_ops[i].ticket,m_ops[i].complete))
+         { found=i; break; }
+      if(found<0) return false;
+      SPyProtectOperation op=m_ops[found];
+      if(op.kind==EXEC_CMD_PY_PROTECT_MODIFY)
+      {
+         int mi=Find(op.id);
+         if(mi>=0) m_members[mi].requestedSl=m_members[mi].confirmedSl;
+      }
+      m_ops[found].complete=true;
+      m_basket.Invalidate();
+      m_historyDirty=true;
+      if(!Save())
+      {
+         Fault("không persist được definitive async reject");
+         return false;
+      }
+      Log_WarnEvery("PYProtect","async-reject"+(string)op.dir,
+                    "T17.23 definitive async reject hiệu lực=0 retcode="+(string)retcode+
+                    "; operation cũ kết thúc, obligation giữ để retry",
+                    Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+      return true;
+   }
    bool AllowsRequest(const MqlTradeRequest &req,const SExecRequestMeta &meta)
    {
       if(!Enabled() || req.symbol!=_Symbol || m_override) return true;

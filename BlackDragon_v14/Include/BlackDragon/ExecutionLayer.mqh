@@ -1240,7 +1240,25 @@ public:
             if(!RetcodeOk(result.retcode))
             {
                RecordLegacyCapacityRejectAt(i, result.retcode);
-               Journal_CompleteAt(i); // explicit rejection is a proven outcome
+               bool pyCommand=m_journal[i].commandType==EXEC_CMD_PY_PROTECT_CLOSE ||
+                              m_journal[i].commandType==EXEC_CMD_PY_PROTECT_MODIFY ||
+                              m_journal[i].commandType==EXEC_CMD_PY_RH_TRIM;
+               bool consumed=!pyCommand;
+               if(pyCommand && g_pyramidProtection!=NULL)
+                  consumed=g_pyramidProtection.OnDefinitiveReject(
+                     m_journal[i].cycleKey,(int)m_journal[i].commandType,
+                     m_journal[i].ticket,result.retcode);
+               if(consumed)
+                  Journal_CompleteAt(i); // explicit rejection persisted/consumed
+               else
+               {
+                  // A proven no-effect result that cannot be bound back to its
+                  // durable PY operation is an integrity fault, not permission
+                  // to silently drop the journal and spin forever.
+                  m_journal[i].reconcileRequired=true;
+                  Log_Error("Exec","pyreject",
+                            "definitive PY reject did not match durable operation; giữ fail-closed journal");
+               }
                if(result.retcode != 0)
                   Log_Warn("Exec", "txrej", "async request rejected retcode=" + (string)result.retcode);
             }

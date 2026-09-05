@@ -33,6 +33,19 @@ ck('m_group[d].phase==PY_PREPARE' in fund and
    'obligation=PyProtect_StrongerPure' in fund and
    'NetAt(d,obligation)' in fund,
    'F01 later PY add is charged against durable PREPARE obligation')
+ck('OnDefinitiveReject' in protect and
+   'PyProtect_RejectMatchesOperationPure' in protect and
+   'm_ops[found].complete=true' in protect and
+   'requestedSl=m_members[mi].confirmedSl' in protect,
+   'F02 definitive reject terminates exact durable op and rolls back requested SL')
+execution=rd(INC/'ExecutionLayer.mqh')
+ck('g_pyramidProtection.OnDefinitiveReject' in execution and
+   'm_journal[i].reconcileRequired=true' in execution and
+   'definitive PY reject did not match durable operation' in execution,
+   'F02 executor routes exact reject and fails closed if durable consumer is missing')
+types=rd(INC/'Types.mqh')
+ck('virtual bool OnDefinitiveReject' in types,
+   'F02 reject callback is explicit in the optional PY adapter interface')
 ck(all(x in wf for x in ['t1723_audit_regression_model.cpp',
                          't1723_source_contract.py',
                          'RunT1723AuditRegressionTests']),

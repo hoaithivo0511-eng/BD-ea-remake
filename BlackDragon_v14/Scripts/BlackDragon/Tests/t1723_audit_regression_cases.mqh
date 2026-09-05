@@ -14,4 +14,12 @@ void T1723_RunCases()
    T1723_Check("F01 counterexample old candidate differs from funded stop",
       oldCandidateArmable && !fundedAfterArmable &&
       PyProtect_PrepareDecisionPure(40,true,fundedAfterArmable)==PY_PREPARE_WAIT_UNFUNDED);
+   T1723_Check("F02 exact definitive reject matches",
+      PyProtect_RejectMatchesOperationPure(172200,7,1001,0,7,1001,false));
+   T1723_Check("F02 wrong side cycle rejected",
+      !PyProtect_RejectMatchesOperationPure(172201,7,1001,0,7,1001,false));
+   T1723_Check("F02 wrong command rejected",
+      !PyProtect_RejectMatchesOperationPure(172200,8,1001,0,7,1001,false));
+   T1723_Check("F02 completed op cannot consume duplicate reject",
+      !PyProtect_RejectMatchesOperationPure(172200,7,1001,0,7,1001,true));
 }
