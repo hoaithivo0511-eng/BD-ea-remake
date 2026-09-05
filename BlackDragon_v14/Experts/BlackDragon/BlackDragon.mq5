@@ -331,12 +331,17 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    {
       g_basket.Invalidate();
       if(HistoryDealSelect(trans.deal))
+      {
+         long entry=HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
          if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) == _Symbol &&
             Basket_OwnsMagic(HistoryDealGetInteger(trans.deal, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
-            HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_OUT)
-            g_basket.OnDealClosed(HistoryDealGetDouble(trans.deal, DEAL_PROFIT),
-                                  HistoryDealGetDouble(trans.deal, DEAL_SWAP),
-                                  HistoryDealGetDouble(trans.deal, DEAL_COMMISSION));
+            Basket_IsDayCashEntry(entry))
+            g_basket.OnDealCash(trans.deal,
+                                HistoryDealGetDouble(trans.deal, DEAL_PROFIT),
+                                HistoryDealGetDouble(trans.deal, DEAL_SWAP),
+                                HistoryDealGetDouble(trans.deal, DEAL_COMMISSION),
+                                HistoryDealGetDouble(trans.deal, DEAL_FEE));
+      }
    }
 }
 

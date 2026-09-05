@@ -72,6 +72,21 @@ ck('if(!m_basket.CommissionHistoryReady())' in strategy and
    strategy.index('if(!m_basket.CommissionHistoryReady())') <
    strategy.index('if(m_pyramid != NULL)'),
    'F05 keeps risk-reducing exits ahead of fail-closed risk-add gate')
+entry=rd(ROOT/'Experts/BlackDragon/BlackDragon.mq5')
+ck('Basket_IsDayCashEntry' in basket and
+   'Basket_DealCash' in basket and
+   'HistoryDealGetDouble(tic, DEAL_FEE)' in basket and
+   'g_basket.OnDealCash(trans.deal' in entry and
+   'HistoryDealGetDouble(trans.deal, DEAL_FEE)' in entry,
+   'F04 seed and callback use one net cash scope including fee')
+ck('DEAL_ENTRY_IN' in basket and 'DEAL_ENTRY_OUT' in basket and
+   'DEAL_ENTRY_INOUT' in basket and 'DEAL_ENTRY_OUT_BY' in basket and
+   'ArrayResize(m_dayCashDeals,0)' in basket and
+   'DayDealSeen(deal)' in basket,
+   'F04 covers entry/exit/close-by cash and deduplicates exact deal ids per day')
+ck('OnDealClosed' not in basket and
+   'DEAL_ENTRY) == DEAL_ENTRY_OUT' not in entry,
+   'F04 legacy close-only day accounting path is removed')
 ck(all(x in wf for x in ['t1723_audit_regression_model.cpp',
                          't1723_source_contract.py',
                          'RunT1723AuditRegressionTests']),

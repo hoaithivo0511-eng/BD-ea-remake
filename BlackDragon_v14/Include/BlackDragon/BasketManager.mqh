@@ -51,6 +51,20 @@ bool Basket_OwnsMagic(const long dealMagic, const long botMagic, const bool hand
    return dealMagic == botMagic || (dealMagic == 0 && handOrders);
 }
 
+// T17.23 F04: daily accounting is cash-based. Entry commission/fee and
+// close-by/inout deals are part of the realized account-currency delta.
+bool Basket_IsDayCashEntry(const long entry)
+{
+   return entry==DEAL_ENTRY_IN || entry==DEAL_ENTRY_OUT ||
+          entry==DEAL_ENTRY_INOUT || entry==DEAL_ENTRY_OUT_BY;
+}
+
+double Basket_DealCash(const double profit,const double swap,
+                       const double commission,const double fee)
+{
+   return profit+swap+commission+fee;
+}
+
 class CBasketManager
 {
 private:
@@ -64,6 +78,7 @@ private:
    double   m_commissionSell;
    bool     m_commissionBuyValid;
    bool     m_commissionSellValid;
+   ulong    m_dayCashDeals[];
    double   m_dayStartBalance;   // FE-402: balance at day start (for % daily targets)
    double   m_extremeBuy;        // BD-R3 (v14.7.2): trailing extreme, survives Rebuild()
    double   m_extremeSell;
@@ -91,11 +106,28 @@ public:
    void Invalidate() { m_dirty = true; }
    ulong Revision() const { return m_revision; }
 
+   bool DayDealSeen(const ulong deal) const
+   {
+      if(deal==0) return true;
+      for(int i=ArraySize(m_dayCashDeals)-1;i>=0;i--)
+         if(m_dayCashDeals[i]==deal) return true;
+      return false;
+   }
+
+   void MarkDayDeal(const ulong deal)
+   {
+      if(deal==0 || DayDealSeen(deal)) return;
+      int n=ArraySize(m_dayCashDeals);
+      ArrayResize(m_dayCashDeals,n+1);
+      m_dayCashDeals[n]=deal;
+   }
+
    //--- C2: called once from OnInit and on day rollover ---------------
    void SeedDayProfit()
    {
       m_dayStart  = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
       m_dayProfit = 0;
+      ArrayResize(m_dayCashDeals,0);
       if(!HistorySelect(m_dayStart, TimeCurrent() + 1))
       {
          m_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);   // FE-402 fallback
@@ -105,13 +137,19 @@ public:
       {
          ulong tic = HistoryDealGetTicket(i);
          if(tic == 0) continue;
-         // BD-R6: same ownership rule as the position scan below.
+         // BD-R6 ownership + T17.23 cash reducer: seed and callback use the
+         // same deal scope so entry costs cannot disappear after restart.
+         long entry=HistoryDealGetInteger(tic, DEAL_ENTRY);
          if(Basket_OwnsMagic(HistoryDealGetInteger(tic, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
             HistoryDealGetString(tic, DEAL_SYMBOL) == _Symbol &&
-            HistoryDealGetInteger(tic, DEAL_ENTRY) == DEAL_ENTRY_OUT)
-            m_dayProfit += HistoryDealGetDouble(tic, DEAL_PROFIT)
-                         + HistoryDealGetDouble(tic, DEAL_SWAP)
-                         + HistoryDealGetDouble(tic, DEAL_COMMISSION);
+            Basket_IsDayCashEntry(entry))
+         {
+            m_dayProfit += Basket_DealCash(HistoryDealGetDouble(tic, DEAL_PROFIT),
+                                           HistoryDealGetDouble(tic, DEAL_SWAP),
+                                           HistoryDealGetDouble(tic, DEAL_COMMISSION),
+                                           HistoryDealGetDouble(tic, DEAL_FEE));
+            MarkDayDeal(tic);
+         }
       }
       // FE-402: balance at day start = current balance minus what THIS bot
       // already realized today (deposits/withdrawals mid-day would skew this
@@ -119,10 +157,14 @@ public:
       m_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE) - m_dayProfit;
    }
 
-   //--- C2: called from OnTradeTransaction on DEAL_ENTRY_OUT ----------
-   void OnDealClosed(const double profit, const double swap, const double commission)
+   //--- T17.23 F04: event reducer is idempotent by exact deal ticket.
+   void OnDealCash(const ulong deal,const double profit,const double swap,
+                   const double commission,const double fee)
    {
-      m_dayProfit += profit + swap + commission;
+      CheckDayRollover(TimeCurrent());
+      if(deal==0 || DayDealSeen(deal)) return;
+      m_dayProfit += Basket_DealCash(profit,swap,commission,fee);
+      MarkDayDeal(deal);
    }
 
    void CheckDayRollover(const datetime now)
