@@ -87,6 +87,14 @@ ck('DEAL_ENTRY_IN' in basket and 'DEAL_ENTRY_OUT' in basket and
 ck('OnDealClosed' not in basket and
    'DEAL_ENTRY) == DEAL_ENTRY_OUT' not in entry,
    'F04 legacy close-only day accounting path is removed')
+adx=rd(INC/'Filters/AdxFilter.mqh')
+ck('CopyBuffer(m_handle, 0, 1, 1, adx) != 1' in adx and
+   'return false;' in adx and
+   'return true;   // fail-open' not in adx,
+   'F07 ADX data failure blocks new-series admission')
+ck('T17.23 ADX filter enabled nhưng init thất bại — fail closed' in entry and
+   'return INIT_FAILED;' in entry,
+   'F07 enabled ADX init failure aborts initialization instead of bypassing filter')
 ck(all(x in wf for x in ['t1723_audit_regression_model.cpp',
                          't1723_source_contract.py',
                          'RunT1723AuditRegressionTests']),

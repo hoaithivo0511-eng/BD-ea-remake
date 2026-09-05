@@ -205,7 +205,13 @@ int OnInit()
    {
       g_adx = new CAdxFilter();
       if(g_adx.Init()) g_strategy.AddNewSeriesFilter(g_adx);
-      else { delete g_adx; g_adx = NULL; Log_Error("Init", "ADX filter init failed — running without it"); }
+      else
+      {
+         delete g_adx;
+         g_adx = NULL;
+         Log_Error("Init", "T17.23 ADX filter enabled nhưng init thất bại — fail closed");
+         return INIT_FAILED;
+      }
    }
 
    g_lastSavedHalt = Cfg.HaltUntil;
