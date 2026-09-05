@@ -10,6 +10,7 @@
 #include "RecoveryLock.mqh"
 #include "RecoveryBundle.mqh"
 #include <BlackDragon/Pyramid/PyramidConfig.mqh>
+#include <BlackDragon/PositionBook.mqh>
 
 struct SArcsPosition
 {
@@ -95,6 +96,8 @@ long Recovery_ArcsCoreUnits(const eRecoveryCoreDirection dir,
                             const double step)
 {
    if(step <= 0.0) return 0;
+   if(g_bdObservationBook.Matches(_Symbol,(long)Magic,(long)RecoveryMagic_,step))
+      return g_bdObservationBook.CoreUnits(dir==recovery_CORE_BUY ? 0 : 1);
    long wanted = Recovery_ArcsCoreType(dir);
    long units = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -104,6 +107,22 @@ long Recovery_ArcsCoreUnits(const eRecoveryCoreDirection dir,
       units += Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME), step);
    }
    return units;
+}
+
+int Recovery_ArcsTriggerCoreCount(const eRecoveryCoreDirection dir,const double step)
+{
+   if(step<=0) return 0;
+   if(g_bdObservationBook.Matches(_Symbol,(long)Magic,(long)RecoveryMagic_,step))
+      return g_bdObservationBook.CoreCount(dir==recovery_CORE_BUY ? 0 : 1);
+   int count=0; long wanted=Recovery_ArcsCoreType(dir);
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      if(PositionGetTicket(i)==0 || !Recovery_ArcsCurrentCorePositionMatches(wanted)) continue;
+      if(Pyramid_IsComment(PositionGetString(POSITION_COMMENT))) continue;
+      if(Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME),step)>0 &&
+         PositionGetDouble(POSITION_PRICE_OPEN)>0) count++;
+   }
+   return count;
 }
 
 // Trigger Core book deliberately excludes BDP Pyramid positions. Existing
@@ -243,13 +262,21 @@ int Recovery_ArcsBuildLayerPositions(const eRecoveryCoreDirection dir,
 }
 
 long Recovery_ArcsLayerUnits(const eRecoveryCoreDirection dir,
-                             const int generation,
-                             const double step)
+                             const int generation,const double step)
 {
-   SArcsPosition p[];
-   Recovery_ArcsBuildLayerPositions(dir, generation, step, p);
-   long units = 0;
-   for(int i = 0; i < ArraySize(p); i++) units += p[i].units;
+   if(generation<1 || step<=0) return 0;
+   long wanted=Recovery_ArcsHedgeType(dir),units=0;
+   // T17.24 sum-only query: no allocation and no ordering work.
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || PositionGetString(POSITION_SYMBOL)!=_Symbol ||
+         PositionGetInteger(POSITION_MAGIC)!=(long)RecoveryMagic_ ||
+         PositionGetInteger(POSITION_TYPE)!=wanted) continue;
+      if(Recovery_ArcsPositionGeneration()!=generation) continue;
+      long volumeUnits=Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME),step);
+      if(volumeUnits>0 && PositionGetDouble(POSITION_PRICE_OPEN)>0) units+=volumeUnits;
+   }
    return units;
 }
 
@@ -257,6 +284,8 @@ long Recovery_ArcsTotalHedgeUnits(const eRecoveryCoreDirection dir,
                                   const double step)
 {
    if(step <= 0.0) return 0;
+   if(g_bdObservationBook.Matches(_Symbol,(long)Magic,(long)RecoveryMagic_,step))
+      return g_bdObservationBook.HedgeUnits(dir==recovery_CORE_BUY ? 0 : 1);
    long wanted = Recovery_ArcsHedgeType(dir);
    long units = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)

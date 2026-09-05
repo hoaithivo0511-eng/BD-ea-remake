@@ -770,8 +770,9 @@ public:
          }
       }
 
-      if((PyramidSLMode_==py_protect_OFF ? m_statsAt[dir]==now :
-          (m_stats[dir].ready && m_statsRevision[dir]==g_pyramidDealRevision)) &&
+      // T17.24: historical totals have event freshness in OFF as well as ON.
+      // Live price/profit stays in the live basket; a new second is not a deal.
+      if((m_stats[dir].ready && m_statsRevision[dir]==g_pyramidDealRevision) &&
          m_statsSideCount[dir] == side.count &&
          MathAbs(m_statsSideLots[dir] - side.totalLots) <= 1e-12 &&
          m_statsNewestPyramid[dir] == book.newestPyramidTicket)

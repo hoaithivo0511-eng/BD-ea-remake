@@ -1,0 +1,481 @@
+{
+  "schema": "bd-prd-build-contract/1.0",
+  "plan_id": "BD-PR28-REMEDIATION-001",
+  "status": "IMPLEMENTATION_CANDIDATE_NATIVE_PENDING",
+  "mode": "Full",
+  "role_separation": [
+    "CONTRACTOR binds spec/decisions",
+    "BUILDER implements scoped changes",
+    "VERIFIER independently validates source/evidence"
+  ],
+  "baseline": {
+    "repo": "hoaithivo0511-eng/BD-ea-remake",
+    "head": "d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d",
+    "tree": "e246b49b8fafcb081f21277ce39514f728168983"
+  },
+  "owner_authority": {
+    "planning_request": "Tiến hành plan prd chi tiết ... bàn giao ... builder ... update & audit",
+    "planning_authorized": true,
+    "implementation_handover_approval": "BUILD_AUTHORITY.json; explicit user implementation request",
+    "repeat_permission_for_already_authorized_tasks": false,
+    "new_semantics_require_bound_decision": true
+  },
+  "artifact_schema_note": "Package schemas are planning schemas; builder adapts to installed canonical runtime, does not relabel them as release evidence",
+  "allowed_path_scopes": {
+    "tests": [
+      "BlackDragon_v14/Scripts/BlackDragon/Tests/*",
+      "BlackDragon_v14/docs/vibecode/BD_PR28_REMEDIATION/**",
+      ".github/workflows/verify-current.yml"
+    ],
+    "protection": [
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtectionPolicy.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Strategy.mqh"
+    ],
+    "execution": [
+      "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Strategy.mqh",
+      "BlackDragon_v14/Include/BlackDragon/OperationResultStore.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Types.mqh"
+    ],
+    "recovery": [
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistence.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsBook.mqh",
+      "BlackDragon_v14/Include/BlackDragon/CashLedger.mqh"
+    ],
+    "accounting": [
+      "BlackDragon_v14/Include/BlackDragon/BasketManager.mqh",
+      "BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165GuardScope.mqh",
+      "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+      "BlackDragon_v14/Include/BlackDragon/CashLedger.mqh"
+    ],
+    "diagnostics": [
+      "BlackDragon_v14/Include/BlackDragon/Diagnostics/**",
+      "BlackDragon_v14/Include/BlackDragon/Strategy.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5"
+    ],
+    "persistence": [
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistence.mqh",
+      "BlackDragon_v14/Include/BlackDragon/OperationResultStore.mqh"
+    ],
+    "snapshot": [
+      "BlackDragon_v14/Include/BlackDragon/PositionBook.mqh",
+      "BlackDragon_v14/Include/BlackDragon/BasketManager.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsBook.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Strategy.mqh"
+    ],
+    "history_retry": [
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "BlackDragon_v14/Include/BlackDragon/CashLedger.mqh",
+      "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh",
+      "BlackDragon_v14/Include/BlackDragon/OperationResultStore.mqh"
+    ],
+    "optional": [
+      "BlackDragon_v14/Include/BlackDragon/Filters/AdxFilter.mqh",
+      "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+      "BlackDragon_v14/Include/BlackDragon/ProfitOracle.mqh"
+    ],
+    "docs": [
+      "BlackDragon_v14/docs/vibecode/BD_PR28_REMEDIATION/**",
+      "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml"
+    ],
+    "all": [
+      ".github/workflows/verify-current.yml",
+      "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+      "BlackDragon_v14/Include/BlackDragon/BasketManager.mqh",
+      "BlackDragon_v14/Include/BlackDragon/CashLedger.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Diagnostics/**",
+      "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Filters/AdxFilter.mqh",
+      "BlackDragon_v14/Include/BlackDragon/OperationResultStore.mqh",
+      "BlackDragon_v14/Include/BlackDragon/PositionBook.mqh",
+      "BlackDragon_v14/Include/BlackDragon/ProfitOracle.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtectionPolicy.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsBook.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistence.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165GuardScope.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Strategy.mqh",
+      "BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh",
+      "BlackDragon_v14/Scripts/BlackDragon/Tests/*",
+      "BlackDragon_v14/docs/vibecode/BD_PR28_REMEDIATION/**",
+      "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+      "BlackDragon_v14/Include/BlackDragon/Types.mqh",
+      "BlackDragon_v14/Include/BlackDragon/Config.mqh"
+    ]
+  },
+  "new_paths_are_proposals": [
+    "BlackDragon_v14/Include/BlackDragon/PositionBook.mqh",
+    "BlackDragon_v14/Include/BlackDragon/CashLedger.mqh",
+    "BlackDragon_v14/Include/BlackDragon/OperationResultStore.mqh",
+    "BlackDragon_v14/Include/BlackDragon/ProfitOracle.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Diagnostics/**"
+  ],
+  "path_extension_rule": "Propose exact additional paths with reason/test impact before editing beyond scope; routine refactor choices inside approved boundaries do not require repeated owner permission",
+  "forbidden_paths": [
+    "BlackDragon_v14/docs/vibecode/archive/**",
+    "credentials/**",
+    "secrets/**",
+    "live_terminal/**"
+  ],
+  "forbidden_actions": [
+    "change input defaults/order/types or strategy/risk semantics without approved CR",
+    "rewrite inherited approval records or audit outputs",
+    "delete failing tests or lower gates to obtain green",
+    "fabricate native EX5/log/backtest/approval",
+    "install runtime services/Wine/MT5 without explicit request",
+    "activate live trading",
+    "merge or deploy under this planning request",
+    "publish messages/comments to team without explicit authorization"
+  ],
+  "required_gates": [
+    "G0",
+    "G1",
+    "G2",
+    "G3",
+    "G4",
+    "G5",
+    "G6"
+  ],
+  "release_decision_gate": "G7 separate owner authority",
+  "guards": [
+    {
+      "id": "RETRO-A1",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "State/count/order"
+      ],
+      "rule": "State/count/order must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q02",
+        "Q11",
+        "Q23",
+        "Q53",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A2",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "Failure policy"
+      ],
+      "rule": "Failure policy must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q07",
+        "Q08",
+        "Q19",
+        "Q22",
+        "Q36",
+        "Q37",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A3",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "Approved semantic authority"
+      ],
+      "rule": "Approved semantic authority must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q01",
+        "Q15",
+        "Q20",
+        "Q29",
+        "Q50",
+        "Q51",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A4",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "Independent test oracle"
+      ],
+      "rule": "Independent test oracle must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q02",
+        "Q11",
+        "Q15",
+        "Q21",
+        "Q48",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A5",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "Runtime freshness"
+      ],
+      "rule": "Runtime freshness must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q27",
+        "Q31",
+        "Q32",
+        "Q55",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A6",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "Async idempotency"
+      ],
+      "rule": "Async idempotency must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q07",
+        "Q08",
+        "Q09",
+        "Q10",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A7",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "Persisted test isolation"
+      ],
+      "rule": "Persisted test isolation must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q25",
+        "Q26",
+        "Q52",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A8",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "Persist until consumed"
+      ],
+      "rule": "Persist until consumed must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q10",
+        "Q24",
+        "Q30",
+        "Q42",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A9",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "Unit/identity precision"
+      ],
+      "rule": "Unit/identity precision must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q21",
+        "Q28",
+        "Q38",
+        "Q39",
+        "Q40",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A10",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "Broker/native parity"
+      ],
+      "rule": "Broker/native parity must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q21",
+        "Q38",
+        "Q43",
+        "Q44",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A11",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "Performance evidence"
+      ],
+      "rule": "Performance evidence must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q33",
+        "Q34",
+        "Q35",
+        "Q46",
+        "Q47",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A12",
+      "severity": "P1",
+      "class": "hard",
+      "triggered_by": [
+        "Exact multi-file edit scope"
+      ],
+      "rule": "Exact multi-file edit scope must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q01",
+        "Q51",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A14",
+      "severity": "P0",
+      "class": "hard",
+      "triggered_by": [
+        "Hot-path isolation"
+      ],
+      "rule": "Hot-path isolation must be proved for affected behavior before claiming gate PASS",
+      "required_evidence": [
+        "Q28",
+        "Q31",
+        "Q33",
+        "Q45",
+        "hashed_native_or_scope_appropriate_artifacts"
+      ],
+      "checker": "t1724_source_contract.py + t1724_integration.py + TEST_EXECUTION.json",
+      "checker_status": "HOST_SUPPORT_IMPLEMENTED_NATIVE_PROOF_PENDING",
+      "remediation": "Implement mapped intended-result tests, native proofs where required, then run installed canonical retro checker",
+      "waiver_allowed": false
+    }
+  ],
+  "requirements": [
+    "R-001",
+    "R-002",
+    "R-003",
+    "R-004",
+    "R-005",
+    "R-006",
+    "R-007",
+    "R-008",
+    "R-009",
+    "R-010",
+    "R-011",
+    "R-012",
+    "R-013",
+    "R-014",
+    "R-015",
+    "R-016",
+    "R-017",
+    "R-018"
+  ],
+  "task_graph": "TASK_GRAPH.json",
+  "test_matrix": "TEST_MATRIX.json",
+  "source_contracts_are_supporting_not_behavior_proof": true,
+  "native_async_tester_limitation": "Strategy Tester sync fallback does not prove async; native callback injection required, authorized demo evidence before forward eligibility",
+  "release": {
+    "release_eligible": false,
+    "forward_eligible": false,
+    "live_eligible": false,
+    "merge_authorized": false
+  },
+  "implementation_baseline": {
+    "head": "40c424cfa71b6742414b012e9d67d3294003f38e",
+    "tree": "ce4749ef21409b599f54e195826780dad3c25b4e"
+  },
+  "path_extensions": [
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Types.mqh",
+      "reason": "R-003 exact position ID/nonce handoff needs shared PendingRequest fields and IPyramidProtection interface; no input/strategy change",
+      "authority": "User-authorized full implementation; routine interface propagation",
+      "tests": [
+        "t1724_source_contract.py",
+        "t1724_integration.py",
+        "native-final"
+      ]
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Config.mqh",
+      "reason": "Version metadata 15.01 agrees with EA property; input declarations byte preserved",
+      "authority": "Routine implementation metadata",
+      "tests": [
+        "t1724_source_contract.py"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,259 @@
+schema: bd-prd-ea-spec/1.0
+plan_id: BD-PR28-REMEDIATION-001
+status: IMPLEMENTATION_CANDIDATE_INCOMPLETE
+mode: Full
+baseline:
+  head: d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d
+  tree: e246b49b8fafcb081f21277ce39514f728168983
+semantic_authority:
+  existing: BlackDragon_v14/docs/vibecode/T17_22_py_protection/EA-SPEC.yaml
+  decisions: DECISIONS.yaml
+  new_policy_approval_recorded: true
+  approval_evidence: BUILD_AUTHORITY.json
+requirements:
+- id: R-001
+  title: Provenance và authority
+  finding_ids:
+  - F01
+  - F02
+  - F03
+  - F04
+  - F05
+  - F06
+  - F07
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q01
+  - Q43
+  - Q51
+  task_ids:
+  - T00
+  - T12
+- id: R-002
+  title: Pre-arm exposure/funding
+  finding_ids:
+  - F01
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q02
+  - Q03
+  - Q04
+  - Q05
+  - Q53
+  task_ids:
+  - T01
+  - T02
+- id: R-003
+  title: Durable async terminal outcome
+  finding_ids:
+  - F02
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q06
+  - Q07
+  - Q08
+  - Q09
+  - Q10
+  - Q45
+  - Q52
+  task_ids:
+  - T01
+  - T03
+- id: R-004
+  title: Direction-safe idempotent replay và correction
+  finding_ids:
+  - F03
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q11
+  - Q12
+  - Q13
+  - Q14
+  - Q42
+  - Q54
+  task_ids:
+  - T01
+  - T04
+- id: R-005
+  title: Commission identity và validity
+  finding_ids:
+  - F05
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q21
+  - Q22
+  task_ids:
+  - T01
+  - T05
+- id: R-006
+  title: Daily cash reducer
+  finding_ids:
+  - F04
+  scope: policy_conditional
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q15
+  - Q16
+  - Q17
+  - Q18
+  - Q19
+  task_ids:
+  - T06
+- id: R-007
+  title: Daily percent denominator
+  finding_ids:
+  - F04
+  scope: policy_conditional
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q20
+  task_ids:
+  - T06
+- id: R-008
+  title: Shared PositionBook freshness
+  finding_ids: []
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q27
+  - Q55
+  task_ids:
+  - T09
+- id: R-009
+  title: Incremental campaign history
+  finding_ids:
+  - F03
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q31
+  - Q32
+  task_ids:
+  - T10
+- id: R-010
+  title: Streaming aggregates và ordering
+  finding_ids: []
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q28
+  task_ids:
+  - T09
+- id: R-011
+  title: Bounded journal và migration
+  finding_ids:
+  - F06
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q23
+  - Q24
+  - Q25
+  - Q26
+  task_ids:
+  - T08
+- id: R-012
+  title: Retry scheduler
+  finding_ids:
+  - F02
+  - F06
+  scope: policy_conditional
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q29
+  - Q30
+  task_ids:
+  - T10
+- id: R-013
+  title: Scoped performance instrumentation
+  finding_ids: []
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q33
+  task_ids:
+  - T07
+- id: R-014
+  title: Controlled paired benchmark và parity
+  finding_ids: []
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q34
+  - Q35
+  - Q46
+  - Q47
+  task_ids:
+  - T07
+  - T12
+- id: R-015
+  title: ADX dependency policy
+  finding_ids:
+  - F07
+  scope: optional
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q36
+  - Q37
+  task_ids:
+  - T11
+- id: R-016
+  title: Broker profit oracle
+  finding_ids: []
+  scope: optional
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q38
+  - Q39
+  - Q40
+  task_ids:
+  - T11
+- id: R-017
+  title: Phased composition refactor
+  finding_ids: []
+  scope: optional
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q56
+  task_ids:
+  - T11
+- id: R-018
+  title: Independent audit và delivery
+  finding_ids:
+  - F01
+  - F02
+  - F03
+  - F04
+  - F05
+  - F06
+  - F07
+  scope: mandatory
+  semantic_description: PRD.md section 5 / corresponding requirement heading
+  test_ids:
+  - Q41
+  - Q44
+  - Q48
+  - Q49
+  - Q50
+  task_ids:
+  - T01
+  - T12
+  - T13
+preserved_semantics:
+- input name/type/order/default
+- magic/ownership scope unless explicit CR
+- Core TP/LIFO and global exit decisions
+- T17.20 one-bar rule and T17.21 comments
+- confirmed SL/cash floor monotonicity
+- account emergency priority
+release:
+  merge: false
+  forward: false
+  live: false
+implementation_baseline:
+  head: 40c424cfa71b6742414b012e9d67d3294003f38e

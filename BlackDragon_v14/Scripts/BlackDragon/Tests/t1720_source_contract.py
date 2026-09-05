@@ -9,6 +9,10 @@ C=ROOT/'docs/vibecode/T17_20_one_bar/AI-BUILD-CONTRACT.json'
 contract=json.loads(C.read_text())
 checks=[]
 superseded_t1722={
+ # T17.24 approved PRD scope; cash validity and sum-only count are checked by
+ # t1724_source_contract.py and production-body integration adapters.
+ 'BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh',
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh',
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh',
  'BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh',

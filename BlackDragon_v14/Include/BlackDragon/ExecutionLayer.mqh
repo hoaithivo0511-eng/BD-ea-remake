@@ -494,6 +494,13 @@ private:
       int n = ArraySize(m_journal);
       ArrayResize(m_journal, n + 1);
       m_journal[n].requestId = reqId;
+      m_journal[n].protectedPositionId=0; m_journal[n].protectedNonce=0;
+      bool pyIdentity=true;
+      if(meta.commandType==EXEC_CMD_PY_PROTECT_CLOSE || meta.commandType==EXEC_CMD_PY_PROTECT_MODIFY ||
+         meta.commandType==EXEC_CMD_PY_RH_TRIM)
+         pyIdentity=g_pyramidProtection!=NULL && g_pyramidProtection.PendingIdentity(
+            meta.cycleKey,(int)meta.commandType,req.position,
+            m_journal[n].protectedPositionId,m_journal[n].protectedNonce);
       m_journal[n].ticket    = req.position;
       m_journal[n].symbol    = req.symbol;
       m_journal[n].action    = action;
@@ -515,7 +522,7 @@ private:
       m_journal[n].cycleKey = meta.cycleKey;
       m_journal[n].commandType = meta.commandType;
       m_journal[n].reconcilePolicy = meta.reconcilePolicy;
-      m_journal[n].reconcileRequired = false;
+      m_journal[n].reconcileRequired = !pyIdentity;
       m_journal[n].serverFinal = false;
       m_journal[n].orderDeleted = false;
       m_journal[n].active    = true;
@@ -806,6 +813,12 @@ private:
                LatchRiskAddEmbargo(action,req.symbol,req.volume);
             outcome.retcode = res.retcode;
             outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
+            if(Exec_IsFailClosed(meta.reconcilePolicy) && (Exec_AmbiguousRetcode(res.retcode) || res.retcode==0))
+            {
+               int uncertain=Journal_Add(res.request_id,req,action,meta,positionCountBefore,positionVolumeBefore);
+               m_journal[uncertain].requestRetcode=res.retcode;
+               m_journal[uncertain].reconcileRequired=true;
+            }
             Log_Warn("Exec", "async" + (string)action, "OrderSendAsync rejected, retcode=" + (string)res.retcode);
             return false;
          }
@@ -850,7 +863,7 @@ private:
             return true;
          }
 
-         if(Exec_IsFailClosed(meta.reconcilePolicy) && Exec_AmbiguousRetcode(res.retcode))
+         if(Exec_IsFailClosed(meta.reconcilePolicy) && (Exec_AmbiguousRetcode(res.retcode) || res.retcode==0))
          {
             outcome.retcode = res.retcode;
             outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
@@ -1240,6 +1253,15 @@ public:
             if(!RetcodeOk(result.retcode))
             {
                RecordLegacyCapacityRejectAt(i, result.retcode);
+               if(Exec_IsFailClosed(m_journal[i].reconcilePolicy) &&
+                  (Exec_AmbiguousRetcode(result.retcode) || result.retcode==0 ||
+                   m_journal[i].observedVolume>0 || m_journal[i].serverDeal!=0))
+               {
+                  m_journal[i].requestRetcode=result.retcode;
+                  m_journal[i].reconcileRequired=true;
+                  Log_Error("Exec","T17.24 ambiguous/conflicting request outcome retained for reconciliation");
+                  return;
+               }
                bool pyCommand=m_journal[i].commandType==EXEC_CMD_PY_PROTECT_CLOSE ||
                               m_journal[i].commandType==EXEC_CMD_PY_PROTECT_MODIFY ||
                               m_journal[i].commandType==EXEC_CMD_PY_RH_TRIM;
@@ -1247,7 +1269,8 @@ public:
                if(pyCommand && g_pyramidProtection!=NULL)
                   consumed=g_pyramidProtection.OnDefinitiveReject(
                      m_journal[i].cycleKey,(int)m_journal[i].commandType,
-                     m_journal[i].ticket,result.retcode);
+                     m_journal[i].ticket,m_journal[i].protectedPositionId,
+                     m_journal[i].protectedNonce,result.retcode);
                if(consumed)
                   Journal_CompleteAt(i); // explicit rejection persisted/consumed
                else

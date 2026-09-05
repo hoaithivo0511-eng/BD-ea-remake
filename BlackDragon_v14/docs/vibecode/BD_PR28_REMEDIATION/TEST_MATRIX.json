@@ -1,0 +1,1292 @@
+{
+  "schema": "bd-prd-test-plan/1.0",
+  "plan_id": "BD-PR28-REMEDIATION-001",
+  "note": "Planned cases, not executed test results",
+  "cases": [
+    {
+      "id": "Q01",
+      "requirement_id": "R-001",
+      "title": "Source identity và drift",
+      "given": "Checkout B0 hoặc HEAD mới",
+      "when": "Đọc source/authority và remote PR",
+      "expected": "Ghi đúng HEAD/tree; có BASELINE_DELTA nếu khác; không dùng stale EX5",
+      "oracle": "Git object/hash và repo manifest",
+      "tier": "static",
+      "gates": [
+        "G0"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q02",
+      "requirement_id": "R-002",
+      "title": "Unfunded pre-arm BUY",
+      "given": "RH 100 units, cap 60; PY 0.2 lot; weighted 3000; slope 100; trim net -120; bid 3005; candidate 3000.4; funded candidate 3006.4",
+      "when": "Gọi production prepare/drive",
+      "expected": "Chưa ARMED; 0 broker modify; RH proof chưa đủ; không báo protection success",
+      "oracle": "Số học F01 và approved pre-arm envelope",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q03",
+      "requirement_id": "R-002",
+      "title": "SELL và multi-leg symmetry",
+      "given": "SELL đối xứng Q02, hai RH legs; một leg không đủ cap",
+      "when": "Prepare và từng bước trim",
+      "expected": "Không arm sau leg đầu nếu cap chưa đạt; hướng stop SELL và units đúng",
+      "oracle": "Integer units + SELL inequality",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q04",
+      "requirement_id": "R-002",
+      "title": "Funded/partial progression",
+      "given": "Cùng exposure, giá sau đó đủ funded stop; chỉ fill một phần trim",
+      "when": "Nhận partial fill rồi tick tiếp",
+      "expected": "Book actual filled/cash; re-evaluate residual; chỉ arm khi đủ mọi proof",
+      "oracle": "Fill ledger độc lập + cap equation",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q05",
+      "requirement_id": "R-002",
+      "title": "PY–RH coexistence thực sự trim",
+      "given": "Core/PY/RH BUY/SELL trong fixture native deterministic",
+      "when": "Kích hoạt protected exit cần RH trim",
+      "expected": "Trace có trim thực, settle rồi PY exit; không chỉ branch không chạm",
+      "oracle": "Trade/deal trace + final live exposure",
+      "tier": "native+tester",
+      "gates": [
+        "G4"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q06",
+      "requirement_id": "R-003",
+      "title": "Reject đồng bộ modify",
+      "given": "Intent persist; send trả definitive reject no effect",
+      "when": "Drive settle",
+      "expected": "Operation terminal consumed; requestedSl rollback confirmedSl; obligation không mất",
+      "oracle": "Live SL + terminal journal",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q07",
+      "requirement_id": "R-003",
+      "title": "Reject async modify",
+      "given": "Send accepted; callback REQUEST reject; executor hết pending; SL cũ",
+      "when": "Deliver callback rồi Drive",
+      "expected": "Rời SENT_PENDING khi đủ terminal proof; không chờ 1000 ticks; không giả confirmed SL",
+      "oracle": "Exact operation ID + immutable outcome trace",
+      "tier": "host+native-async-injection",
+      "gates": [
+        "G1",
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q08",
+      "requirement_id": "R-003",
+      "title": "Reject async close/trim",
+      "given": "Send accepted; later definitive reject; fill=0",
+      "when": "Settle rồi scheduler",
+      "expected": "Giữ close obligation, không pending vô hạn, không đánh dấu close thành công",
+      "oracle": "Actual deal count/volume + obligation state",
+      "tier": "host+native-async-injection",
+      "gates": [
+        "G1",
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q09",
+      "requirement_id": "R-003",
+      "title": "Late ACK và duplicate callback",
+      "given": "Một request; callback trễ, lặp, REQUEST/DEAL/POSITION đảo thứ tự",
+      "when": "Inject các permutation có seed",
+      "expected": "Một tác động economic; ACK idempotent; không double-send hoặc double cash",
+      "oracle": "Permutation oracle và operation identity",
+      "tier": "host+native-async-injection",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q10",
+      "requirement_id": "R-003",
+      "title": "Unknown outcome qua restart",
+      "given": "Persist intent; mất response trước crash",
+      "when": "Restart rồi reconcile live/history",
+      "expected": "UNKNOWN không tự retry; proof mới mới được applied/rejected; account emergency vẫn chạy",
+      "oracle": "Broker history fixture và persistent state transition",
+      "tier": "native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q11",
+      "requirement_id": "R-004",
+      "title": "Cursor chéo hướng F03",
+      "given": "BUY cursor 200000; SELL 100000; SELL closes at 150000=-50 and 250000=-5",
+      "when": "Replay BUY rồi SELL, lặp lại",
+      "expected": "coreLossSpent=55 sau cả hai lần; không phải 5 hoặc 110",
+      "oracle": "Tổng cash độc lập 50+5",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q12",
+      "requirement_id": "R-004",
+      "title": "Đảo hướng và cùng timestamp",
+      "given": "Đảo BUY/SELL; tickets khác nhau cùng time_msc",
+      "when": "Đảo enumeration/callback order",
+      "expected": "Ledger cuối bất biến theo các thứ tự hợp lệ; không skip/double-book",
+      "oracle": "Set deal IDs và exact cash sum",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q13",
+      "requirement_id": "R-004",
+      "title": "Deal cũ ngoài overlap window",
+      "given": "Một close cũ xuất hiện sau watermark và ngoài window",
+      "when": "Deliver late callback",
+      "expected": "Reconcile affected ledger hoặc rebuild; không bỏ do timestamp thấp",
+      "oracle": "Full-history reference reducer",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q14",
+      "requirement_id": "R-004",
+      "title": "DEAL_UPDATE/DELETE",
+      "given": "Deal đã book; sau đó correction cash hoặc delete",
+      "when": "Apply event + restart/replay",
+      "expected": "Apply đúng delta hoặc rebuild, mỗi version một lần; thiếu proof → invalid",
+      "oracle": "Reference history final-state sum",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q15",
+      "requirement_id": "R-006",
+      "title": "Cash round trip 7.6",
+      "given": "Gross 10; entry/exit commission -1/-1; entry/exit fee -.2/-.2; swap 0; cùng ngày",
+      "when": "Seed rồi callback duplicate/refresh",
+      "expected": "DailyCash=7.6, không 9; seed=incremental",
+      "oracle": "10-1-1-.2-.2",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-201"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q16",
+      "requirement_id": "R-006",
+      "title": "Entry hôm trước/close hôm nay",
+      "given": "Entry cost ở D-1; profit/exit cost ở D",
+      "when": "Rollover và rebuild giữa ngày",
+      "expected": "Attribution đúng D-201; không chuyển entry fee sang ngày close nếu booking-day đã duyệt",
+      "oracle": "Per-day broker booking ledger",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-201"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q17",
+      "requirement_id": "R-006",
+      "title": "Partial close và OUT_BY",
+      "given": "Entry chung, partial rồi close-by; Core và RH cùng ngày",
+      "when": "Seed/replay/callback",
+      "expected": "Book mỗi deal/cost đúng một lần; không bỏ OUT_BY hoặc double Core/RH realized",
+      "oracle": "Exact deal cash ledger",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-201"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q18",
+      "requirement_id": "R-006",
+      "title": "Ownership và fee không phân bổ",
+      "given": "EA position đóng bằng actor magic 0; EA khác cùng symbol; account fee không có position ID",
+      "when": "Classify cash",
+      "expected": "Theo owner position gốc và scope manual đã duyệt; fee không map không tự phân bổ",
+      "oracle": "Independent ownership map",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-201"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q19",
+      "requirement_id": "R-006",
+      "title": "History unavailable và recovery",
+      "given": "Day history select lỗi, sau đó sẵn sàng",
+      "when": "Tick/guard/refresh",
+      "expected": "dayNetValid=false khi thiếu; account emergency còn chạy; rebuild đúng khi data về",
+      "oracle": "Explicit validity state + golden cash",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-201"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q20",
+      "requirement_id": "R-007",
+      "title": "Mẫu số ngày/external flows",
+      "given": "Khởi động giữa ngày, deposit/withdrawal, EA khác realized",
+      "when": "Tính dayStart baseline trước/sau cash fix",
+      "expected": "Theo D-202 đã chọn; limitation ghi đúng; không tự đổi threshold hoặc scope",
+      "oracle": "Approved denominator formula and cash-flow fixture",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-202"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q21",
+      "requirement_id": "R-005",
+      "title": "Ticket khác identifier",
+      "given": "ticket 999, identifier 100, commission history=-2",
+      "when": "UseCommissionInBE=true",
+      "expected": "Cost=-2; selector nhận 100",
+      "oracle": "Broker identity API contract",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q22",
+      "requirement_id": "R-005",
+      "title": "Commission unavailable/option OFF",
+      "given": "History fail; ON rồi OFF trong isolated runs",
+      "when": "Compute BE và emergency path",
+      "expected": "ON không dùng zero-valid; OFF giữ semantics không commission; exits bảo vệ không chết",
+      "oracle": "Validity + baseline OFF behavior",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q23",
+      "requirement_id": "R-011",
+      "title": "Retention capacity boundary",
+      "given": "Records 65535/65536/65537 với pending/settled hỗn hợp",
+      "when": "Append/save/load",
+      "expected": "Compact hợp lệ hoặc refuse trước write; không file writer tạo mà same-version reader từ chối",
+      "oracle": "Serialized count/schema invariant",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q24",
+      "requirement_id": "R-011",
+      "title": "Compaction + late duplicate",
+      "given": "Settled record được compact; late duplicate/correction tới",
+      "when": "Replay từ checkpoint",
+      "expected": "Không double effect; chưa ACK/pending không bị xóa; late ngoài window reconcile",
+      "oracle": "Reference ledger before/after compaction",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q25",
+      "requirement_id": "R-011",
+      "title": "Crash mọi ranh giới file",
+      "given": "Inject failure ở temp-write/flush/checksum/replace",
+      "when": "Restart load",
+      "expected": "Chỉ nhận snapshot cũ hoặc mới hoàn chỉnh; corruption → explicit fault",
+      "oracle": "Byte-level checksum + model of atomic commit",
+      "tier": "native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q26",
+      "requirement_id": "R-011",
+      "title": "Migration và rollback",
+      "given": "v1 state có open/pending; migrate version mới",
+      "when": "Restart và thử rollback không tương thích",
+      "expected": "Giữ ID/SL/obligation; chặn downgrade unsafe; không xóa state",
+      "oracle": "Versioned state equivalence",
+      "tier": "native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q27",
+      "requirement_id": "R-008",
+      "title": "Snapshot stale/external mutation",
+      "given": "Snapshot revision r; manual partial close/reopen trước send",
+      "when": "Final boundary validate",
+      "expected": "Không gửi từ volume/cap cũ; rebuild đúng ID; unknown không zero",
+      "oracle": "Live broker stub and independent position list",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q28",
+      "requirement_id": "R-010",
+      "title": "Sum không sort, order đúng",
+      "given": "Role/dir/generation hỗn hợp, equal open times",
+      "when": "Query units + LIFO/oldest selection",
+      "expected": "Sum không alloc/sort danh sách; selected ticket giữ approved tie-breaker",
+      "oracle": "Reference sum + explicit ordered ticket sequence",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G3",
+        "G5"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q29",
+      "requirement_id": "R-012",
+      "title": "Backoff deadlines",
+      "given": "Definitive no-effect rejects; policy D-203",
+      "when": "Ticks dày trước/sau deadline",
+      "expected": "Không send trước eligible; delay đúng schedule approved; không Sleep",
+      "oracle": "Independent virtual-clock schedule",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-203"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q30",
+      "requirement_id": "R-012",
+      "title": "Exhaust budget/restart/emergency",
+      "given": "Đạt reject budget, restart, sau đó emergency",
+      "when": "Drive scheduler và guard",
+      "expected": "Obligation tồn tại; reconcile reason rõ; không auto-done; emergency ưu tiên",
+      "oracle": "Approved retry/guard state table",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-203"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q31",
+      "requirement_id": "R-009",
+      "title": "OFF history cache qua giây",
+      "given": "CorePyramid active, PY protection OFF, quiet ticks qua nhiều giây",
+      "when": "Refresh campaign stats",
+      "expected": "Không full-read campaign chỉ vì TimeCurrent đổi giây; stats vẫn đúng",
+      "oracle": "History call counters + reference cash",
+      "tier": "host+native",
+      "gates": [
+        "G5"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q32",
+      "requirement_id": "R-009",
+      "title": "History cache invalidation",
+      "given": "New deal/correction/rollover/restart",
+      "when": "Update/reconcile",
+      "expected": "Rebuild đúng reason, fresh totals; không stale high-water-only",
+      "oracle": "Full-history oracle vs incremental",
+      "tier": "host+native",
+      "gates": [
+        "G3",
+        "G5"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q33",
+      "requirement_id": "R-013",
+      "title": "Counter scope toàn EA",
+      "given": "Recovery active và PY adapter enabled",
+      "when": "Run quiet/mutation ticks",
+      "expected": "Counter toàn EA gồm inherited scans; adapter count tách riêng; diagnostic OFF default",
+      "oracle": "Instrumented API wrapper counts",
+      "tier": "native",
+      "gates": [
+        "G5"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q34",
+      "requirement_id": "R-014",
+      "title": "Paired controlled benchmark",
+      "given": "B1 và C cùng set/data/build/machine/model",
+      "when": ">=5 paired completed runs khi tái lập được",
+      "expected": "Report median/spread, p50/p95/p99/max, memory, wall time; budget locked trước optimize",
+      "oracle": "Raw timing samples + declared aggregation",
+      "tier": "native+tester",
+      "gates": [
+        "G5"
+      ],
+      "decision_dependencies": [
+        "D-206"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q35",
+      "requirement_id": "R-014",
+      "title": "Differential B1→C",
+      "given": "Cùng config/input stream và approved semantics",
+      "when": "Compare canonical intent/economics",
+      "expected": "Không extra/missing intent; price/volume tolerance predeclared; improvement không từ bỏ protection",
+      "oracle": "Canonical intent sequence + independent cash",
+      "tier": "native+tester",
+      "gates": [
+        "G4",
+        "G5"
+      ],
+      "decision_dependencies": [
+        "D-206"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q36",
+      "requirement_id": "R-015",
+      "title": "ADX init failure",
+      "given": "UseAdxFilter ON, invalid handle",
+      "when": "OnInit",
+      "expected": "Theo D-204; nếu chưa duyệt đổi, chứng minh policy cũ và không claim đã sửa",
+      "oracle": "Approved dependency policy",
+      "tier": "native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-204"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q37",
+      "requirement_id": "R-015",
+      "title": "ADX warmup buffer",
+      "given": "Valid handle, CopyBuffer thiếu rồi ready",
+      "when": "New-entry and protective exit evaluation",
+      "expected": "Theo D-204; WAIT entry khi policy mới; exit còn chạy; hồi phục khi ready",
+      "oracle": "Policy and event trace",
+      "tier": "native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-204"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q38",
+      "requirement_id": "R-016",
+      "title": "Profit oracle BUY/SELL",
+      "given": "Broker profile được attested; linear and conversion-sensitive cases",
+      "when": "Compare current formula with OrderCalcProfit",
+      "expected": "Sai số trong tolerance đã khóa hoặc profile unsupported; không fake zero",
+      "oracle": "Native OrderCalcProfit + separate fee ledger",
+      "tier": "native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-205"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q39",
+      "requirement_id": "R-016",
+      "title": "Bracket/tick bisection",
+      "given": "Nếu runtime bisection được duyệt; valid và invalid brackets",
+      "when": "Find BE/SL price",
+      "expected": "Integer tick, đúng direction rounding; invalid bracket/monotonicity → no solution",
+      "oracle": "Enumerated tick-grid oracle on bounded fixture",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-205"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q40",
+      "requirement_id": "R-016",
+      "title": "Profit input failure/fee reserve",
+      "given": "Tick value/size lỗi, oracle fail, fee/swap hiện hữu",
+      "when": "Compute candidate",
+      "expected": "Không divide by zero/zero-cost fallback; phí không double counted",
+      "oracle": "Input validity rules + independent cash",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [
+        "D-205"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q41",
+      "requirement_id": "R-018",
+      "title": "Established regression",
+      "given": "Exact checkout của mỗi candidate",
+      "when": "Run 41 C++ suites + 13 contracts và suites mới",
+      "expected": "Gốc giữ PASS hoặc intentional spec change có CR; không xóa failing test",
+      "oracle": "Versioned original workflow/tests",
+      "tier": "host+static",
+      "gates": [
+        "G1"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q42",
+      "requirement_id": "R-004",
+      "title": "Atomic ledger apply/cursor",
+      "given": "Crash sau cash-before-marker và marker-before-cash boundary",
+      "when": "Restart/replay",
+      "expected": "Không mất cash/double book; state equivalence với một atomic apply",
+      "oracle": "Reference immutable event fold",
+      "tier": "host+native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q43",
+      "requirement_id": "R-001",
+      "title": "Native source/artifact correlation",
+      "given": "Windows worker hoặc attested Actions run",
+      "when": "Probe, compile, verify EX5",
+      "expected": "0 errors/0 warnings; đúng run/job/head/tree; file mới, hash/size đúng",
+      "oracle": "Git/source/probe/log/artifact manifest",
+      "tier": "native",
+      "gates": [
+        "G2"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q44",
+      "requirement_id": "R-018",
+      "title": "Completed tester matrix",
+      "given": "EURUSDm M5 smoke và XAUUSDm M1 real ticks nếu dataset có",
+      "when": "OFF/VIRTUAL/BROKER BUY/SELL và coexistence",
+      "expected": "Đến end date; report nonempty; absence of dataset=UNTESTABLE; timeout không PASS",
+      "oracle": "Tester timestamps and native report metrics",
+      "tier": "tester",
+      "gates": [
+        "G4"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q45",
+      "requirement_id": "R-003",
+      "title": "Callback load/slow handler",
+      "given": "Burst of delayed/out-of-order events và slow I/O injection",
+      "when": "Process queue + reconcile",
+      "expected": "Không missing effects; handler bounded theo budget; reconcile giải quyết event thiếu; không claim queue overflow nếu không đo",
+      "oracle": "Input event sequence vs final ledger/intent",
+      "tier": "native",
+      "gates": [
+        "G3",
+        "G5"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q46",
+      "requirement_id": "R-014",
+      "title": "Scale positions/history",
+      "given": "Fixtures 10/50/200 positions và 1k/10k/100k deals khi khả thi",
+      "when": "Measure B1 vs C",
+      "expected": "Complexity/counters/memory ghi đủ; broker infeasible fixture được phân loại riêng",
+      "oracle": "Input counts + independent profiler",
+      "tier": "host+native",
+      "gates": [
+        "G5"
+      ],
+      "decision_dependencies": [
+        "D-206"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q47",
+      "requirement_id": "R-014",
+      "title": "Noisy/incomplete benchmark",
+      "given": "Run không cùng môi trường hoặc chưa end date",
+      "when": "Evaluate evidence",
+      "expected": "INCONCLUSIVE/UNTESTABLE; không báo % speedup chắc chắn",
+      "oracle": "Benchmark comparability rules",
+      "tier": "static+native",
+      "gates": [
+        "G5"
+      ],
+      "decision_dependencies": [
+        "D-206"
+      ],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q48",
+      "requirement_id": "R-018",
+      "title": "Critical mutation sensitivity",
+      "given": "Candidate đã sửa",
+      "when": "Reintroduce WAIT→NEXT, discard reject result, cross-direction filter omission trong test workspace",
+      "expected": "Q02/Q07/Q08/Q11 phải fail; không accept test chỉ check source text",
+      "oracle": "Known defect mutation and intended-output tests",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G6"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q49",
+      "requirement_id": "R-018",
+      "title": "Independent re-audit",
+      "given": "Final candidate and builder completion",
+      "when": "Verifier đọc diff/rerun selected critical cases",
+      "expected": "Finding closure có source/test/hash đúng candidate; reject stale evidence",
+      "oracle": "Independent verifier disposition",
+      "tier": "review",
+      "gates": [
+        "G6"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q50",
+      "requirement_id": "R-018",
+      "title": "No inferred approval/release",
+      "given": "Compile/test xanh nhưng missing native/owner evidence",
+      "when": "Evaluate release flags",
+      "expected": "Giữ từng eligibility false/UNTESTABLE; không tự điền approval",
+      "oracle": "Gate/approval policy",
+      "tier": "static+review",
+      "gates": [
+        "G7"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q51",
+      "requirement_id": "R-001",
+      "title": "Allowed paths/default preservation",
+      "given": "Candidate diff multi-file",
+      "when": "Review exact paths/inputs/archives",
+      "expected": "Không ngoài contract; input name/type/order/default unchanged nếu không CR; no archive rewrite",
+      "oracle": "Baseline input manifest + diff",
+      "tier": "static+review",
+      "gates": [
+        "G0",
+        "G1"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q52",
+      "requirement_id": "R-003",
+      "title": "Restart mọi group phase",
+      "given": "WATCH/PREPARE/ARMED/CLOSING với pending/no pending",
+      "when": "Restart + emergency + continuation",
+      "expected": "Giữ group/member IDs, confirmed SL, obligation, campaign serial; emergency priority",
+      "oracle": "Persisted state + approved lifecycle",
+      "tier": "native",
+      "gates": [
+        "G3",
+        "G4"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q53",
+      "requirement_id": "R-002",
+      "title": "Monotone floor dưới ADD/partial",
+      "given": "BUY/SELL protected cohorts; thêm PY hoặc partial close",
+      "when": "Re-evaluate stop/floor",
+      "expected": "BUY SL không giảm, SELL không tăng; cash floor không bị weaken; flat+settled mới reset",
+      "oracle": "Independent monotonic invariants",
+      "tier": "host+native",
+      "gates": [
+        "G3",
+        "G4"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q54",
+      "requirement_id": "R-004",
+      "title": "RH trim ownership/credit",
+      "given": "Expected PY RH trim trong ARCS funding/reentry state",
+      "when": "Deliver deal and duplicates",
+      "expected": "Cash đúng một lần; không giả RHSL/reentry hoặc thêm Core funding credit",
+      "oracle": "Owner/spec mapping + independent ledger",
+      "tier": "host+native",
+      "gates": [
+        "G3",
+        "G4"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q55",
+      "requirement_id": "R-008",
+      "title": "Mutation TOCTOU identity",
+      "given": "Position bị close/reopen hoặc thay volume giữa policy và send",
+      "when": "Final send boundary",
+      "expected": "Abort/re-evaluate; không gửi vào ticket/ID khác hoặc stale cap",
+      "oracle": "Current broker identity check",
+      "tier": "native",
+      "gates": [
+        "G3"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    },
+    {
+      "id": "Q56",
+      "requirement_id": "R-017",
+      "title": "Phased refactor/property invariants",
+      "given": "Composition change, randomized scoped books với seed fixed",
+      "when": "Differential reference vs refactor",
+      "expected": "Canonical selection/cash/units tương đương; no behavior drift; output dependency graph giảm độ vòng nếu claimed",
+      "oracle": "Reference trace and seeded property oracle",
+      "tier": "host+native",
+      "gates": [
+        "G1",
+        "G3",
+        "G5"
+      ],
+      "decision_dependencies": [],
+      "status": "NOT_RUN",
+      "evidence_required": [
+        "input_fixture_and_seed",
+        "command_and_exit_code",
+        "candidate_head_tree",
+        "actual_vs_expected_log",
+        "artifact_sha256_size"
+      ]
+    }
+  ]
+}

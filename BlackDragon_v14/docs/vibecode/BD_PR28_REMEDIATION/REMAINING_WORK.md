@@ -1,0 +1,13 @@
+# Work queue còn mở — không coi checkpoint là Full completion
+
+1. **G0: kết nối backend native và compile candidate.** Chạy probe + full EA + 33 script compile trên đúng source. Fix mọi error/warning; xác nhận API/file-layout trước mở rộng persistence. Script Windows có tại `Scripts/BlackDragon/Tests/BuildCandidate.ps1`.
+2. **R-003/R-011: persistence qualification.** Native fixture cho v1→v2, payload length/count/checksum, retry clock/restart, timeout/no-effect và crash ở Save-before-ACK. Kiểm pending outcome không mất, RH receipt chưa ACK không compact. Thiếu durable result coverage thì triển khai store/checkpoint; giữ unknown không resend.
+3. **R-004: late replay.** Thêm exact consumed receipts gắn fingerprint và direction/generation trong cùng atomic snapshot. Freeze batch IDs trước nested history; dùng overlap để xử lý late callback; ngoài overlap phải reconcile phần ledger liên quan. Reconstruction phải biết funding phase của event gốc, không tái tính theo phase hiện tại rồi đoán cash. Test Q11/Q12/Q13/Q14/Q42/Q54, gồm duplicate sau restart và UPDATE/DELETE đã thay cash/owner/date.
+4. **R-007: daily denominator.** Chạy Q20 với external account cash, Core/RH ngày mới/restart. Giữ D-202 scoped reconstruction; redesign account-midnight denominator cần decision riêng.
+5. **T07: freeze B1.** Tạo corrected-only baseline đã qua native gates. Chốt machine/build/profile/set/dataset và diagnostic build; đo B1 trước khi nghiệm thu tối ưu. Counter hiện tại chưa đủ R-013.
+6. **R-008/R-009/R-013: tối ưu đầy đủ.** Phát triển indexed PositionBook và campaign per-deal reducer, bounded reconciliation + receipt dedup. Dùng existing wrappers để chuyển từng caller. Counters/histogram theo subsystem, time/copy/sort/history/write/send/reject. Final broker mutation phải validate fresh ticket/ID/volume.
+7. **T12: benchmark/parity.** Tối thiểu 5 paired runs, warmup và end-date rõ; so median/spread/p95/p99/memory và trade trace. Budget đề xuất chưa là kết quả; noisy thì INCONCLUSIVE.
+8. **R-016 và final audit.** Native OrderCalcProfit oracle BUY/SELL, calc mode/currency/tick rounding/failure; chỉ chọn runtime bisection nếu evidence và scope yêu cầu. Independent team review toàn diff; đóng từng finding bằng actual evidence.
+9. **EX5 delivery.** Chỉ xuất binary biên dịch từ candidate cuối; kèm logs/hash/manifest, requirement/test status. Native build không tự mở forward/live. Không merge hoặc bật live từ checkpoint này.
+
+Tài liệu `TEST_MATRIX.json` là 56 case kế hoạch, `TEST_EXECUTION.json` là trạng thái thực hiện riêng. Không đổi NOT_RUN/UNTESTABLE thành PASS bằng cách đếm model tests.

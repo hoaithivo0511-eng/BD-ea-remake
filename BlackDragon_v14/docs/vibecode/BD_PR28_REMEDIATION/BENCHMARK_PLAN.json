@@ -1,0 +1,53 @@
+{
+  "schema": "bd-prd-benchmark-plan/1.0",
+  "status": "PROPOSED_NOT_MEASURED",
+  "baselines": {
+    "B0": "d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d",
+    "B1_correctness_head": null,
+    "C_optimized_head": null
+  },
+  "freeze_before_optimization": [
+    "B1 source/tree",
+    "set/data hashes",
+    "MT5 build/model/broker properties",
+    "hardware/cache/warmup protocol",
+    "sample count/statistic aggregation",
+    "D-206 budgets and reviewer signoff"
+  ],
+  "scenarios": [
+    "EURUSDm M5 smoke analogous to T17.22",
+    "XAUUSDm M1 real ticks with actual source dataset",
+    "quiet active Core/PY/RH",
+    "mutation/reject/restart",
+    "position/deal scale fixtures"
+  ],
+  "metrics": [
+    "OnTick p50/p95/p99/max",
+    "OnTradeTransaction p50/p95/p99/max",
+    "OnTimer p50/p95/p99/max",
+    "full_account_enumerations",
+    "selected_position_refreshes",
+    "history_select_calls",
+    "sorts_and_allocations",
+    "persistence_bytes_and_duration",
+    "sends_rejects_reconciles",
+    "memory_peak",
+    "completed_tester_wall_time"
+  ],
+  "proposed_runs_per_variant": 5,
+  "proposed_numeric_budget": {
+    "status": "UNAPPROVED_ENGINEERING_PROPOSAL_D206",
+    "duplicate_enumeration_reduction_fraction": 0.5,
+    "p95_p99_regression_limit_fraction": 0.05,
+    "noise_handling": "Paired runs/report spread; inconclusive when environment obscures attribution",
+    "emergency_latency": "No accepted degradation hidden by mean throughput"
+  },
+  "structural_budgets": [
+    "No new protection-only full account scan/full history read on quiet tick",
+    "No sort/allocation solely to sum units",
+    "No full campaign read triggered only by a new second",
+    "Final mutation live validation retained"
+  ],
+  "behavior_parity": "B1→C canonical ordered intents and economics under declared tolerances; B0→B1 differences only in locked bug-fix scenarios",
+  "measurements": []
+}

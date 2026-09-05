@@ -25,6 +25,8 @@
 #include "Types.mqh"
 #include "Logger.mqh"
 #include "OrderCommentCodec.mqh"
+#include "CashLedger.mqh"
+#include "PositionBook.mqh"
 
 //--- PURE breakeven formula (unit-tested in Tests/RunTests.mq5) ------
 //    fix #3: SIGNED cost (v13 used MathAbs -> wrong side on positive swap)
@@ -78,7 +80,9 @@ private:
    double   m_commissionSell;
    bool     m_commissionBuyValid;
    bool     m_commissionSellValid;
-   ulong    m_dayCashDeals[];
+   CScopedDayCashLedger m_dayCash;
+   bool m_dayCashAnchored;
+   datetime m_commissionRetryAt;
    double   m_dayStartBalance;   // FE-402: balance at day start (for % daily targets)
    double   m_extremeBuy;        // BD-R3 (v14.7.2): trailing extreme, survives Rebuild()
    double   m_extremeSell;
@@ -92,6 +96,7 @@ public:
                       m_lastBuyBar(0), m_lastSellBar(0),
                       m_commissionBuy(0), m_commissionSell(0),
                       m_commissionBuyValid(true), m_commissionSellValid(true),
+                      m_dayCashAnchored(false), m_commissionRetryAt(0),
                       m_dayStartBalance(0),
                       m_extremeBuy(0), m_extremeSell(DBL_MAX),
                       m_anchorBuy(0), m_anchorSell(0) {}
@@ -106,71 +111,34 @@ public:
    void Invalidate() { m_dirty = true; }
    ulong Revision() const { return m_revision; }
 
-   bool DayDealSeen(const ulong deal) const
+   bool DayCashReady() const { return m_dayCash.Valid(); }
+   void InvalidateDayCash() { m_dayCash.Invalidate(); }
+   void RefreshDayCash(const datetime now)
    {
-      if(deal==0) return true;
-      for(int i=ArraySize(m_dayCashDeals)-1;i>=0;i--)
-         if(m_dayCashDeals[i]==deal) return true;
-      return false;
+      m_dayCash.Configure(_Symbol,(long)Magic,flag_Hand_Ord);
+      if(now<m_dayStart || now>=m_dayStart+86400) m_dayCashAnchored=false;
+      if(!m_dayCash.Refresh(now)) return;
+      m_dayProfit=m_dayCash.Cash(); m_dayStart=m_dayCash.DayStart();
+      if(!m_dayCashAnchored)
+      {
+         // Preserve the approved scope-derived denominator, not a claim of
+         // exact account balance at midnight in the presence of external flows.
+         m_dayStartBalance=AccountInfoDouble(ACCOUNT_BALANCE)-m_dayProfit;
+         m_dayCashAnchored=true;
+      }
    }
-
-   void MarkDayDeal(const ulong deal)
-   {
-      if(deal==0 || DayDealSeen(deal)) return;
-      int n=ArraySize(m_dayCashDeals);
-      ArrayResize(m_dayCashDeals,n+1);
-      m_dayCashDeals[n]=deal;
-   }
-
-   //--- C2: called once from OnInit and on day rollover ---------------
    void SeedDayProfit()
-   {
-      m_dayStart  = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
-      m_dayProfit = 0;
-      ArrayResize(m_dayCashDeals,0);
-      if(!HistorySelect(m_dayStart, TimeCurrent() + 1))
-      {
-         m_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);   // FE-402 fallback
-         return;
-      }
-      for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
-      {
-         ulong tic = HistoryDealGetTicket(i);
-         if(tic == 0) continue;
-         // BD-R6 ownership + T17.23 cash reducer: seed and callback use the
-         // same deal scope so entry costs cannot disappear after restart.
-         long entry=HistoryDealGetInteger(tic, DEAL_ENTRY);
-         if(Basket_OwnsMagic(HistoryDealGetInteger(tic, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
-            HistoryDealGetString(tic, DEAL_SYMBOL) == _Symbol &&
-            Basket_IsDayCashEntry(entry))
-         {
-            m_dayProfit += Basket_DealCash(HistoryDealGetDouble(tic, DEAL_PROFIT),
-                                           HistoryDealGetDouble(tic, DEAL_SWAP),
-                                           HistoryDealGetDouble(tic, DEAL_COMMISSION),
-                                           HistoryDealGetDouble(tic, DEAL_FEE));
-            MarkDayDeal(tic);
-         }
-      }
-      // FE-402: balance at day start = current balance minus what THIS bot
-      // already realized today (deposits/withdrawals mid-day would skew this
-      // — documented limitation).
-      m_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE) - m_dayProfit;
-   }
-
-   //--- T17.23 F04: event reducer is idempotent by exact deal ticket.
+   { m_dayCash.Invalidate(); m_dayCashAnchored=false; RefreshDayCash(TimeCurrent()); }
    void OnDealCash(const ulong deal,const double profit,const double swap,
                    const double commission,const double fee)
    {
-      CheckDayRollover(TimeCurrent());
-      if(deal==0 || DayDealSeen(deal)) return;
-      m_dayProfit += Basket_DealCash(profit,swap,commission,fee);
-      MarkDayDeal(deal);
+      // Arguments retained for source/API compatibility. The shared reducer
+      // reads exact broker date, ownership and all cash fields itself.
+      m_dayCash.Configure(_Symbol,(long)Magic,flag_Hand_Ord);
+      m_dayCash.Observe(deal,TimeCurrent());
+      RefreshDayCash(TimeCurrent());
    }
-
-   void CheckDayRollover(const datetime now)
-   {
-      if(now - m_dayStart >= 86400) SeedDayProfit();
-   }
+   void CheckDayRollover(const datetime now) { RefreshDayCash(now); }
 
    //--- Per tick: cheap. Full rebuild only when dirty (C1) ------------
    //    BD-R7 (v14.7.2): RefreshFloating() is where a cached ticket is
@@ -185,12 +153,19 @@ public:
    //    handled next tick, exactly as before. No unbounded loop per tick.
    void Update(const EAContext &ctx)
    {
+      RefreshDayCash(ctx.now);
       for(int pass = 0; pass < 2; pass++)
       {
          if(m_dirty) Rebuild(ctx);
          bool droppedBuy  = RefreshFloating(buy);   // AU-14-01: profit/swap move with price -> re-read per tick
          bool droppedSell = RefreshFloating(sell);
          if(!droppedBuy && !droppedSell) break;
+      }
+      if(UseCommissionInBE && !CommissionHistoryReady() && ctx.now>=m_commissionRetryAt)
+      {
+         m_commissionRetryAt=ctx.now+1;
+         m_commissionBuyValid=TrySumCommission(buy,m_commissionBuy);
+         m_commissionSellValid=TrySumCommission(sell,m_commissionSell);
       }
       UpdateExtremes(ctx);       // C4: O(1) per tick
       ComputeLevels(ctx);        // arithmetic only, no API scans
@@ -246,6 +221,7 @@ private:
 
       if(UseCommissionInBE)   // rebuild-only history lookups (event-driven)
       {
+         m_commissionRetryAt=ctx.now+1;
          m_commissionBuyValid  = TrySumCommission(buy,m_commissionBuy);
          m_commissionSellValid = TrySumCommission(sell,m_commissionSell);
          if(!m_commissionBuyValid || !m_commissionSellValid)
@@ -279,23 +255,25 @@ private:
    {
       if(s.count == 0) return false;
       double totalProfit = 0, swapSum = 0, totalLots = 0;
+      bool topologyChanged=false;
       int w = 0;                       // write index for in-place compaction
       for(int i = 0; i < s.count; i++)
       {
          if(!PositionSelectByTicket(s.pos[i].ticket))
          {
+            g_bdObservationBook.End();
             m_dirty = true;            // ticket gone (closed elsewhere) -> rebuild
             continue;                  // BD-R7: and drop it from the cache NOW
          }
          double swap = PositionGetDouble(POSITION_SWAP);
          s.pos[w] = s.pos[i];
-         if(PyramidSLMode_!=py_protect_OFF)
+         // Live volume/identity must refresh in OFF as well as ON.
          {
             double liveLots=PositionGetDouble(POSITION_VOLUME);
             double liveOpen=PositionGetDouble(POSITION_PRICE_OPEN);
             ulong liveId=(ulong)PositionGetInteger(POSITION_IDENTIFIER);
             if(liveLots!=s.pos[w].lots || liveId!=s.pos[w].positionId || liveOpen!=s.pos[w].openPrice)
-            { m_dirty=true; m_revision++; }
+            { m_dirty=true; m_revision++; topologyChanged=true; g_bdObservationBook.End(); }
             s.pos[w].lots=liveLots;
             s.pos[w].openPrice=liveOpen;
             s.pos[w].positionId=liveId;
@@ -315,7 +293,7 @@ private:
       s.totalProfit = totalProfit;
       s.swapSum     = swapSum;
       if(dropped) ArrayResize(s.pos, w);
-      return dropped;
+      return dropped || topologyChanged; // Update's bounded second pass refreshes commission/levels now
    }
 
    void Append(BasketSide &s, const PositionInfo &p)
@@ -352,6 +330,7 @@ private:
          // not the mutable broker position ticket.
          if(s.pos[i].positionId==0 || !HistorySelectByPosition(s.pos[i].positionId))
             return false;
+         if(HistoryDealsTotal()<=0) return false;
          for(int d = HistoryDealsTotal() - 1; d >= 0; d--)
          {
             ulong dt = HistoryDealGetTicket(d);

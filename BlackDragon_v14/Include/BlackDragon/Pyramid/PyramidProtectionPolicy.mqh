@@ -81,6 +81,17 @@ bool PyProtect_RejectMatchesOperationPure(const int cycleKey,const int commandTy
    return cycleKey==172200+opDir && commandType==opKind && ticket==opTicket;
 }
 
+// T17.24 D-203: deadlines are broker-server seconds, never blocking sleeps.
+int PyProtect_RetryDelayPure(const int rejects)
+{
+   if(rejects<=1) return 1;
+   if(rejects>=6) return 30;
+   return 1<<(rejects-1);
+}
+bool PyProtect_ExactRejectIdentityPure(const ulong observedId,const long observedNonce,
+                                      const ulong expectedId,const long expectedNonce)
+{ return observedId>0 && observedNonce>0 && observedId==expectedId && observedNonce==expectedNonce; }
+
 // T17.23 F06: writer and loader share the exact same state-count bound.
 bool PyProtect_StateCountAllowedPure(const int count)
 {

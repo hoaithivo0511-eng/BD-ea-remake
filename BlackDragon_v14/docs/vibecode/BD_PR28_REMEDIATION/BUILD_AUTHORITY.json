@@ -1,0 +1,24 @@
+{
+  "schema": "bd-pr28-build-authority/1.0",
+  "owner_request": "Dùng @Vibecode MQL5 tiến hành clone repo ver ea mới nhất sau đó build update full theo plan cho tôi. Yêu cầu file ex5 update & docs",
+  "approved_scope": "Implement the recommended remediation plan; produce updated EX5 when a real compiler backend is available, plus docs. No live/merge approval.",
+  "baseline_head": "40c424cfa71b6742414b012e9d67d3294003f38e",
+  "plan_sha256": "a5dea22a5593436179eaa0b554eb90edcfc861a162b9d2a15b3194206fb3fb2f",
+  "recorded_utc": "2026-09-05T09:18:07.855294+00:00",
+  "approval_kind": "explicit natural-language task instruction",
+  "semantic_decisions": [
+    "D-201 recommended booking-day cash",
+    "D-202 preserve scoped denominator",
+    "D-203 recommended retry schedule"
+  ],
+  "inherited_upstream": [
+    "D-204 ADX fail-closed already present in baseline"
+  ],
+  "optional_scope": [
+    "D-205 oracle validation only; runtime algorithm change requires broker evidence",
+    "R-017 composition only where preservation can be checked"
+  ],
+  "release_eligible": false,
+  "forward_eligible": false,
+  "live_eligible": false
+}

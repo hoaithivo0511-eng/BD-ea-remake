@@ -6,6 +6,12 @@ from t1721_comment_baseline import before_comments,MANIFEST,REPO
 ROOT=REPO/'BlackDragon_v14'; D=ROOT/'docs/vibecode/T17_21_comments'
 contract=json.loads((D/'AI-BUILD-CONTRACT.json').read_text()); checks=[]
 superseded_t1722={
+ # T17.24 scope supersedes byte preservation only for these implementations.
+ # Comment/one-bar behavior gates remain below; new cash/book gates are in T17.24.
+ 'BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165GuardScope.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsBook.mqh',
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh',
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh',
  'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh',

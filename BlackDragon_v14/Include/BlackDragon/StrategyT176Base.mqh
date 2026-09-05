@@ -369,7 +369,7 @@ private:
       double sellFloating = m_basket.sell.totalProfit + rg.recoveryForSellFloating;
       double dayNet = m_basket.DayProfit() + buyFloating + sellFloating;
       double dayStartBalance = m_basket.DayStartBalance();
-      bool dayNetValid = true;
+      bool dayNetValid = m_basket.DayCashReady();
       if(RecoveryMode_ == recovery_ACTIVE)
       {
          if(recoveryHistoryOk)

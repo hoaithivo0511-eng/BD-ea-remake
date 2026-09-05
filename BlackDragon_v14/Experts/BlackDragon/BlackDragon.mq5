@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.22 PY protection |
+//| BlackDragon.mq5 — EA Black Dragon v15.01 / T17.24 remediation candidate |
 //| Event handlers + module registration ONLY.                       |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14/T17."
-#property version   "15.00"
+#property version   "15.01"
 
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Recovery/RecoveryTypes.mqh>
@@ -230,6 +230,10 @@ void OnDeinit(const int reason)
 {
    EventKillTimer();
    g_pyProtection.ReportPerformance();
+#ifdef BD_LOCAL_DIAGNOSTICS
+   Print("T17.24 observation scans=",g_bdObservationBook.Scans(),
+         " visits=",g_bdObservationBook.Visits()," aggregate hits=",g_bdObservationBook.Hits());
+#endif
    g_recovery.FlushPersistence();
    Persist_Save();
    g_strategy.Deinit();
@@ -274,7 +278,10 @@ void OnTick()
 
    g_basket.Update(ctx);
    g_pyProtection.Observe(ctx);
+   if(RecoveryMode_!=recovery_OFF)
+      g_bdObservationBook.Begin(_Symbol,(long)Magic,(long)RecoveryMagic_,SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP));
    g_recovery.OnTick(ctx);
+   g_bdObservationBook.End(); // all mutation paths below continue to read live state
    g_strategy.OnTick(ctx);
 }
 
@@ -315,9 +322,16 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeResult &result)
 {
    bool pyTopology=IsT1722TopologyTransaction(trans);
-   if(pyTopology)
+   if(pyTopology || trans.type==TRADE_TRANSACTION_DEAL_ADD ||
+      trans.type==TRADE_TRANSACTION_DEAL_UPDATE || trans.type==TRADE_TRANSACTION_DEAL_DELETE)
    {
       g_pyramidDealRevision++;
+      g_basket.Invalidate();
+   }
+   if(trans.type==TRADE_TRANSACTION_DEAL_UPDATE || trans.type==TRADE_TRANSACTION_DEAL_DELETE)
+   {
+      g_basket.InvalidateDayCash();
+      Recovery_T165InvalidateGuardCash();
       g_basket.Invalidate();
    }
    g_exec.OnTransaction(trans, request, result);
@@ -330,25 +344,20 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    {
       g_recovery.RecordDealCursor(trans.deal);
       g_recovery.FlushPersistence();
+      // Exit coordination suppresses strategy replay, not realized cash.
+      // The normal engine observer is skipped in this branch.
+      Recovery_T165GuardObserveDeal(trans.deal,TimeCurrent());
    }
    if(trans.type == TRADE_TRANSACTION_POSITION && trans.symbol == _Symbol)
       g_basket.Invalidate();
-   if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.symbol == _Symbol)
+   if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal!=0)
    {
       g_basket.Invalidate();
-      if(HistoryDealSelect(trans.deal))
-      {
-         long entry=HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
-         if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) == _Symbol &&
-            Basket_OwnsMagic(HistoryDealGetInteger(trans.deal, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
-            Basket_IsDayCashEntry(entry))
-            g_basket.OnDealCash(trans.deal,
-                                HistoryDealGetDouble(trans.deal, DEAL_PROFIT),
-                                HistoryDealGetDouble(trans.deal, DEAL_SWAP),
-                                HistoryDealGetDouble(trans.deal, DEAL_COMMISSION),
-                                HistoryDealGetDouble(trans.deal, DEAL_FEE));
-      }
+      // Exact symbol/date/position ownership is resolved by the shared ledger.
+      // A missing deal invalidates the cash proof and is retried on later ticks.
+      g_basket.OnDealCash(trans.deal,0,0,0,0);
    }
+
 }
 
 //+------------------------------------------------------------------+

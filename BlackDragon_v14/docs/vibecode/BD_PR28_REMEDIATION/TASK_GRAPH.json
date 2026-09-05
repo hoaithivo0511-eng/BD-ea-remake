@@ -1,0 +1,401 @@
+{
+  "schema": "bd-prd-task-graph/1.0",
+  "plan_id": "BD-PR28-REMEDIATION-001",
+  "tasks": [
+    {
+      "id": "T00",
+      "title": "Lock source/authority + baseline delta",
+      "depends_on": [],
+      "requirements": [
+        "R-001"
+      ],
+      "tests": [
+        "Q01",
+        "Q51"
+      ],
+      "wave": "W0",
+      "role": "builder",
+      "path_scope": "all",
+      "exit_criterion": "B0 authority, environment capability report, source/default manifest",
+      "estimate_engineer_days": "1",
+      "status": "HOST_COMPLETE",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T01",
+      "title": "Reproduce baseline defects and independent intended-result regressions",
+      "depends_on": [
+        "T00"
+      ],
+      "requirements": [
+        "R-002",
+        "R-003",
+        "R-004",
+        "R-005",
+        "R-018"
+      ],
+      "tests": [
+        "Q02",
+        "Q07",
+        "Q08",
+        "Q11",
+        "Q21",
+        "Q41",
+        "Q48"
+      ],
+      "wave": "W0",
+      "role": "builder+verifier",
+      "path_scope": "tests",
+      "exit_criterion": "Tests fail on known baseline bug; expected values independent",
+      "estimate_engineer_days": "1",
+      "status": "HOST_PARTIAL",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T02",
+      "title": "Fix pre-arm exposure/funding outcomes",
+      "depends_on": [
+        "T01"
+      ],
+      "requirements": [
+        "R-002"
+      ],
+      "tests": [
+        "Q02",
+        "Q03",
+        "Q04",
+        "Q05",
+        "Q53"
+      ],
+      "wave": "W1",
+      "role": "builder",
+      "path_scope": "protection",
+      "exit_criterion": "No unfunded arm; positive progression and native RH trim evidence",
+      "estimate_engineer_days": "1-2",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T03",
+      "title": "Durable async result handoff and settle",
+      "depends_on": [
+        "T01",
+        "T02"
+      ],
+      "requirements": [
+        "R-003"
+      ],
+      "tests": [
+        "Q06",
+        "Q07",
+        "Q08",
+        "Q09",
+        "Q10",
+        "Q45",
+        "Q52"
+      ],
+      "wave": "W1",
+      "role": "builder",
+      "path_scope": "execution",
+      "exit_criterion": "Result retained until consumer ACK; no-effect liveness; unknown no duplicate",
+      "estimate_engineer_days": "2-3",
+      "status": "PARTIAL",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T04",
+      "title": "Direction-safe replay, late/corrected deals and atomic ledger",
+      "depends_on": [
+        "T01"
+      ],
+      "requirements": [
+        "R-004"
+      ],
+      "tests": [
+        "Q11",
+        "Q12",
+        "Q13",
+        "Q14",
+        "Q42",
+        "Q54"
+      ],
+      "wave": "W1",
+      "role": "builder",
+      "path_scope": "recovery",
+      "exit_criterion": "Loss55 exact once; replay/correction/crash integration evidence",
+      "estimate_engineer_days": "2-3",
+      "status": "PARTIAL",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T05",
+      "title": "Commission position identity and validity",
+      "depends_on": [
+        "T01"
+      ],
+      "requirements": [
+        "R-005"
+      ],
+      "tests": [
+        "Q21",
+        "Q22"
+      ],
+      "wave": "W1",
+      "role": "builder",
+      "path_scope": "accounting",
+      "exit_criterion": "Correct identifier lookup and no unknown-to-zero",
+      "estimate_engineer_days": "0.5-1",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T06",
+      "title": "Daily cash and denominator consistency after decision",
+      "depends_on": [
+        "T04",
+        "T05"
+      ],
+      "requirements": [
+        "R-006",
+        "R-007"
+      ],
+      "tests": [
+        "Q15",
+        "Q16",
+        "Q17",
+        "Q18",
+        "Q19",
+        "Q20"
+      ],
+      "wave": "W1",
+      "role": "builder",
+      "path_scope": "accounting",
+      "exit_criterion": "D-201/D-202 bound; seed/callback cash parity; scope history failure proof",
+      "estimate_engineer_days": "1-2",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "decision_dependencies": [
+        "D-201",
+        "D-202"
+      ],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T07",
+      "title": "Instrument and freeze corrected B1 benchmark",
+      "depends_on": [
+        "T02",
+        "T03",
+        "T04",
+        "T05"
+      ],
+      "requirements": [
+        "R-013",
+        "R-014"
+      ],
+      "tests": [
+        "Q33",
+        "Q34",
+        "Q46",
+        "Q47"
+      ],
+      "wave": "W2",
+      "role": "builder+verifier",
+      "path_scope": "diagnostics",
+      "exit_criterion": "Freeze B1/head/set/dataset/budgets before optimization; if T06 enters candidate freeze after it",
+      "estimate_engineer_days": "1-2",
+      "status": "PARTIAL_NATIVE_BENCHMARK_BLOCKED",
+      "decision_dependencies": [
+        "D-206"
+      ],
+      "conditional_dependencies": [
+        "T06 if selected before B1 freeze"
+      ]
+    },
+    {
+      "id": "T08",
+      "title": "Bound journal, atomic persistence and migration",
+      "depends_on": [
+        "T03",
+        "T04",
+        "T07"
+      ],
+      "requirements": [
+        "R-011"
+      ],
+      "tests": [
+        "Q23",
+        "Q24",
+        "Q25",
+        "Q26"
+      ],
+      "wave": "W2",
+      "role": "builder",
+      "path_scope": "persistence",
+      "exit_criterion": "No unreadable writer output; safe retention and migration/rollback proof",
+      "estimate_engineer_days": "1-3",
+      "status": "PARTIAL",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T09",
+      "title": "Shared PositionBook and streaming aggregate",
+      "depends_on": [
+        "T07",
+        "T08"
+      ],
+      "requirements": [
+        "R-008",
+        "R-010"
+      ],
+      "tests": [
+        "Q27",
+        "Q28",
+        "Q55"
+      ],
+      "wave": "W2",
+      "role": "builder",
+      "path_scope": "snapshot",
+      "exit_criterion": "Measured duplicate scans reduced; final live freshness maintained",
+      "estimate_engineer_days": "2-3",
+      "status": "PARTIAL",
+      "decision_dependencies": [],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T10",
+      "title": "Incremental history and approved retry scheduler",
+      "depends_on": [
+        "T04",
+        "T08",
+        "T09"
+      ],
+      "requirements": [
+        "R-009",
+        "R-012"
+      ],
+      "tests": [
+        "Q29",
+        "Q30",
+        "Q31",
+        "Q32"
+      ],
+      "wave": "W2",
+      "role": "builder",
+      "path_scope": "history_retry",
+      "exit_criterion": "No quiet per-second full campaign read; D-203 retry proof; safe late replay",
+      "estimate_engineer_days": "1-2",
+      "status": "PARTIAL",
+      "decision_dependencies": [
+        "D-203"
+      ],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T11",
+      "title": "Optional ADX/profit oracle/composition",
+      "depends_on": [
+        "T09",
+        "T10"
+      ],
+      "requirements": [
+        "R-015",
+        "R-016",
+        "R-017"
+      ],
+      "tests": [
+        "Q36",
+        "Q37",
+        "Q38",
+        "Q39",
+        "Q40",
+        "Q56"
+      ],
+      "wave": "W3",
+      "role": "builder",
+      "path_scope": "optional",
+      "exit_criterion": "Apply only selected approved options; otherwise explicit NOT_SELECTED",
+      "estimate_engineer_days": "estimate_after_selection",
+      "status": "PARTIAL_OPTIONAL",
+      "decision_dependencies": [
+        "D-204",
+        "D-205"
+      ],
+      "conditional_dependencies": []
+    },
+    {
+      "id": "T12",
+      "title": "Candidate integration, scenarios, stress and performance",
+      "depends_on": [
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "T08",
+        "T09",
+        "T10"
+      ],
+      "requirements": [
+        "R-001",
+        "R-014",
+        "R-018"
+      ],
+      "tests": [
+        "Q35",
+        "Q41",
+        "Q43",
+        "Q44",
+        "Q45",
+        "Q46",
+        "Q47",
+        "Q52",
+        "Q53",
+        "Q54"
+      ],
+      "wave": "W3",
+      "role": "builder+verifier",
+      "path_scope": "tests",
+      "exit_criterion": "Candidate C native gates, complete tester reports, B1→C trace/benchmark",
+      "estimate_engineer_days": "2-4",
+      "status": "HOST_PASS_NATIVE_BLOCKED",
+      "decision_dependencies": [],
+      "conditional_dependencies": [
+        "T06 if D-201/D-202 implemented",
+        "T11 if any optional change included"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Independent re-audit, completion and handover",
+      "depends_on": [
+        "T12"
+      ],
+      "requirements": [
+        "R-018"
+      ],
+      "tests": [
+        "Q48",
+        "Q49",
+        "Q50",
+        "Q51"
+      ],
+      "wave": "W4",
+      "role": "verifier",
+      "path_scope": "docs",
+      "exit_criterion": "Findings disposition + provenance verified; no inferred release eligibility",
+      "estimate_engineer_days": "1-2",
+      "status": "CHECKPOINT_DELIVERED_RELEASE_BLOCKED",
+      "decision_dependencies": [],
+      "conditional_dependencies": [
+        "T06 closure required to claim all P1 findings fixed"
+      ]
+    }
+  ],
+  "integration_rule": "Serialize overlapping production file edits; task DAG is not permission for parallel agents or concurrent same-file writes."
+}

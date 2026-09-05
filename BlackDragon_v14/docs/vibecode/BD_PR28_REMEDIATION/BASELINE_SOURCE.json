@@ -1,0 +1,606 @@
+{
+  "head": "40c424cfa71b6742414b012e9d67d3294003f38e",
+  "files": [
+    {
+      "path": "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+      "sha256": "155ee927b46ff24e609d870551d8ff6ceaf74483a2a4967070d32b9a50cf820e",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/BasketManager.mqh",
+      "sha256": "7dbbdd49fbc3fd714322b7d3e17c96b5e4265c4183ec3e1ca451039c1244600a",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Config.mqh",
+      "sha256": "2e83f79e7888f583e00984d3eb8b9481eb1cb23ba0940a07e2fb1d21c4a959ec",
+      "inputs": [
+        "input ePyramidProtectionMode PyramidSLMode_=py_protect_OFF;",
+        "input double PyramidBETriggerPips_=10.0;",
+        "input double PyramidLockProfitPips_=3.0;",
+        "input double PyramidLockSafetyPips_=1.0;",
+        "input double PyramidTrailGapPips_=0.0;",
+        "input bool   NewCycle_        = true;",
+        "input bool   Flag_Trade_Buy_  = true;",
+        "input bool   Flag_Trade_Sell_ = true;",
+        "input bool   flag_Hand_Ord    = false;",
+        "input bool   Flag_Use_hedge   = true;",
+        "input string sOrdComm         = \"EA Black Dragon\";",
+        "input int    Magic            = 1111;",
+        "input eSignalSource   SignalSource_ = sig_BD;",
+        "input ENUM_TIMEFRAMES TF_DB         = PERIOD_CURRENT;",
+        "input bool            Use_Stoh    = false;",
+        "input ENUM_TIMEFRAMES TF_Stoh     = PERIOD_CURRENT;",
+        "input int             Up_Level    = 90;",
+        "input int             Down_Level  = 10;",
+        "input int             KPeriod     = 7;",
+        "input int             DPeriod     = 1;",
+        "input int             Slowing     = 2;",
+        "input eWmfMode           WmfMode        = wmf_Cross;",
+        "input ENUM_TIMEFRAMES    WmfTF          = PERIOD_CURRENT;",
+        "input int                WmfLength      = 20;",
+        "input ENUM_APPLIED_PRICE WmfPrice       = PRICE_CLOSE;",
+        "input double             WmfFactor      = 1.0;",
+        "input int                WmfEmaLength   = 2;",
+        "input bool               ShowWmfSignals = true;",
+        "input int      MaxOrdersBuy    = 10;",
+        "input int      MaxOrdersSell   = 10;",
+        "input eLotMode LotMode_        = lot_MultiplierChain;",
+        "input double   Lot_Init_       = 0.01;",
+        "input bool     Autolot_        = false;",
+        "input int      Autolotsize_    = 1000;",
+        "input string   LotSequence_    = \"\";",
+        "input string   MartinSequence_ = \"1.5\";",
+        "input double   MaxLot_         = 5;",
+        "input int    MinuteStop        = 0;",
+        "input string DistanceSequence_ = \"20x5-24-28.8-34.6-41.5\";",
+        "input eModeStops TP_Mode       = mode_Virt;",
+        "input double     TP_           = 200.0;",
+        "input eModeStops SL_Mode       = mode_Virt;",
+        "input double     SL_           = 0.0;",
+        "input eModeStops Trail_Mode    = mode_Virt;",
+        "input double     iTS           = 0.0;",
+        "input double     iTD           = 100.0;",
+        "input bool       Overlap       = true;",
+        "input int        OverlapOrderNumber = 8;",
+        "input double     OverlapPercent     = 3.0;",
+        "input bool       UseCommissionInBE  = false;",
+        "input double PctDiffClose      = 0.0;",
+        "input double MoneyTPAllAccount = 0.0;",
+        "input double MoneySLAllAccount = 0.0;",
+        "input double MoneyTPAll        = 0.0;",
+        "input double MoneySLAll        = 0.0;",
+        "input double MoneyTPBuy        = 0.0;",
+        "input double MoneySLBuy        = 0.0;",
+        "input double MoneyTPSell       = 0.0;",
+        "input double MoneySLSell       = 0.0;",
+        "input double MoneyTPAllHedged  = 0.0;",
+        "input double DailyTPMoney   = 0.0;",
+        "input double DailySLMoney   = 0.0;",
+        "input double DailyTPPercent = 0.0;",
+        "input double DailySLPercent = 0.0;",
+        "input int    NewDayDelayMin = 0;",
+        "input int    MaxSpred     = 0;",
+        "input bool   UseAdxFilter = false;",
+        "input int    AdxPeriod    = 14;",
+        "input double MinAdx       = 20.0;",
+        "input bool   UseTimeLimit   = false;",
+        "input bool   UseTime1       = true;",
+        "input string Time1Start     = \"07:00\";",
+        "input string Time1End       = \"11:00\";",
+        "input bool   UseTime2       = false;",
+        "input string Time2Start     = \"13:00\";",
+        "input string Time2End       = \"17:00\";",
+        "input bool   UseTime3       = false;",
+        "input string Time3Start     = \"19:00\";",
+        "input string Time3End       = \"23:00\";",
+        "input bool   UseTime4       = false;",
+        "input string Time4Start     = \"00:00\";",
+        "input string Time4End       = \"06:00\";",
+        "input bool   DcaOutsideTime = false;",
+        "input bool Flag_Use_News = false;",
+        "input bool Imp3High      = false;",
+        "input bool Imp2Med       = false;",
+        "input bool Imp1Low       = false;",
+        "input int  b3_           = 60;",
+        "input int  a3_           = 60;",
+        "input int  b2_           = 15;",
+        "input int  a2_           = 15;",
+        "input int  b1_           = 5;",
+        "input int  a1_           = 5;",
+        "input eNewsFailMode NewsFailMode = news_fail_TradeOn;",
+        "input eExecMode ExecMode    = exec_Async;",
+        "input eUnitSystemMode UnitSystemMode_ = unit_LEGACY_COMPAT;",
+        "input int       Slippage_   = 3;",
+        "input bool      AutoGoldPip = true;",
+        "input bool UseMobileControl = true;"
+      ]
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/EntryFilters.mqh",
+      "sha256": "5759bd806b12331b1181cccaff42b4c4bd2784428a0bd5d05b2389bf7d8c7671",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh",
+      "sha256": "7b5e4e65606092337966792ded52250c1b20835c24e5a5bfdc082d8ec57232e4",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/ExitEngine.mqh",
+      "sha256": "32b673c20eec533a15c8206a49125d51170fc67c920a3c6e9a653274c172cdaf",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Filters/AdxFilter.mqh",
+      "sha256": "59ff10e2f4dd3c391432330412401b2f9f79f0cb54614e7a5a1d3e97a5a09fe6",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/GridEngine.mqh",
+      "sha256": "a8498d4829668e79359ac8d3e3ee187811e66febb8aacbac6bce864e14b34efa",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/JournalT177.mqh",
+      "sha256": "3a4c2e97169c71a0c8c57aca97b6b153350a7eb3527c608e8db903c9be9c997c",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/License.mqh",
+      "sha256": "26e36273d98ab19cf2b0773df8e9f5b2a7b3bbada42fcbd24b93cf327ca72fec",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Logger.mqh",
+      "sha256": "d099d99c07a9d0ff2b82c2a6eb06adfe0e58e0178c02a6b006472203d64a013a",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/MobileControl.mqh",
+      "sha256": "ed5550c52ffa5c515a53334ae096a14ba4914481ad502b6b0af7b9bafbdb5d9b",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/MoneyGuard.mqh",
+      "sha256": "85b725c195c53c8013079cee49bc9d726b38a0d9c25dcb2f4a5830f1f140b6a3",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/NewsCalendar.mqh",
+      "sha256": "b5cfdfe42da635dd3e6101ed4d57357ae3f058fd0bbcc2690dd4692ac1341038",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/OrderCommentCodec.mqh",
+      "sha256": "f08da225d236419984ceb7e744ab457f49b365667285ba0218fc691b46f31199",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh",
+      "sha256": "e966685ef6b32332ff560941a135c0e8ec1fea274736da7217e179631d1dc8e8",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177CoordinatorT177C3Base.mqh",
+      "sha256": "3716fda27b4bd586db46bf576be46394c4d4692104f4a32afb59d89709307b06",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Policy.mqh",
+      "sha256": "34816abf6212e897541229980264ab2c8256c88ab8afc74ba69a05949d5d3fc2",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Persistence.mqh",
+      "sha256": "3d15d39424b5b07c2354e68485e0b361750b607f4b523a025d0ca3d0f2778db1",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh",
+      "sha256": "222b420ccddeb9819861b8dec78478862c087a9195489ea1cd4b4de909b6b036",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramidT1713.mqh",
+      "sha256": "bd0454eb8be85599c79e5265c6dfd60ca7a238757989ca1d87f0d59a71801a98",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidAnchorT177.mqh",
+      "sha256": "5f95d4a1ba6156864ad43e9d7e69722c11d9034af4ff4b555d17831331c3fea9",
+      "inputs": [
+        "input eCorePyramidAnchorMode CorePyramidAnchorMode_ = pyramid_anchor_DYNAMIC;"
+      ]
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidConfig.mqh",
+      "sha256": "c89506b20fc0893e1bf423945a9ff2ad9137256d8bdfdc28a4d1b97483e7a563",
+      "inputs": [
+        "input eCorePyramidMode CorePyramidMode_ = pyramid_TAT;",
+        "input string PyramidDistanceSequence_ = \"10x2-15-20\";",
+        "input ePyramidLotMode PyramidLotMode_ = pyramid_LOT_HE_SO;",
+        "input string PyramidLotSequence_ = \"0.01-0.01-0.012-0.014\";",
+        "input string PyramidMultiplierSequence_ = \"1.0-1.2-1.15-1.1\";",
+        "input int PyramidMaxAdds_ = 4;",
+        "input double PyramidMaxTotalLots_ = 1.00;",
+        "input double PyramidRiskBudgetPercent_ = 30.0;",
+        "input double PyramidMinLockedProfitPips_ = 5.0;",
+        "input int PyramidReserveDcaSlots_ = 3;",
+        "input double PyramidMinRoomToTPPips_ = 5.0;",
+        "input double PyramidPeelGapPips_ = 7.0;",
+        "input bool PyramidRequireTrend_ = true;",
+        "input eHedgePyramidMode HedgePyramidMode_ = hedge_pyramid_TAT;",
+        "input string HedgePyramidCoverageSequence_ = \"35-55-75-100\";",
+        "input string HedgePyramidGapSequence_ = \"10-10-15\";",
+        "input double HedgePyramidMaxCoveragePercent_ = 100.0;",
+        "input bool HedgePyramidReserveFullTarget_ = true;",
+        "input double HedgePyramidMinRoomToTPPips_ = 5.0;",
+        "input bool HedgePyramidLockBeforeAdd_ = true;"
+      ]
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtection.mqh",
+      "sha256": "20459f4287887e3cedeec4c4292217dbb230430b29e0776a78bd1c58d1d764d0",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidProtectionPolicy.mqh",
+      "sha256": "a59ca0db9783f8aa1d2c0693607ebe7670a015d2179c850a7ad91e77ad143db1",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsBook.mqh",
+      "sha256": "f0cf6dc769a1661bd13ed4ab8877f2c9e532a5039d8f28110678794cb1db41f6",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistence.mqh",
+      "sha256": "d44a1d7858dc1c143445dbbd01c6ca272b1ad8fa4e17f69248b0792f9268651a",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistenceT177C4Base.mqh",
+      "sha256": "edc12edaca6657028e0de0a8dd3e673438095c3a723e1d1f59af641afaca0283",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistenceT177C5Impl.mqh",
+      "sha256": "8be5efc4a3ac723fc942559cf66cfefe39deeba29e80703d5e669e301b708c7a",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh",
+      "sha256": "8818863055c341a8e48e1251a5957df6875c8beecd8dd280a1e5736ed1dac8e4",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh",
+      "sha256": "f0fdca736c3aaf573b57b0e24bfe176a6ba867505702bb38012abedd5553cd56",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDeal.mqh",
+      "sha256": "8612435b3ade71ac854a01fbc758c80516e596dd38114104a574ca12b2b6b895",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDealT162Base.mqh",
+      "sha256": "88302cd334e6c0f461094014be840ea675fa0d2da22ffb2cf64f9d1b9a6a08e9",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh",
+      "sha256": "62298a9fe67e2ea151788d23c68f797aa001f78609d0f01ff41ca7370ad2a529",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadder.mqh",
+      "sha256": "fd258211d317719d84c0846c9e5177c8f932197ce63ba5cf75dc3d670e305c63",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh",
+      "sha256": "64502892aa207f203bd75f982189de0a75f4db53b37dfc7edf50ded56ec3a50a",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177Scheduler.mqh",
+      "sha256": "663b42eb78ef050892fd7a906bdd44da9475200d34d21eba791c1bd99cfae8df",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT17Pyramid.mqh",
+      "sha256": "5fa43b59401e5a727c628f878bcbdf0b5c92118d8a3a5f1b7b73a8f177e5dd32",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsTypes.mqh",
+      "sha256": "33ebee44cc7b2d097aed5b91c1f5f2b359b330856cb1e15bcc3e32496ff5ed14",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryBundle.mqh",
+      "sha256": "33647c190d863ffddfc03cec330a1283d6f5e26405cd4faf31883ff10d923e0a",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh",
+      "sha256": "76fb8fa0f6aaf191c8baea71e7f825b3816caddd58939bd38c9cbec9daeacdf7",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDcaT1713.mqh",
+      "sha256": "b1448436ac7a4c29a646c6290ad6e7a83401a22233b008aedc06e56d19333150",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh",
+      "sha256": "7ace6b46d9767ffde8c02d1b98ffaaa9f926a0c986fbf5491c025ba6ff5e2973",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngineT13Base.mqh",
+      "sha256": "b403525d764294195c51cbdbdddd79727b0a62c60e7f3376566272a06a1e5245",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExecutionIdentity.mqh",
+      "sha256": "0d6e0308eac4f19f46b2e4d677f87bf3485926ca2e3044d0a520a2f8924eaf00",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExit.mqh",
+      "sha256": "b7fcc98189ec52ad101168d66648c9574c963b9a702cd23ffe43020a52d11a61",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh",
+      "sha256": "c69f2b80d5e69184248d68292e66dab3757154bff780cbcbe2b0383055b59e0d",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT13Base.mqh",
+      "sha256": "5b88ce15ea5518484e73feea549902f57e456ef14290cc5a564f53528e92b024",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT177Base.mqh",
+      "sha256": "16a08bc615eb19e5ae1beea05a5b05b3215f8eab90fe3b9a727e96873bd7d617",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryGlobalFlatten.mqh",
+      "sha256": "71e94c03947e53656810c0287b9350e40b5dbf086396a864a0f189854ec78190",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryLock.mqh",
+      "sha256": "28e95481729c71315cd2266e3930abdb803264f0308833385f51b7168cdfbd2f",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryMath.mqh",
+      "sha256": "151789e89bae21537e91e880f0a56180caef63c5850028553da6068650191572",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryMutationPolicy.mqh",
+      "sha256": "7200409a230836b8e50be72bcc41b9cb79f8b890b77c5cbdd9836573f63c3f3a",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryOpenBarGate.mqh",
+      "sha256": "5b64c2a87b27dcd3ccf0f6a8c0573969fde802dc6c24541d80fce9863d68d991",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryOpenBarPolicy.mqh",
+      "sha256": "657af50349d585fe7d5dbf55a2fe6b51e751923d8580582ef3e6afc506069460",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryOrderComment.mqh",
+      "sha256": "49c0f8908dd1613d854a03fbc8234837d468133d4b387eb5fc26adcc45924d34",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryPersistence.mqh",
+      "sha256": "054f7f67939773734f06e7d00472f6da4aec6ed30cf28da475c94358e1f2060c",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryRegistry.mqh",
+      "sha256": "80db72ed9c2451c825624c7b02ea44611c33ed6ac6abf50a923999cd5b1f1d45",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryStateMachine.mqh",
+      "sha256": "4dd07eefc96c569041d3802d0e2e72eb4d7b60dcd14acd2f6e6e24cee9d6a04d",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT163Policy.mqh",
+      "sha256": "1ca6eff2f39ce923d3a8e433ec0374a0da57e9ce176e77cc732cc319ab4ce87f",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT164Reachability.mqh",
+      "sha256": "510c692191e67646ff9273c06dfa3c171713e028a2506aca4ccfbe689e914465",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165GuardScope.mqh",
+      "sha256": "ee6bdf921651394da5b896bdd881d1d003833f52d60567169c5674b495e21321",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh",
+      "sha256": "a31d2a371560ffef6bd66591bbb69ee8da868057472bb20ed3caa9a140ede766",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165Policy.mqh",
+      "sha256": "b328d8c779929882a7cd1e22262574fd242abd9c4837798c7cdd7856c64f48b2",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16Config.mqh",
+      "sha256": "dcd9115ee21cc6c5b42d3b4b38ece10077af56093515799c8327906fae0212ce",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16ConfigT177C4Base.mqh",
+      "sha256": "1bd0e288e342425ad109d259dd9ff9a7fff84cbd7e7c3483806f52cf5b84cf3e",
+      "inputs": [
+        "input eRecoverySizingPolicy RecoverySizingPolicy_ = ARCS_XEP_LOP;",
+        "input double HedgeVolumePercent_ = 100.0;",
+        "input eRecoverySLMode HedgeSLMode_ = SL_BROKER;",
+        "input bool   EnableGlobalHedgeSL_          = true;",
+        "input int    GlobalSLAfterGenerations_     = 5;",
+        "input double GlobalHedgeSLNetProfitPips_   = 3.0;",
+        "input double RecoveryReentryBufferPips_    = 10.0;",
+        "input bool OverlapAfterHedge_ = false;",
+        "input bool RecoveryDcaMarginReserve_ = true;",
+        "input int  RecoveryWaitLogSeconds_   = 900;"
+      ]
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16ConfigT177C5Impl.mqh",
+      "sha256": "d33e56752be22cb40c468efaef04f6f407efe2dbdb9d5b9e6ffbb6cd8394dea6",
+      "inputs": [
+        "input eOverlapPolicyT177 OverlapPolicy_ = OVERLAP_LEGACY_AUTO;",
+        "input double HedgeTargetCoveragePercent_ = 0.0;",
+        "input double HedgeAbsoluteMaxCoveragePercent_ = -1.0;",
+        "input int MaxRecoveryReentryCycles_ = 2;"
+      ]
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1712EconomicPolicy.mqh",
+      "sha256": "93d021f2d2bd8899ca78de66a85253ae816338275fa7886875ce75c370ff391d",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1713ConcurrencyPolicy.mqh",
+      "sha256": "70e6d364ed2cd4161326c4c1865680ed7022202f3c36a87109991818859fdf8e",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1714InterleavePolicy.mqh",
+      "sha256": "7ffc4f452d6e4f9c37aff4ee9490ee371b12d2a2575575e79cd03fc4b97b4ec4",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1717StopLivenessPolicy.mqh",
+      "sha256": "c3978943fdfd0aa1333b38a7f3637e1d061a739ee59d154c8fbb8667aaa7eff7",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1719ReentryPersistence.mqh",
+      "sha256": "5e1721c8395f2c2fb936e340f89812ce533d8383dd969ef8669fc8e3a862ecc9",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1719ReentryPolicy.mqh",
+      "sha256": "939276cac0c1bbf9e12ad312d0e0c6ac010f8d74623e58dc8050423a3583a652",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177HedgeLadder.mqh",
+      "sha256": "1f3c42a49c34dfe7119f1db3b9b6b83a5927efb457e8e7944e9cae46e5481090",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177MigrationPolicy.mqh",
+      "sha256": "bb48bd1bc78d9a9f1de0e3992041f22be6e981b2c57fedf25dac46484b01a299",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177Scheduler.mqh",
+      "sha256": "2068efa2dae2cdbac5ca7fcf0b22aaa1d70bd0c39094937150c250f3a85e7eae",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT178RuntimePolicy.mqh",
+      "sha256": "dcc2680ae888587ec370f296a7521d1b1d79d0dcb22539da5e3a89de5fe81f26",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT179RealTpPolicy.mqh",
+      "sha256": "01eeb2964f9e4012fd315ceab12eef55dfaa02d7757809171d4429746a6a59a7",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryTypes.mqh",
+      "sha256": "d7700842c10b6ac022c26281eff65ba945097f2bc17dbb3be1c2c4b0324f58b0",
+      "inputs": [
+        "input eRecoveryMode          RecoveryMode_               = recovery_OFF;",
+        "input long                   RecoveryMagic_              = 20260807;",
+        "input int                    RecoveryStartAfterDca_      = 5;",
+        "input double                 HedgeGapPips_               = 50.0;",
+        "input double                 HedgeTPPips_                = 50.0;",
+        "input double                 HedgePartialClosePercent_   = 50.0;",
+        "input eRecoveryCoreCloseMode CoreCloseMode_              = recovery_Oldest;",
+        "input double                 HedgeLockNetProfitPips_     = 3.0;",
+        "input double                 HedgeLockSafetyBufferPips_  = 1.0;",
+        "input double                 ReHedgeGapPips_             = 50.0;",
+        "input bool                   RecoveryOneOrderPerBar_     = false;",
+        "input int                    MaxHedgeGenerations_        = 5;",
+        "input bool   ContinueDcaAfterHedge_       = false;",
+        "input double MinHedgeCoveragePercent_     = 0.0;",
+        "input double TargetRecoveryCorridorPips_  = 0.0;",
+        "input bool   RecoveryTesterResumeState_   = false;"
+      ]
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/SignalEngine.mqh",
+      "sha256": "a7adaa91fa3d9ce89c7c60755902c7d006f410731ed1d769b8236fa1bbf0e642",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Strategy.mqh",
+      "sha256": "5de1fdae52f8559087f72f7c1fc79613aada26d9daa2a3cb076be4fb1f260b97",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/StrategyT1711Admission.mqh",
+      "sha256": "647e1f91835cc8976ba93810f60b7b1e453ecef8bd58551f72fceb8ee052c1ae",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/StrategyT1713.mqh",
+      "sha256": "1cedb75f763f788489aa2c4ee7af22eda19ab0aa937ee9e62bc57de048798ffb",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/StrategyT1714GuardPolicy.mqh",
+      "sha256": "54f396bec730698c3ae7d646a29f1760385e019815d0de021cc20ac60296acdd",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh",
+      "sha256": "5abffc5d931bd54d02460985ff5a7f059c56eb339a3552f167f890670bb19e85",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/Types.mqh",
+      "sha256": "4949a4a9c9cfe94c41999c713c0f10a7bff5ae996b006737d71170a0cd32c2b1",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/UnitSystem.mqh",
+      "sha256": "6b2a2c4a22578ad29897dd9c8f1749da1db3011e24c7dbf06d44f2406583985d",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/WmfSignal.mqh",
+      "sha256": "eccbb7374735caa331e565ae0bf1257af67e8f76cd9fed60d862ffb97941dd0d",
+      "inputs": []
+    },
+    {
+      "path": "BlackDragon_v14/Include/BlackDragon/WmfSignalOverlay.mqh",
+      "sha256": "e55090a91cdf4dec8ba551bbe19fbee90f914bdf144942d38a823341af726b36",
+      "inputs": []
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+schema: bd-prd-decisions/1.0
+plan_id: BD-PR28-REMEDIATION-001
+new_owner_approval_recorded: true
+decisions:
+- id: D-201
+  status: APPROVED_BY_IMPLEMENTATION_INSTRUCTION
+  title: Daily cash booking and cost ownership
+  current: Only OUT close profit+swap+commission in current Core path
+  proposed: Server booking day; immutable position ownership; all scoped booked deal
+    cash incl entry commission/fee and OUT_BY; no unallocated account fees guessed
+  reason: Resolve audit defect or make acceptance measurable without silently changing
+    owner semantics
+  locking_tests:
+  - Q15
+  - Q16
+  - Q17
+  - Q18
+  - Q19
+  approval_required_before_semantic_implementation: true
+  engineering_budget_signoff_required: false
+  approved_by: owner via conversation instruction
+  approved_at_utc: null
+  approval_evidence: BUILD_AUTHORITY.json
+  approval_time_note: Exact message timestamp unavailable; recorded_utc is recording
+    time, not a fabricated approval timestamp.
+- id: D-202
+  status: APPROVED_BY_IMPLEMENTATION_INSTRUCTION
+  title: Daily percent denominator
+  current: Scope-derived reconstruction with documented limitations
+  proposed: Preserve scope-derived denominator semantics, adjust cash term consistently
+    after D-201, explicitly label limitations; account-midnight balance redesign separate
+  reason: Resolve audit defect or make acceptance measurable without silently changing
+    owner semantics
+  locking_tests:
+  - Q20
+  approval_required_before_semantic_implementation: true
+  engineering_budget_signoff_required: false
+  approved_by: owner via conversation instruction
+  approved_at_utc: null
+  approval_evidence: BUILD_AUTHORITY.json
+  approval_time_note: Exact message timestamp unavailable; recorded_utc is recording
+    time, not a fabricated approval timestamp.
+- id: D-203
+  status: APPROVED_BY_IMPLEMENTATION_INSTRUCTION
+  title: Retry cadence and reconcile escalation
+  current: Existing retry behavior; no assumed global cadence
+  proposed: 1s exponential x2 capped30s; 8 consecutive definitive no-effect rejects
+    -> reconcile with obligation retained; timeout never proves no effect
+  reason: Resolve audit defect or make acceptance measurable without silently changing
+    owner semantics
+  locking_tests:
+  - Q29
+  - Q30
+  approval_required_before_semantic_implementation: true
+  engineering_budget_signoff_required: false
+  approved_by: owner via conversation instruction
+  approved_at_utc: null
+  approval_evidence: BUILD_AUTHORITY.json
+  approval_time_note: Exact message timestamp unavailable; recorded_utc is recording
+    time, not a fabricated approval timestamp.
+- id: D-204
+  status: INHERITED_IMPLEMENTED_UPSTREAM_T1723
+  title: ADX dependency policy
+  current: Explicit fail-open; default OFF
+  proposed: 'If approved: handle init failure -> fail init, valid handle lacking buffer
+    -> WAIT new entry with exits active; otherwise preserve and document'
+  reason: Resolve audit defect or make acceptance measurable without silently changing
+    owner semantics
+  locking_tests:
+  - Q36
+  - Q37
+  approval_required_before_semantic_implementation: true
+  engineering_budget_signoff_required: false
+  approved_by: null
+  approved_at_utc: null
+  approval_evidence: null
+  baseline_actual: Fail-closed in 40c424cf, preserved in candidate
+- id: D-205
+  status: VALIDATION_ONLY_NATIVE_PENDING
+  title: Profit oracle/runtime bisection
+  current: Existing linear tick-value formula
+  proposed: Oracle validation first; runtime change only if necessary profile and
+    approved scope; integer tick bracketed solution
+  reason: Resolve audit defect or make acceptance measurable without silently changing
+    owner semantics
+  locking_tests:
+  - Q38
+  - Q39
+  - Q40
+  approval_required_before_semantic_implementation: true
+  engineering_budget_signoff_required: false
+  approved_by: null
+  approved_at_utc: null
+  approval_evidence: null
+- id: D-206
+  status: PROPOSED_NOT_MEASURED_NOT_A_PASS_GATE
+  title: Benchmark acceptance budget
+  current: No independent native baseline captured in audit
+  proposed: Freeze at B1 before optimizing. Proposed duplicate enumeration reduction
+    >=50%; p95/p99 regression <=5% outside noise; emergency latency not traded away.
+    Team/verifier confirm budget or submit justified baseline-derived replacement
+  reason: Resolve audit defect or make acceptance measurable without silently changing
+    owner semantics
+  locking_tests:
+  - Q33
+  - Q34
+  - Q35
+  - Q46
+  - Q47
+  approval_required_before_semantic_implementation: false
+  engineering_budget_signoff_required: true
+  approved_by: null
+  approved_at_utc: null
+  approval_evidence: null
+- id: D1722-01
+  status: INHERITED_APPROVAL_REFERENCE
+  description: Actual direction groups and Core TP/global exit unchanged
+  authority_path: BlackDragon_v14/docs/vibecode/T17_22_py_protection/DECISIONS.yaml
+  authority_head: d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d
+  new_approval_created: false
+- id: D1722-02
+  status: INHERITED_APPROVAL_REFERENCE
+  description: Independent net BE and monotone floor
+  authority_path: BlackDragon_v14/docs/vibecode/T17_22_py_protection/DECISIONS.yaml
+  authority_head: d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d
+  new_approval_created: false
+- id: D1722-03
+  status: INHERITED_APPROVAL_REFERENCE
+  description: Pre-arm retained RH exposure
+  authority_path: BlackDragon_v14/docs/vibecode/T17_22_py_protection/DECISIONS.yaml
+  authority_head: d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d
+  new_approval_created: false
+- id: D1722-04
+  status: INHERITED_APPROVAL_REFERENCE
+  description: Fresh snapshot after mutation, historical cash once
+  authority_path: BlackDragon_v14/docs/vibecode/T17_22_py_protection/DECISIONS.yaml
+  authority_head: d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d
+  new_approval_created: false
+- id: D1722-05
+  status: INHERITED_APPROVAL_REFERENCE
+  description: Reuse scans/history and prove overhead
+  authority_path: BlackDragon_v14/docs/vibecode/T17_22_py_protection/DECISIONS.yaml
+  authority_head: d3b5ce19cfdde52b9cb49fe14f1b50915fd0604d
+  new_approval_created: false

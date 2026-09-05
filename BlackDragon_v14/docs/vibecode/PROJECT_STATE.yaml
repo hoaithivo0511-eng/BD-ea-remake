@@ -1,19 +1,19 @@
-project: BlackDragon v15.00 / T17.22
+project: BlackDragon v15.01 / T17.24 candidate
 repository: hoaithivo0511-eng/BD-ea-remake
-branch: feat/t17-full-pyramid
+branch: codex/pr28-full-update
 pull_request: 28
 pull_request_state: DRAFT_OPEN_NOT_MERGED
 methodology: VibeCodeKit-MQL5 Full
 canonical:
   entry_point: BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
-  product_version: '15.00'
-  runtime_lineage: T17.22
+  product_version: '15.01'
+  runtime_lineage: T17.24 candidate on T17.23
   dashboard: REMOVED
   signal_overlay: WMF_OPTIONAL_PRESERVED
   workflow: .github/workflows/verify-current.yml
 locked_baseline:
-  remote_head: c108647d109b3cbca0e6477ddae59a677ee7a637
-  remote_tree: c35505e568af990a32c02a27c6337b59a4a0f6a5
+  remote_head: 40c424cfa71b6742414b012e9d67d3294003f38e
+  remote_tree: ce4749ef21409b599f54e195826780dad3c25b4e
   local_tree_equal: false
   pr_draft: true
 stages:
@@ -29,14 +29,19 @@ stages:
     modes: OFF_VIRTUAL_BROKER
     rh_coordination: true
     fresh_settlement_snapshot: required
+  T17_24_pr28_remediation:
+    status: PARTIAL_HOST_VERIFIED_NATIVE_BLOCKED
+    contract: BlackDragon_v14/docs/vibecode/BD_PR28_REMEDIATION/AI-BUILD-CONTRACT.json
+    remaining: BlackDragon_v14/docs/vibecode/BD_PR28_REMEDIATION/REMAINING_WORK.md
 runtime_release_gates:
-  deterministic_models: LOCAL_41_OF_41_PASS
-  source_invariants: LOCAL_PASS
-  metaeditor_compile: VPS_PASS_0_ERRORS_0_WARNINGS
-  native_mt5_scripts: REQUIRED_31_OF_31_1075_PASS_0_FAIL
-  exact_head_provenance: CI_PENDING
-  owner_strategy_tester: PENDING_OWNER
-  ready_for_review: false
+  deterministic_models: HOST_42_OF_42_PASS
+  source_invariants: HOST_15_OF_15_PASS
+  production_body_fixtures: HOST_60_ASSERTIONS_PASS
+  metaeditor_compile: UNTESTABLE_NO_BACKEND
+  native_mt5_scripts: UNTESTABLE_33_ENROLLED_NOT_RUN
+  exact_head_provenance: LOCAL_MANIFEST_ONLY
+  owner_strategy_tester: UNTESTABLE_NO_BACKEND
+  ready_for_review: true
   merge: false
   release: false
   forward: false

@@ -50,6 +50,16 @@ struct SPyProtectOperation
    double targetSl;
    bool complete;
 };
+struct SPyProtectRetry
+{
+   int kind;
+   int rejects;
+   ulong id;
+   long serial;
+   datetime nextEligible;
+   uint lastRetcode;
+   bool reconcile;
+};
 struct SPyProtectSnapshot
 {
    int count;
@@ -104,6 +114,7 @@ private:
    SPyProtectSnapshot m_snap[2];
    SPyProtectMember m_members[];
    SPyProtectOperation m_ops[];
+   SPyProtectRetry m_retry[2];
    SPyProtectBinding m_buy[];
    SPyProtectBinding m_sell[];
    ulong m_basketRevision;
@@ -164,7 +175,7 @@ private:
       { if(FileIsExist(m_file)) FileDelete(m_file); return true; }
       SPyProtectDisk h;
       ZeroMemory(h);
-      h.signature=17220017; h.version=1;
+      h.signature=17220017; h.version=2;
       h.account=AccountInfoInteger(ACCOUNT_LOGIN); h.coreMagic=(long)Magic;
       h.hedgeMagic=(long)RecoveryMagic_; h.symbol=Recovery_StringHash(_Symbol);
       h.semantics=Semantics(); h.members=ArraySize(m_members); h.operations=ArraySize(m_ops); h.nonce=m_nonce;
@@ -175,6 +186,7 @@ private:
       for(int d=0;d<2;d++) ok=FileWriteStruct(f,m_group[d])==sizeof(SPyProtectGroup) && ok;
       for(int i=0;i<h.members;i++) ok=FileWriteStruct(f,m_members[i])==sizeof(SPyProtectMember) && ok;
       for(int i=0;i<h.operations;i++) ok=FileWriteStruct(f,m_ops[i])==sizeof(SPyProtectOperation) && ok;
+      for(int d=0;d<2;d++) ok=FileWriteStruct(f,m_retry[d])==sizeof(SPyProtectRetry) && ok;
       FileFlush(f); FileClose(f);
       if(!ok) { Fault("ghi state thiếu byte"); return false; }
       f=FileOpen(tmp,FILE_BIN|FILE_READ|FILE_WRITE);
@@ -192,7 +204,7 @@ private:
    }
    bool HeaderMatches(const SPyProtectDisk &h) const
    {
-      return h.signature==17220017 && h.version==1 &&
+      return h.signature==17220017 && (h.version==1 || h.version==2) &&
              h.account==AccountInfoInteger(ACCOUNT_LOGIN) && h.coreMagic==(long)Magic &&
              h.hedgeMagic==(long)RecoveryMagic_ && h.symbol==Recovery_StringHash(_Symbol) &&
              h.semantics==Semantics() && PyProtect_StateCountAllowedPure(h.members) &&
@@ -201,7 +213,8 @@ private:
    long PayloadSize(const SPyProtectDisk &h) const
    {
       return 2*(long)sizeof(SPyProtectGroup)+(long)h.members*sizeof(SPyProtectMember)+
-             (long)h.operations*sizeof(SPyProtectOperation);
+             (long)h.operations*sizeof(SPyProtectOperation)+
+             (h.version>=2 ? 2*(long)sizeof(SPyProtectRetry) : 0);
    }
    bool ReadPayload(const int f,const SPyProtectDisk &h,const long expected)
    {
@@ -211,6 +224,11 @@ private:
       ArrayResize(m_members,h.members); ArrayResize(m_ops,h.operations);
       for(int i=0;i<h.members;i++) ok=FileReadStruct(f,m_members[i])==sizeof(SPyProtectMember) && ok;
       for(int i=0;i<h.operations;i++) ok=FileReadStruct(f,m_ops[i])==sizeof(SPyProtectOperation) && ok;
+      for(int d=0;d<2;d++)
+      {
+         ZeroMemory(m_retry[d]);
+         if(h.version>=2) ok=FileReadStruct(f,m_retry[d])==sizeof(SPyProtectRetry) && ok;
+      }
       return ok && (long)FileTell(f)==(long)sizeof(SPyProtectDisk)+expected;
    }
    bool LoadedStateValid(const SPyProtectDisk &h) const
@@ -218,6 +236,8 @@ private:
       for(int d=0;d<2;d++)
          if(m_group[d].phase<PY_EMPTY || m_group[d].phase>PY_CLOSING ||
             !MathIsValidNumber(m_group[d].stop) || !MathIsValidNumber(m_group[d].floorCash)) return false;
+      for(int d=0;d<2;d++)
+         if(m_retry[d].rejects<0 || m_retry[d].rejects>8 || m_retry[d].nextEligible<0) return false;
       for(int i=0;i<h.members;i++)
          if(m_members[i].dir<0 || m_members[i].dir>1 || m_members[i].id==0) return false;
       return true;
@@ -490,9 +510,29 @@ private:
       net-=MathMax(0.0,-entryFees)*volume/entryLots+volume*m_slope*Cfg.SlippagePrice;
       return volume>0;
    }
+   bool RetryAllowed(const int d,const int kind,const ulong id)
+   {
+      if(m_retry[d].id!=id || m_retry[d].kind!=kind || m_retry[d].serial!=m_group[d].serial)
+      { ZeroMemory(m_retry[d]); return true; }
+      return !m_retry[d].reconcile && TimeCurrent()>=m_retry[d].nextEligible;
+   }
+   void RecordNoEffectReject(const SPyProtectOperation &op,const uint retcode)
+   {
+      int d=op.dir;
+      if(m_retry[d].id!=op.id || m_retry[d].kind!=op.kind || m_retry[d].serial!=op.serial)
+         ZeroMemory(m_retry[d]);
+      m_retry[d].id=op.id; m_retry[d].kind=op.kind; m_retry[d].serial=op.serial;
+      m_retry[d].rejects=(int)MathMin(8,m_retry[d].rejects+1);
+      m_retry[d].lastRetcode=retcode;
+      m_retry[d].nextEligible=TimeCurrent()+PyProtect_RetryDelayPure(m_retry[d].rejects);
+      m_retry[d].reconcile=m_retry[d].rejects>=8;
+      if(m_retry[d].reconcile)
+         Log_Error("PYProtect","T17.24 repeated no-effect rejects require reconciliation; obligation retained");
+   }
    bool StartOperation(const int d,const int kind,const ulong ticket,const double volume,const double stop)
    {
       if(Pending()>=0 || !PositionSelectByTicket(ticket)) return false;
+      if(!RetryAllowed(d,kind,(ulong)PositionGetInteger(POSITION_IDENTIFIER))) return false;
       if(!PyProtect_StateCountAllowedPure(ArraySize(m_ops)+1))
       { Fault("operation state đạt hard cap"); return false; }
       int i=ArraySize(m_ops); ArrayResize(m_ops,i+1); ZeroMemory(m_ops[i]);
@@ -524,6 +564,7 @@ private:
          { int mi=Find(m_ops[i].id); if(mi>=0) m_members[mi].requestedSl=m_members[mi].confirmedSl; }
          // Proven no-effect synchronous reject has no deal/callback proof to
          // preserve. Remove it immediately so repeated rejects cannot grow state.
+         RecordNoEffectReject(m_ops[i],0);
          EraseOperationAt(i);
          Save();
          Log_WarnEvery("PYProtect","reject"+(string)d,"T17.23 broker reject hiệu lực=0; bỏ operation no-effect, giữ obligation để retry",10);
@@ -564,6 +605,7 @@ private:
          if(!m_recovery.T1722FinalizePyMutation(*m_exec,Rdir(op.dir),TimeCurrent(),why))
          { if(why!="") Log_WarnEvery("PYProtect","refresh",why,10); return true; }
       }
+      ZeroMemory(m_retry[op.dir]);
       m_ops[i].complete=true; m_historyDirty=true; m_basket.Invalidate();
       // Only successful RH trim operations remain as durable economics/callback
       // proofs. Completed PY close/modify operations are terminal and removable.
@@ -819,9 +861,10 @@ private:
       ePyProtectPrepareDecision decision=PyProtect_PrepareDecisionPure(excess,true,armable);
       if(decision==PY_PREPARE_WAIT_UNFUNDED)
       {
-         bool changed=m_group[d].phase!=PY_PREPARE || m_group[d].candidate!=after;
+         double obligation=PyProtect_StrongerPure(d,m_group[d].candidate,after);
+         bool changed=m_group[d].phase!=PY_PREPARE || m_group[d].candidate!=obligation;
          m_group[d].phase=PY_PREPARE;
-         m_group[d].candidate=PyProtect_StrongerPure(d,m_group[d].candidate,after);
+         m_group[d].candidate=obligation;
          if(changed && !Save()) return PY_DRIVE_BLOCK;
          Log_WarnEvery("PYProtect","unfunded"+(string)d,
                        "T17.23 PREPARE WAIT: RH trim chưa được tài trợ; không ARM bằng candidate cũ",
@@ -890,7 +933,7 @@ public:
       m_historyDirty=true; m_fault=false; m_recovered=false; m_override=false; m_nonce=0;
       m_observeCalls=0; m_rebinds=0; m_historyRefreshes=0;
       m_exposureScans=0; m_trimScans=0; m_scanVisits=0;
-      for(int d=0;d<2;d++) { ZeroMemory(m_group[d]); ZeroMemory(m_snap[d]); m_booked[d]=0; }
+      for(int d=0;d<2;d++) { ZeroMemory(m_group[d]); ZeroMemory(m_snap[d]); ZeroMemory(m_retry[d]); m_booked[d]=0; }
    }
    bool Init(CBasketManager *basket,CExecutionLayer *exec,CRecoveryEngine *recovery)
    {
@@ -1008,8 +1051,18 @@ public:
       if(!OwnsSl(ticket)) return legacy;
       return PositionGetDouble(POSITION_SL);
    }
+   bool PendingIdentity(const int cycleKey,const int commandType,const ulong ticket,
+                        ulong &positionId,long &nonce)
+   {
+      int i=Pending(); positionId=0; nonce=0;
+      if(i<0 || !PyProtect_RejectMatchesOperationPure(cycleKey,commandType,(long)ticket,
+         m_ops[i].dir,m_ops[i].kind,(long)m_ops[i].ticket,m_ops[i].complete)) return false;
+      positionId=m_ops[i].id; nonce=m_ops[i].nonce;
+      return positionId>0 && nonce>0;
+   }
    bool OnDefinitiveReject(const int cycleKey,const int commandType,
-                           const ulong ticket,const uint retcode)
+                           const ulong ticket,const ulong positionId,
+                           const long nonce,const uint retcode)
    {
       if(!Enabled() || ticket==0) return false;
       int found=-1;
@@ -1020,13 +1073,23 @@ public:
          { found=i; break; }
       if(found<0) return false;
       SPyProtectOperation op=m_ops[found];
+      if(!PyProtect_ExactRejectIdentityPure(positionId,nonce,op.id,op.nonce)) return false;
+      if(!PositionSelectByTicket(op.ticket) ||
+         (ulong)PositionGetInteger(POSITION_IDENTIFIER)!=op.id) return false;
+      if(op.kind!=EXEC_CMD_PY_PROTECT_MODIFY &&
+         PositionGetDouble(POSITION_VOLUME)<op.beforeLots-m_step*0.25) return false;
       if(op.kind==EXEC_CMD_PY_PROTECT_MODIFY)
       {
          int mi=Find(op.id);
+         // A broker SL already at the requested target contradicts a no-effect
+         // classification. Keep the journal/intent until broker reconciliation.
+         if(op.targetSl>0 && MathAbs(PositionGetDouble(POSITION_SL)-op.targetSl)<m_tick*0.5 &&
+            (mi<0 || MathAbs(m_members[mi].confirmedSl-op.targetSl)>=m_tick*0.5)) return false;
          if(mi>=0) m_members[mi].requestedSl=m_members[mi].confirmedSl;
       }
       // Definitive reject proves no broker effect: there will be no fill to
       // classify, so retaining this operation only creates unbounded state.
+      RecordNoEffectReject(op,retcode);
       EraseOperationAt(found);
       m_basket.Invalidate();
       m_historyDirty=true;
@@ -1048,7 +1111,7 @@ public:
       if(req.action!=TRADE_ACTION_DEAL) return true;
       SPyProtectRequestView view;
       if(!ClassifyDeal(req,meta,view)) return false;
-      if(m_fault && view.opening) return false;
+      if((m_fault || m_retry[view.dir].reconcile) && view.opening) return false;
       bool ours=meta.commandType==EXEC_CMD_PY_PROTECT_CLOSE || meta.commandType==EXEC_CMD_PY_RH_TRIM;
       if(m_group[view.dir].phase==PY_CLOSING && !ours) return false;
       if(view.owner!=(long)Magic && view.owner!=(long)RecoveryMagic_) return true;

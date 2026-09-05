@@ -127,7 +127,7 @@ ck('ExpectedRhTrim(trans.deal)' in hardened and 'ExpectedRhTrim(trans.deal)' in 
 ck('CoordinationCash(dir)' in strategy and 'campaignTrimCash' in protect,
    'PY-funded RH coordination cash enters whole-cycle economics once')
 
-ck('DEAL_TIME_MSC' in arcs and 'priorMsc==keyMsc && replay[j]<key' in arcs,
+ck('DEAL_TIME_MSC' in arcs and 'stamps[j]==keyMsc && replay[j]>key' in arcs,
    'replay is deterministically sorted by time_msc and ticket')
 ck('CursorAfter(' in arcs and 'TrackCursor(dir, deal)' in arcs,
    'deal replay is exactly-once per durable direction cursor')

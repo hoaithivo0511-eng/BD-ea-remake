@@ -1,0 +1,240 @@
+schema: bd-prd-retro-plan/1.0
+note: Planning mappings; not canonical checker output or asserted PASS
+guards:
+- id: RETRO-A1
+  severity: P1
+  class: hard
+  triggered_by:
+  - State/count/order
+  rule: State/count/order must be proved for affected behavior before claiming gate
+    PASS
+  required_evidence:
+  - Q02
+  - Q11
+  - Q23
+  - Q53
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A1
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A2
+  severity: P0
+  class: hard
+  triggered_by:
+  - Failure policy
+  rule: Failure policy must be proved for affected behavior before claiming gate PASS
+  required_evidence:
+  - Q07
+  - Q08
+  - Q19
+  - Q22
+  - Q36
+  - Q37
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A2
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A3
+  severity: P1
+  class: hard
+  triggered_by:
+  - Approved semantic authority
+  rule: Approved semantic authority must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q01
+  - Q15
+  - Q20
+  - Q29
+  - Q50
+  - Q51
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A3
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A4
+  severity: P1
+  class: hard
+  triggered_by:
+  - Independent test oracle
+  rule: Independent test oracle must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q02
+  - Q11
+  - Q15
+  - Q21
+  - Q48
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A4
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A5
+  severity: P0
+  class: hard
+  triggered_by:
+  - Runtime freshness
+  rule: Runtime freshness must be proved for affected behavior before claiming gate
+    PASS
+  required_evidence:
+  - Q27
+  - Q31
+  - Q32
+  - Q55
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A5
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A6
+  severity: P0
+  class: hard
+  triggered_by:
+  - Async idempotency
+  rule: Async idempotency must be proved for affected behavior before claiming gate
+    PASS
+  required_evidence:
+  - Q07
+  - Q08
+  - Q09
+  - Q10
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A6
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A7
+  severity: P1
+  class: hard
+  triggered_by:
+  - Persisted test isolation
+  rule: Persisted test isolation must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q25
+  - Q26
+  - Q52
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A7
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A8
+  severity: P0
+  class: hard
+  triggered_by:
+  - Persist until consumed
+  rule: Persist until consumed must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q10
+  - Q24
+  - Q30
+  - Q42
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A8
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A9
+  severity: P0
+  class: hard
+  triggered_by:
+  - Unit/identity precision
+  rule: Unit/identity precision must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q21
+  - Q28
+  - Q38
+  - Q39
+  - Q40
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A9
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A10
+  severity: P1
+  class: hard
+  triggered_by:
+  - Broker/native parity
+  rule: Broker/native parity must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q21
+  - Q38
+  - Q43
+  - Q44
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A10
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A11
+  severity: P1
+  class: hard
+  triggered_by:
+  - Performance evidence
+  rule: Performance evidence must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q33
+  - Q34
+  - Q35
+  - Q46
+  - Q47
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A11
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A12
+  severity: P1
+  class: hard
+  triggered_by:
+  - Exact multi-file edit scope
+  rule: Exact multi-file edit scope must be proved for affected behavior before claiming
+    gate PASS
+  required_evidence:
+  - Q01
+  - Q51
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A12
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false
+- id: RETRO-A14
+  severity: P0
+  class: hard
+  triggered_by:
+  - Hot-path isolation
+  rule: Hot-path isolation must be proved for affected behavior before claiming gate
+    PASS
+  required_evidence:
+  - Q28
+  - Q31
+  - Q33
+  - Q45
+  - hashed_native_or_scope_appropriate_artifacts
+  checker: PLANNED_BUILDER_TEST_ADAPTER:RETRO-A14
+  checker_status: NOT_IMPLEMENTED_IN_THIS_PLANNING_PACKAGE
+  remediation: Implement mapped intended-result tests, native proofs where required,
+    then run installed canonical retro checker
+  waiver_allowed: false

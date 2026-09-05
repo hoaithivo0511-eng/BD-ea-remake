@@ -223,8 +223,7 @@ private:
                           const int maxOrders)
    {
       if(RecoveryMode_ != recovery_ACTIVE || maxOrders < 1) return;
-      SArcsPosition core[];
-      int count = Recovery_ArcsBuildCore(dir, m_volumeStep, core);
+      int count = Recovery_ArcsTriggerCoreCount(dir,m_volumeStep);
       if(count < maxOrders) return;
 
       int required = Recovery_T164RequiredCoreCountPure(RecoveryStartAfterDca_);

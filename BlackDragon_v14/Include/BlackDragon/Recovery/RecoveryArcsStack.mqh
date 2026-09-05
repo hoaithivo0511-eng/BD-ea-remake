@@ -302,63 +302,49 @@ private:
 
    bool ReplayAfterCursor(const eRecoveryCoreDirection dir, string &why)
    {
-      why = "";
-      int di = Idx(dir);
+      why="";
+      int di=Idx(dir);
       datetime replayFrom=PyramidSLMode_!=py_protect_OFF && m_dir[di].lastDealTimeMsc>0
                           ? (datetime)(m_dir[di].lastDealTimeMsc/1000) : 0;
-      if(!HistorySelect(replayFrom, TimeCurrent()))
+      if(!HistorySelect(replayFrom,TimeCurrent()))
+      { why="không đọc được history để replay ARCS"; return false; }
+      // ResolveClosedOwnerMagic/HistoryDealSelect reset the terminal selection.
+      // Freeze the complete batch before making any nested history call.
+      int total=HistoryDealsTotal(); ulong candidates[];
+      if(ArrayResize(candidates,total)!=total) { why="replay allocation"; return false; }
+      for(int i=0;i<total;i++)
+      { candidates[i]=HistoryDealGetTicket(i); if(candidates[i]==0) { why="replay ticket missing"; return false; } }
+      ulong replay[]; long stamps[];
+      ArrayResize(replay,0); ArrayResize(stamps,0);
+      for(int i=0;i<total;i++)
       {
-         why = "không đọc được history để replay ARCS";
-         return false;
-      }
-      ulong replay[];
-      ArrayResize(replay, 0);
-      for(int i = 0; i < HistoryDealsTotal(); i++)
-      {
-         ulong deal = HistoryDealGetTicket(i);
-         if(deal == 0 || HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol) continue;
-         long tmsc = HistoryDealGetInteger(deal, DEAL_TIME_MSC);
-         if(!CursorAfter(tmsc, deal, m_dir[di].lastDealTimeMsc,
-                         m_dir[di].lastDealTicket)) continue;
-         long magic = HistoryDealGetInteger(deal, DEAL_MAGIC);
-         if(magic != (long)Magic && magic != (long)RecoveryMagic_ && magic != 0) continue;
-
-         // T17.23 F03: the cursor above belongs to exactly one Recovery Core
-         // direction. Never place a close from the opposite direction into this
-         // replay batch, otherwise ApplyCloseDeal() can advance that other
-         // direction's cursor before its own replay begins.
+         ulong deal=candidates[i];
+         if(!HistoryDealSelect(deal)) { why="replay deal unavailable"; return false; }
+         if(HistoryDealGetString(deal,DEAL_SYMBOL)!=_Symbol) continue;
+         long tmsc=HistoryDealGetInteger(deal,DEAL_TIME_MSC);
+         if(!CursorAfter(tmsc,deal,m_dir[di].lastDealTimeMsc,m_dir[di].lastDealTicket)) continue;
          long entry=HistoryDealGetInteger(deal,DEAL_ENTRY);
          if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) continue;
+         long type=HistoryDealGetInteger(deal,DEAL_TYPE);
          long owner=ResolveClosedOwnerMagic(deal);
          if(owner!=(long)Magic && owner!=(long)RecoveryMagic_) continue;
-         long type=HistoryDealGetInteger(deal,DEAL_TYPE);
          bool mapped=false;
          eRecoveryCoreDirection dealDir=DirectionForClose(owner,type,mapped);
          if(!mapped || dealDir!=dir) continue;
-
-         int n = ArraySize(replay);
-         ArrayResize(replay, n + 1);
-         replay[n] = deal;
+         int n=ArraySize(replay);
+         if(ArrayResize(replay, n + 1,128)!=n+1 || ArrayResize(stamps,n+1,128)!=n+1)
+         { why="replay batch allocation"; return false; }
+         replay[n]=deal; stamps[n]=tmsc;
       }
-      // History enumeration order is not an ownership proof. Apply the durable
-      // cursor in a deterministic (time_msc,ticket) order so restart/replay and
-      // delayed callbacks cannot skip or double-book a close fill.
+      // Sort cached metadata: never call HistoryDealSelect in the comparator.
       for(int i=1;i<ArraySize(replay);i++)
       {
-         ulong key=replay[i];
-         if(!HistoryDealSelect(key)) { why="không select được deal khi sort replay"; return false; }
-         long keyMsc=HistoryDealGetInteger(key,DEAL_TIME_MSC);
-         int j=i-1;
-         while(j>=0)
-         {
-            if(!HistoryDealSelect(replay[j])) { why="không select được deal trước khi sort replay"; return false; }
-            long priorMsc=HistoryDealGetInteger(replay[j],DEAL_TIME_MSC);
-            if(priorMsc<keyMsc || (priorMsc==keyMsc && replay[j]<key)) break;
-            replay[j+1]=replay[j]; j--;
-         }
-         replay[j+1]=key;
+         ulong key=replay[i]; long keyMsc=stamps[i]; int j=i-1;
+         while(j>=0 && (stamps[j]>keyMsc || (stamps[j]==keyMsc && replay[j]>key)))
+         { replay[j+1]=replay[j]; stamps[j+1]=stamps[j]; j--; }
+         replay[j+1]=key; stamps[j+1]=keyMsc;
       }
-      for(int i = 0; i < ArraySize(replay); i++) ApplyCloseDeal(replay[i]);
+      for(int i=0;i<ArraySize(replay);i++) ApplyCloseDeal(replay[i]);
       return true;
    }
 
@@ -1589,6 +1575,15 @@ public:
 
    void OnTradeTransaction(const MqlTradeTransaction &trans)
    {
+      if(m_initialized && RecoveryMode_==recovery_ACTIVE &&
+         (trans.type==TRADE_TRANSACTION_DEAL_UPDATE || trans.type==TRADE_TRANSACTION_DEAL_DELETE) &&
+         (trans.symbol==_Symbol || trans.symbol==""))
+      {
+         LatchReconcile(recovery_CORE_BUY,"T17.24 broker history correction requires funding-ledger reconciliation");
+         LatchReconcile(recovery_CORE_SELL,"T17.24 broker history correction requires funding-ledger reconciliation");
+         string correctionWhy=""; Save(correctionWhy); return;
+      }
+
       if(!m_initialized || RecoveryMode_ != recovery_ACTIVE ||
          trans.type != TRADE_TRANSACTION_DEAL_ADD || trans.deal == 0 ||
          trans.symbol != _Symbol || !HistoryDealSelect(trans.deal)) return;

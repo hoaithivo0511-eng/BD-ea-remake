@@ -23,7 +23,7 @@ ck('PY_DRIVE_WAIT_UNFUNDED' in protect and
    'F01 runtime has a distinct unfunded wait disposition')
 wait=protect[protect.index('int PrepareBeforeArm('):protect.index('int DriveBrokerStops(')]
 ck('m_group[d].phase=PY_PREPARE' in wait and
-   'm_group[d].candidate=PyProtect_StrongerPure' in wait and
+   'obligation=PyProtect_StrongerPure' in wait and 'm_group[d].candidate=obligation' in wait and
    'return PY_DRIVE_WAIT_UNFUNDED' in wait,
    'F01 unfunded state persists PREPARE candidate and cannot fall through to ARM')
 ck('status==PY_DRIVE_ALLOW || status==PY_DRIVE_WAIT_UNFUNDED' in protect,
@@ -50,7 +50,7 @@ arcs=rd(INC/'Recovery/RecoveryArcsStack.mqh')
 replay=arcs[arcs.index('bool ReplayAfterCursor('):arcs.index('bool ValidateLiveBook(')]
 ck('eRecoveryCoreDirection dealDir=DirectionForClose(owner,type,mapped);' in replay and
    'if(!mapped || dealDir!=dir) continue;' in replay and
-   replay.index('if(!mapped || dealDir!=dir) continue;') < replay.index('ArrayResize(replay, n + 1);'),
+   replay.index('if(!mapped || dealDir!=dir) continue;') < replay.index('ArrayResize(replay, n + 1,128)'),
    'F03 replay filters exact direction before the deal can enter the batch')
 ck('TrackCursor(dir, deal);' in arcs and
    'ReplayAfterCursor(recovery_CORE_BUY,why)' in arcs and
@@ -73,16 +73,18 @@ ck('if(!m_basket.CommissionHistoryReady())' in strategy and
    strategy.index('if(m_pyramid != NULL)'),
    'F05 keeps risk-reducing exits ahead of fail-closed risk-add gate')
 entry=rd(ROOT/'Experts/BlackDragon/BlackDragon.mq5')
-ck('Basket_IsDayCashEntry' in basket and
-   'Basket_DealCash' in basket and
-   'HistoryDealGetDouble(tic, DEAL_FEE)' in basket and
-   'g_basket.OnDealCash(trans.deal' in entry and
-   'HistoryDealGetDouble(trans.deal, DEAL_FEE)' in entry,
+# T17.24 moves the reducer into a shared production class. The common fixture
+# executes this exact class for both ownership scopes (not a mirrored model).
+cash=rd(INC/'CashLedger.mqh')
+ck('CScopedDayCashLedger m_dayCash' in basket and
+   'm_dayCash.Observe(deal,TimeCurrent())' in basket and
+   'HistoryDealGetDouble(deal,DEAL_FEE)' in cash and
+   'g_basket.OnDealCash(trans.deal' in entry,
    'F04 seed and callback use one net cash scope including fee')
-ck('DEAL_ENTRY_IN' in basket and 'DEAL_ENTRY_OUT' in basket and
-   'DEAL_ENTRY_INOUT' in basket and 'DEAL_ENTRY_OUT_BY' in basket and
-   'ArrayResize(m_dayCashDeals,0)' in basket and
-   'DayDealSeen(deal)' in basket,
+ck('DEAL_ENTRY_IN' in cash and 'DEAL_ENTRY_OUT' in cash and
+   'DEAL_ENTRY_INOUT' in cash and 'DEAL_ENTRY_OUT_BY' in cash and
+   'ArrayResize(m_deals,0)' in cash and
+   'm_cash+=cash-m_deals[at].cash' in cash,
    'F04 covers entry/exit/close-by cash and deduplicates exact deal ids per day')
 ck('OnDealClosed' not in basket and
    'DEAL_ENTRY) == DEAL_ENTRY_OUT' not in entry,

@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| Config.mqh — BlackDragon v15.00                                  |
+//| Config.mqh — BlackDragon v15.01                                  |
 //| Purpose   : ALL user inputs + named constants. No trade logic.   |
 //| Invariants: retained input identifiers/default meanings stay     |
 //|             stable unless explicitly migrated by release notes.  |
@@ -177,7 +177,7 @@ input bool      AutoGoldPip = true;       // Chỉ áp dụng trong LEGACY_COMPA
 input group "14 — Điều khiển từ MT5 Mobile"
 input bool UseMobileControl = true; // Bật điều khiển EA từ MT5 Mobile
 
-#define BD_VERSION            "15.00"
+#define BD_VERSION            "15.01"
 #define BD_STATE_FILE_SUFFIX  "_BD_v14.bin"
 #define BD_WMF_OBJ_PREFIX     "ke_EA_BD_wmf"
 #define BD_MAX_SEND_RETRIES   3

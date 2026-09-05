@@ -1,0 +1,96 @@
+{
+  "schema": "bd-build-progress/1.0",
+  "status": "INCOMPLETE_NATIVE_BACKEND_REQUIRED",
+  "requirements": [
+    {
+      "id": "R-001",
+      "status": "HOST_VERIFIED",
+      "detail": "HEAD 40c424cf locked; 89 runtime files, 150 input declarations preserved; exact candidate manifest."
+    },
+    {
+      "id": "R-002",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "detail": "Retain upstream unfunded PREPARE fix; reduce redundant state writes. Production-body pre-arm/funded progression host tests pass. Native multi-leg/RH trim pending."
+    },
+    {
+      "id": "R-003",
+      "status": "PARTIAL",
+      "detail": "Exact ID/nonce reject handoff, no-effect ACK after Save, ambiguous/fill-conflicting outcomes retained. Full durable result-store/crash/restart/native callback qualification remains."
+    },
+    {
+      "id": "R-004",
+      "status": "PARTIAL",
+      "detail": "Replay freezes history IDs and filters direction before sorting. Counterexample 50 -> 55 fixed. UPDATE/DELETE latch reconciliation; bounded overlap, durable receipt dedup for older late callbacks and automatic correction rebuild remain."
+    },
+    {
+      "id": "R-005",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "detail": "Retain position identifier lookup; add retry without topology event; unknown history not promoted to zero."
+    },
+    {
+      "id": "R-006",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "detail": "Shared Core/Recovery booking-day reducer, exact ownership, all trade cash fields, duplicate/correction replacement, rollover and failure retry; host fixtures pass."
+    },
+    {
+      "id": "R-007",
+      "status": "IMPLEMENTED_TEST_PENDING",
+      "detail": "Preserve scoped denominator; external account flows and Recovery denominator runtime parity still need Q20. This is not exact midnight account balance."
+    },
+    {
+      "id": "R-008",
+      "status": "PARTIAL",
+      "detail": "One allocation-free aggregate observation for Recovery OnTick; ends before Strategy mutation. Full position-ID/role/generation indexed snapshot not implemented."
+    },
+    {
+      "id": "R-009",
+      "status": "PARTIAL",
+      "detail": "OFF/ON campaign stats use event revision, removing quiet per-second reads. Full campaign rebuild still happens after deal revisions; per-deal incremental campaign cache remains."
+    },
+    {
+      "id": "R-010",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "detail": "LayerUnits sum-only scan; saturation count no build/sort; existing ordered exits retained. Host aggregate fixtures pass; end-to-end native parity pending."
+    },
+    {
+      "id": "R-011",
+      "status": "PARTIAL",
+      "detail": "Retain 65,536 caps and upstream safe compaction; retry state uses reader v1/v2 and writer v2. Real file migration, crash at flush/replace and safe RH tombstone retention proof pending."
+    },
+    {
+      "id": "R-012",
+      "status": "IMPLEMENTED_NATIVE_PENDING",
+      "detail": "Persist 1/2/4/8/16/30 second deadlines, cap 8 no-effect rejects; retain obligation and reconcile. Host retry tests pass, server clock/restart proof pending."
+    },
+    {
+      "id": "R-013",
+      "status": "PARTIAL",
+      "detail": "Observation scans/visits/hits plus inherited PY counters. Whole-EA latency histograms, subsystem bytes/sort/allocation counters remain."
+    },
+    {
+      "id": "R-014",
+      "status": "UNTESTABLE",
+      "detail": "No MT5/data/broker backend; B1 paired native benchmark not frozen/executed. No speedup or p95/p99 claim."
+    },
+    {
+      "id": "R-015",
+      "status": "INHERITED_NATIVE_PENDING",
+      "detail": "Upstream ADX init/buffer fail-closed preserved; native exit-liveness proof pending."
+    },
+    {
+      "id": "R-016",
+      "status": "UNTESTABLE",
+      "detail": "Oracle validation selected; no broker OrderCalcProfit backend. No runtime bisection introduced."
+    },
+    {
+      "id": "R-017",
+      "status": "PARTIAL_OPTIONAL",
+      "detail": "Shared cash/observation components added with existing wrappers; broad inheritance refactor not attempted without native behavior trace."
+    },
+    {
+      "id": "R-018",
+      "status": "PARTIAL",
+      "detail": "Self-review, source/default checks, independent numeric counterexample and host tests collected. Independent team audit/native reports/EX5 delivery pending."
+    }
+  ]
+}
