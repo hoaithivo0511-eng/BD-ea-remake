@@ -153,6 +153,12 @@ private:
    bool Save()
    {
       if(!Persisted()) return true;
+      if(!PyProtect_StateCountAllowedPure(ArraySize(m_members)) ||
+         !PyProtect_StateCountAllowedPure(ArraySize(m_ops)))
+      {
+         Fault("state vượt giới hạn loader; chặn ghi file không thể reload");
+         return false;
+      }
       if(m_group[0].phase==PY_EMPTY && m_group[1].phase==PY_EMPTY &&
          m_group[0].campaignTrimCash==0 && m_group[1].campaignTrimCash==0 && Pending()<0)
       { if(FileIsExist(m_file)) FileDelete(m_file); return true; }
@@ -189,8 +195,8 @@ private:
       return h.signature==17220017 && h.version==1 &&
              h.account==AccountInfoInteger(ACCOUNT_LOGIN) && h.coreMagic==(long)Magic &&
              h.hedgeMagic==(long)RecoveryMagic_ && h.symbol==Recovery_StringHash(_Symbol) &&
-             h.semantics==Semantics() && h.members>=0 && h.members<=65536 &&
-             h.operations>=0 && h.operations<=65536;
+             h.semantics==Semantics() && PyProtect_StateCountAllowedPure(h.members) &&
+             PyProtect_StateCountAllowedPure(h.operations);
    }
    long PayloadSize(const SPyProtectDisk &h) const
    {
@@ -232,12 +238,53 @@ private:
       { FileClose(f); return false; }
       bool ok=ReadPayload(f,h,expected);
       FileClose(f); m_nonce=h.nonce;
-      return ok && LoadedStateValid(h);
+      if(!ok || !LoadedStateValid(h)) return false;
+      CompactTerminalNonRhOperations();
+      return true;
    }
    int Find(const ulong id) const
    {
       for(int i=0;i<ArraySize(m_members);i++) if(m_members[i].id==id) return i;
       return -1;
+   }
+   void EraseOperationAt(const int index)
+   {
+      if(index<0 || index>=ArraySize(m_ops)) return;
+      for(int j=index+1;j<ArraySize(m_ops);j++) m_ops[j-1]=m_ops[j];
+      ArrayResize(m_ops,ArraySize(m_ops)-1);
+   }
+   void CompactTerminalNonRhOperations()
+   {
+      int w=0;
+      for(int i=0;i<ArraySize(m_ops);i++)
+      {
+         bool keep=!m_ops[i].complete || m_ops[i].kind==EXEC_CMD_PY_RH_TRIM;
+         if(!keep) continue;
+         if(w!=i) m_ops[w]=m_ops[i];
+         w++;
+      }
+      if(w!=ArraySize(m_ops)) ArrayResize(m_ops,w);
+   }
+   bool SideHasPyramid(const BasketSide &side) const
+   {
+      for(int i=0;i<side.count;i++) if(side.pos[i].isPyramid) return true;
+      return false;
+   }
+   void CompactStaleMembersBeforeBind()
+   {
+      bool purge[2];
+      purge[0]=m_group[0].phase==PY_EMPTY && SideHasPyramid(m_basket.buy);
+      purge[1]=m_group[1].phase==PY_EMPTY && SideHasPyramid(m_basket.sell);
+      if(!purge[0] && !purge[1]) return;
+      int w=0;
+      for(int i=0;i<ArraySize(m_members);i++)
+      {
+         int d=m_members[i].dir;
+         if(d>=0 && d<2 && purge[d]) continue;
+         if(w!=i) m_members[w]=m_members[i];
+         w++;
+      }
+      if(w!=ArraySize(m_members)) ArrayResize(m_members,w);
    }
    int Pending() const
    {
@@ -340,6 +387,8 @@ private:
          if(member<0)
          {
             if(m_group[dir].phase==PY_CLOSING) { Fault("PY mới xuất hiện trong cohort đang đóng"); return false; }
+            if(!PyProtect_StateCountAllowedPure(ArraySize(m_members)+1))
+            { Fault("member state đạt hard cap"); return false; }
             member=ArraySize(m_members); ArrayResize(m_members,member+1);
             ZeroMemory(m_members[member]);
             m_members[member].dir=dir; m_members[member].mode=(int)PyramidSLMode_;
@@ -444,6 +493,8 @@ private:
    bool StartOperation(const int d,const int kind,const ulong ticket,const double volume,const double stop)
    {
       if(Pending()>=0 || !PositionSelectByTicket(ticket)) return false;
+      if(!PyProtect_StateCountAllowedPure(ArraySize(m_ops)+1))
+      { Fault("operation state đạt hard cap"); return false; }
       int i=ArraySize(m_ops); ArrayResize(m_ops,i+1); ZeroMemory(m_ops[i]);
       m_ops[i].coreStartDeal=m_group[d].coreStartDeal;
       m_ops[i].dir=d; m_ops[i].serial=m_group[d].serial; m_ops[i].kind=kind; m_ops[i].ticket=ticket;
@@ -469,11 +520,13 @@ private:
                            (eExecCommandType)kind,EXEC_RECONCILE_FAIL_CLOSED);
       if(!ok && !m_exec.HasReconcileRequired(Key(d)))
       {
-         m_ops[i].complete=true;
          if(kind==EXEC_CMD_PY_PROTECT_MODIFY)
          { int mi=Find(m_ops[i].id); if(mi>=0) m_members[mi].requestedSl=m_members[mi].confirmedSl; }
+         // Proven no-effect synchronous reject has no deal/callback proof to
+         // preserve. Remove it immediately so repeated rejects cannot grow state.
+         EraseOperationAt(i);
          Save();
-         Log_WarnEvery("PYProtect","reject"+(string)d,"T17.22 broker reject hiệu lực=0; giữ SL/obligation, retry",10);
+         Log_WarnEvery("PYProtect","reject"+(string)d,"T17.23 broker reject hiệu lực=0; bỏ operation no-effect, giữ obligation để retry",10);
       }
       m_basket.Invalidate(); m_historyDirty=true;
       return true;
@@ -512,8 +565,9 @@ private:
          { if(why!="") Log_WarnEvery("PYProtect","refresh",why,10); return true; }
       }
       m_ops[i].complete=true; m_historyDirty=true; m_basket.Invalidate();
-      if(op.kind==EXEC_CMD_PY_PROTECT_MODIFY)
-      { for(int j=i+1;j<ArraySize(m_ops);j++) m_ops[j-1]=m_ops[j]; ArrayResize(m_ops,ArraySize(m_ops)-1); }
+      // Only successful RH trim operations remain as durable economics/callback
+      // proofs. Completed PY close/modify operations are terminal and removable.
+      if(op.kind!=EXEC_CMD_PY_RH_TRIM) EraseOperationAt(i);
       Save();
       return true;
    }
@@ -873,6 +927,10 @@ public:
       if(rebound)
       {
          m_rebinds++;
+         // Once a genuinely new PY episode starts, prior-serial members are no
+         // longer eligible even as delayed SL proof. Compact both directions
+         // before building either binding so member indices cannot shift later.
+         CompactStaleMembersBeforeBind();
          if(!BindSide(m_basket.buy,0,m_buy) || !BindSide(m_basket.sell,1,m_sell)) return;
          m_basketRevision=m_basket.Revision();
       }
@@ -967,7 +1025,9 @@ public:
          int mi=Find(op.id);
          if(mi>=0) m_members[mi].requestedSl=m_members[mi].confirmedSl;
       }
-      m_ops[found].complete=true;
+      // Definitive reject proves no broker effect: there will be no fill to
+      // classify, so retaining this operation only creates unbounded state.
+      EraseOperationAt(found);
       m_basket.Invalidate();
       m_historyDirty=true;
       if(!Save())

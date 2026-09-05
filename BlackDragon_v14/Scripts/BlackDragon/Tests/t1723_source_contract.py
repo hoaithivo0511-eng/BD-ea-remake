@@ -95,6 +95,21 @@ ck('CopyBuffer(m_handle, 0, 1, 1, adx) != 1' in adx and
 ck('T17.23 ADX filter enabled nhưng init thất bại — fail closed' in entry and
    'return INIT_FAILED;' in entry,
    'F07 enabled ADX init failure aborts initialization instead of bypassing filter')
+ck('PyProtect_StateCountAllowedPure(ArraySize(m_members))' in protect and
+   'PyProtect_StateCountAllowedPure(ArraySize(m_ops))' in protect and
+   'PyProtect_StateCountAllowedPure(h.members)' in protect and
+   'PyProtect_StateCountAllowedPure(h.operations)' in protect,
+   'F06 writer and loader enforce the same state-count bound')
+ck('CompactTerminalNonRhOperations' in protect and
+   'if(op.kind!=EXEC_CMD_PY_RH_TRIM) EraseOperationAt(i);' in protect and
+   'EraseOperationAt(found);' in protect and
+   'operation state đạt hard cap' in protect and
+   'member state đạt hard cap' in protect,
+   'F06 no-effect/non-RH terminal operations compact and append paths are bounded')
+ck('CompactStaleMembersBeforeBind();' in protect and
+   protect.index('CompactStaleMembersBeforeBind();') <
+   protect.index('BindSide(m_basket.buy,0,m_buy)'),
+   'F06 stale member tombstones compact before either side binding is indexed')
 ck(all(x in wf for x in ['t1723_audit_regression_model.cpp',
                          't1723_source_contract.py',
                          'RunT1723AuditRegressionTests']),

@@ -81,6 +81,12 @@ bool PyProtect_RejectMatchesOperationPure(const int cycleKey,const int commandTy
    return cycleKey==172200+opDir && commandType==opKind && ticket==opTicket;
 }
 
+// T17.23 F06: writer and loader share the exact same state-count bound.
+bool PyProtect_StateCountAllowedPure(const int count)
+{
+   return count>=0 && count<=65536;
+}
+
 bool PyProtect_AddFundedPure(const int dir,const double stop,const double fill,
                             const double lots,const double slope,const double existingNet,
                             const double floor,const double costs)

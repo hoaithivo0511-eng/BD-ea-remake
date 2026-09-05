@@ -73,7 +73,7 @@ jobs:
           grep -q 'T17.20 RH one-bar model: 35 passed, 0 failed' build-current-model/t1720_one_bar_model.log
           grep -q 'T17.21 comment model: 75 passed, 0 failed' build-current-model/t1721_comment_model.log
           grep -q 'T17.22 PY protection: 45 passed, 0 failed' build-current-model/t1722_protection_model.log
-          grep -q 'T17.23 audit regressions: 11 passed, 0 failed' build-current-model/t1723_audit_regression_model.log
+          grep -q 'T17.23 audit regressions: 14 passed, 0 failed' build-current-model/t1723_audit_regression_model.log
           echo 'CURRENT MODEL REGRESSION GREEN'
       - name: T17.11 through T17.22 source contracts
         shell: bash
@@ -156,7 +156,7 @@ jobs:
         shell: pwsh
         run: |
           $b="$env:GITHUB_WORKSPACE\build-current-final";$ld="$env:MT5_DIR\MQL5\Logs";$tests=@(
-            @{N='RunT1723AuditRegressionTests';P='T17\.23 audit regressions:\s*(\d+) passed,\s*(\d+) failed';E=11},
+            @{N='RunT1723AuditRegressionTests';P='T17\.23 audit regressions:\s*(\d+) passed,\s*(\d+) failed';E=14},
             @{N='RunT1722PyProtectionTests';P='T17\.22 PY protection:\s*(\d+) passed,\s*(\d+) failed';E=45},
             @{N='RunT1721OrderCommentTests';P='T17\.21 order comment tests:\s*(\d+) passed,\s*(\d+) failed';E=58},
             @{N='RunT1720RhOneBarTests';P='T17\.20 RH one-bar tests:\s*(\d+) passed,\s*(\d+) failed';E=24},

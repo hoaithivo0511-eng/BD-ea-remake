@@ -49,4 +49,7 @@ void T1723_RunCases()
       MathAbs(T1723_F03LegacyCrossScopedSpent()-5.0)<1e-8);
    T1723_Check("F03 direction-scoped replay books full 55",
       MathAbs(T1723_F03DirectionScopedSpent()-55.0)<1e-8);
+   T1723_Check("F06 zero state count allowed",PyProtect_StateCountAllowedPure(0));
+   T1723_Check("F06 loader maximum allowed",PyProtect_StateCountAllowedPure(65536));
+   T1723_Check("F06 writer cannot cross loader maximum",!PyProtect_StateCountAllowedPure(65537));
 }
