@@ -18,6 +18,13 @@ void Log_Info(const string module, const string msg)
    Print("[BD:", module, "] ", msg);
 }
 
+// Keyed INFO overload: mirrors the call shape used by lifecycle logging while
+// deliberately remaining unthrottled. The key is rendered for auditability.
+void Log_Info(const string module, const string key, const string msg)
+{
+   Print("[BD:", module, "] ", msg, " [", key, "]");
+}
+
 // Throttled: repeated identical keys print at most once per minute (bug #7)
 void Log_Warn(const string module, const string key, const string msg)
 {
