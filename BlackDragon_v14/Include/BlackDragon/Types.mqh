@@ -25,6 +25,9 @@ struct PositionInfo
    double   tp;
    double   sl;
    datetime openTime;
+   ulong    positionId;    // T17.22 immutable history identity
+   bool     isPyramid;
+   double   swap;          // profit already includes this value
 };
 
 struct BasketSide
@@ -82,7 +85,10 @@ enum eExecCommandType
    EXEC_CMD_RECOVERY_CLOSE,
    EXEC_CMD_RECOVERY_MODIFY,
    EXEC_CMD_CORE_PYRAMID_OPEN,
-   EXEC_CMD_CORE_PYRAMID_CLOSE
+   EXEC_CMD_CORE_PYRAMID_CLOSE,
+   EXEC_CMD_PY_PROTECT_CLOSE,
+   EXEC_CMD_PY_PROTECT_MODIFY,
+   EXEC_CMD_PY_RH_TRIM
 };
 
 enum eExecReconcilePolicy
@@ -98,6 +104,23 @@ struct SExecRequestMeta
    eExecCommandType     commandType;
    eExecReconcilePolicy reconcilePolicy;
 };
+
+// Optional T17.22 adapter; no extra scan or dispatch when disabled.
+class IPyramidProtection
+{
+public:
+   virtual string CloseComment(const int command,const ulong ticket) { return ""; }
+   virtual void SetExitOverride(const bool enabled) { }
+   virtual double CoordinationCash(const int dir) const { return 0.0; }
+   virtual bool AllowsRequest(const MqlTradeRequest &req,const SExecRequestMeta &meta) { return true; }
+   virtual bool ExpectedRhTrim(const ulong deal) { return false; }
+   virtual bool ExpectedPySl(const ulong deal) { return false; }
+   virtual bool OwnsSl(const ulong ticket) { return false; }
+   virtual double PreserveSl(const ulong ticket,const double legacy) { return legacy; }
+   virtual bool Drive(const EAContext &ctx) { return false; }
+};
+IPyramidProtection *g_pyramidProtection=NULL;
+ulong g_pyramidDealRevision=0;
 
 // T17.11: non-persisted submission outcome used only by Core/DCA admission.
 // This is deliberately separate from the persisted Recovery state enums.

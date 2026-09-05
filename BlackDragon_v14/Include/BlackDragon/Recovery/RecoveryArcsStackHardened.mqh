@@ -165,7 +165,8 @@ private:
             d.programmedSl = HistoryDealGetDouble(deal, DEAL_SL);
             d.dealPrice = HistoryDealGetDouble(deal, DEAL_PRICE);
             d.volume = HistoryDealGetDouble(deal, DEAL_VOLUME);
-            if(!IsExpectedPersistedProtectiveClose(dir, layer, d)) continue;
+            bool pyTrim=g_pyramidProtection!=NULL && g_pyramidProtection.ExpectedRhTrim(deal);
+            if(!pyTrim && !IsExpectedPersistedProtectiveClose(dir, layer, d)) continue;
             provenClose += Recovery_VolumeToUnitsFloor(d.volume, m_volumeStep);
          }
 
@@ -196,6 +197,7 @@ private:
 
    void RefreshClosedGenerationFromDeal(const MqlTradeTransaction &trans)
    {
+      if(g_pyramidProtection!=NULL && g_pyramidProtection.ExpectedRhTrim(trans.deal)) return;
       if(trans.deal == 0 || !HistoryDealSelect(trans.deal)) return;
       long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;

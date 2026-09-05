@@ -325,6 +325,32 @@ public:
    // T16.2 expected Overlap finalizer. Overlap P/L is Core-owned pair trimming,
    // not Hedge-funded Core loss, therefore it must not consume the ARCS cash
    // ledger. Only topology-dependent data is refreshed after exact broker DEALs.
+   bool FinalizeExpectedPyMutation(CExecutionLayer &exec,const eRecoveryCoreDirection dir,
+                                   const datetime now,string &why)
+   {
+      if(RecoveryMode_!=recovery_ACTIVE) return true;
+      if(!m_ready) { why="ARCS not ready for PY settlement"; return false; }
+      int key=Recovery_CycleKey(dir);
+      exec.ReconcileCycle(key);
+      if(exec.HasPendingForCycle(key) || exec.HasReconcileRequired(key)) return false;
+      if(!ReplayAfterCursor(dir,why)) return false;
+      if(!RefreshExpectedProtectiveCloseOwnership(dir,why) || !ValidateLiveBook(dir,why)) return false;
+      m_dir[Idx(dir)].lastObservedCoreUnits=Recovery_ArcsCoreUnits(dir,m_volumeStep);
+      m_dir[Idx(dir)].lastObservedHedgeUnits=Recovery_ArcsTotalHedgeUnits(dir,m_volumeStep);
+      if(!RebaseArmedAfterExpectedCoreMutation(dir,now,why)) return false;
+      m_dirty=true;
+      return Save(why);
+   }
+
+   bool PyMutationQuiet(const eRecoveryCoreDirection dir) const
+   {
+      int d=Idx(dir);
+      if(!m_ready || m_pending[d].active || m_dir[d].reconcileRequired) return false;
+      eArcsPhase p=m_dir[d].phase;
+      return p==ARCS_IDLE || p==ARCS_ARMED || p==ARCS_ACTIVE || p==ARCS_CORE_FUNDING || p==ARCS_LOCKED ||
+             p==ARCS_LOCK_PENDING || p==ARCS_GLOBAL_ACTIVE || p==ARCS_TRANSITION;
+   }
+
    bool FinalizeExpectedOverlapMutation(CExecutionLayer &exec,
                                         const eRecoveryCoreDirection dir,
                                         const datetime now,

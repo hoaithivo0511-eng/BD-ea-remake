@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.19 RH re-entry   |
+//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.22 PY protection |
 //| Event handlers + module registration ONLY.                       |
 //+------------------------------------------------------------------+
 #property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14/T17."
@@ -35,6 +35,7 @@
 #include <BlackDragon/Persistence.mqh>
 #include <BlackDragon/StrategyT1713.mqh>
 #include <BlackDragon/Filters/AdxFilter.mqh>
+#include <BlackDragon/Pyramid/PyramidProtection.mqh>
 
 CRsiStochSignal  g_sigBD;
 CWmfSignal       g_sigWMF;
@@ -45,6 +46,7 @@ CExecutionLayer  g_exec;
 CRecoveryEngine  g_recovery;
 CRecoveryExitCoordinator g_recoveryExit;
 CCorePyramidEngine g_pyramid;
+CPyramidProtection g_pyProtection;
 CSequenceSizer   g_seqSizer;
 CChainSizer      g_chainSizer;
 CDistancePlan    g_distPlan;
@@ -98,6 +100,7 @@ int OnInit()
             (Cfg.UnitMode == unit_PIP_UNIFIED && !AutoGoldPip
              ? "; AutoGoldPip ignored in unified mode" : ""));
 
+   if(!g_pyProtection.Init(&g_basket,&g_exec,&g_recovery)) return INIT_PARAMETERS_INCORRECT;
    if(!g_recovery.Init()) return INIT_PARAMETERS_INCORRECT;
 
    Persist_Load();
@@ -208,7 +211,7 @@ int OnInit()
    g_lastSavedHalt = Cfg.HaltUntil;
 
    EventSetMillisecondTimer(BD_SERVICE_TIMER_MS);
-   Log_Info("Init", "EA Black Dragon T17.19 Recovery re-entry build started. ExecMode=" +
+   Log_Info("Init", "EA Black Dragon T17.22 Core PY protection build started. ExecMode=" +
             (ExecMode == exec_Async ? "Async" : "Sync") +
             "; CorePyramid=" + (string)(int)CorePyramidMode_ +
             "; CoreAnchor=" + Pyramid_T177AnchorModeName(CorePyramidAnchorMode_) +
@@ -220,6 +223,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   g_pyProtection.ReportPerformance();
    g_recovery.FlushPersistence();
    Persist_Save();
    g_strategy.Deinit();
@@ -263,6 +267,7 @@ void OnTick()
    }
 
    g_basket.Update(ctx);
+   g_pyProtection.Observe(ctx);
    g_recovery.OnTick(ctx);
    g_strategy.OnTick(ctx);
 }
@@ -289,11 +294,29 @@ void OnTimer()
 }
 
 //+------------------------------------------------------------------+
+bool IsT1722TopologyTransaction(const MqlTradeTransaction &trans)
+{
+   if(PyramidSLMode_==py_protect_OFF || trans.symbol!=_Symbol) return false;
+   return trans.type==TRADE_TRANSACTION_DEAL_ADD ||
+          trans.type==TRADE_TRANSACTION_DEAL_UPDATE ||
+          trans.type==TRADE_TRANSACTION_DEAL_DELETE ||
+          trans.type==TRADE_TRANSACTION_POSITION;
+}
+
+//+------------------------------------------------------------------+
 void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
 {
+   bool pyTopology=IsT1722TopologyTransaction(trans);
+   if(pyTopology)
+   {
+      g_pyramidDealRevision++;
+      g_basket.Invalidate();
+   }
    g_exec.OnTransaction(trans, request, result);
+   if(pyTopology)
+      g_pyProtection.OnTransaction(trans);
    bool suppressRecoveryDeal = g_recoveryExit.OnTradeTransaction(trans);
    if(!suppressRecoveryDeal)
       g_recovery.OnTradeTransaction(trans);

@@ -1,0 +1,23 @@
+schema_version: '1.0'
+authorization: Current owner plan approval
+decisions:
+- id: D1722-01
+  status: APPROVED
+  decision: Protect PY group by actual direction; Core TP/global exit unchanged
+  locking_test: group_scope
+- id: D1722-02
+  status: APPROVED
+  decision: Independent net BE, no-weaken SL, optional trailing
+  locking_test: monotone_floor
+- id: D1722-03
+  status: APPROVED
+  decision: PY–RH coordinated protected exit with pre-arm exposure reservation
+  locking_test: post_py_coverage
+- id: D1722-04
+  status: APPROVED
+  decision: Refresh live snapshot after mutation; historical realized once
+  locking_test: partial_stale_and_duplicate
+- id: D1722-05
+  status: APPROVED
+  decision: Reuse scans/executor/history and prove overhead
+  locking_test: hot_path_budget

@@ -400,6 +400,7 @@ private:
    double m_mult[];
    SPyramidCampaignStats m_stats[2];
    datetime m_statsAt[2];
+   ulong m_statsRevision[2];
    datetime m_campaignStartTime[2];
    long m_campaignStartTimeMsc[2];
    ulong m_campaignStartDeal[2];
@@ -676,6 +677,7 @@ public:
       {
          Pyramid_CampaignReset(m_stats[d]);
          m_statsAt[d] = 0;
+         m_statsRevision[d] = 0;
          m_campaignStartTime[d] = 0;
          m_campaignStartTimeMsc[d] = 0;
          m_campaignStartDeal[d] = 0;
@@ -768,7 +770,8 @@ public:
          }
       }
 
-      if(m_statsAt[dir] == now &&
+      if((PyramidSLMode_==py_protect_OFF ? m_statsAt[dir]==now :
+          (m_stats[dir].ready && m_statsRevision[dir]==g_pyramidDealRevision)) &&
          m_statsSideCount[dir] == side.count &&
          MathAbs(m_statsSideLots[dir] - side.totalLots) <= 1e-12 &&
          m_statsNewestPyramid[dir] == book.newestPyramidTicket)
@@ -780,6 +783,7 @@ public:
                                             m_campaignStartTimeMsc[dir],
                                             now, fresh);
       m_stats[dir] = fresh;
+      m_statsRevision[dir] = g_pyramidDealRevision;
       m_statsAt[dir] = now;
       m_statsSideCount[dir] = side.count;
       m_statsSideLots[dir] = side.totalLots;

@@ -3,13 +3,14 @@
 | Layer | Canonical value |
 |---|---|
 | Product/binary | `15.00` |
-| Runtime lineage | `T17.21` |
+| Runtime lineage | `T17.22` |
 | Entry point | `Experts/BlackDragon/BlackDragon.mq5` |
 | Dashboard/buttons | Removed |
 | WMF signal arrows | Preserved; controlled by `ShowWmfSignals` |
 | Terminal RH re-entry | Exact positive chain BE/SL; 2 cycles by default |
 | Optional RH bar gate | `RecoveryOneOrderPerBar_=false`; one opening per chart candle/direction when enabled |
 | Readable comments | `RH-S\|G1\|P1\|N1`, `RHSL1-S\|G1\|P1\|N1`, `PYR-B#3`; legacy readers retained |
+| Core PY protection | Independent group `OFF/VIRTUAL/BROKER`; monotone BE/SL, optional trailing, PY–RH coordination |
 | Branch / PR | `feat/t17-full-pyramid` / #28 Draft |
 | Owner Strategy Tester | `PENDING_OWNER` |
 
@@ -19,8 +20,8 @@ when reachable, not duplicate EA binaries. Historical specifications are frozen
 under `docs/vibecode/archive/`.
 
 The current entry point must reach every tracked runtime header. CI requires one
-canonical workflow, every model/native suite, source contracts T17.11–T17.21,
-MetaEditor 0 errors/0 warnings, native 1030/0 and exact artifact provenance.
+canonical workflow, every model/native suite, source contracts T17.11–T17.22,
+MetaEditor 0 errors/0 warnings, native 1075/0 and exact artifact provenance.
 
 The T17.19 chart remains dashboard-free, not visualization-free: optional WMF
 arrows remain separate. WAIT_RESET/ARMED blocks Core DCA but deliberately leaves

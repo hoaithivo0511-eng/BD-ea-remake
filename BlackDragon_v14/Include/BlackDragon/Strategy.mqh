@@ -87,6 +87,7 @@ private:
       SRecoveryT5CycleRuntime rt;
       m_recovery.GetT5Runtime(RecoveryDir(dir), rt);
       s.recoveryCycleRealized = rt.ledger.hedgeNetCash - rt.ledger.coreLossSpent;
+      if(g_pyramidProtection!=NULL) s.recoveryCycleRealized+=g_pyramidProtection.CoordinationCash(dir);
 
       long wantedHedgeType = dir == BD_DIR_BUY ? POSITION_TYPE_SELL
                                                 : POSITION_TYPE_BUY;
@@ -394,10 +395,11 @@ private:
                                                typeMatches,liveVolume)) continue;
          double curSl = NormalizeDouble(PositionGetDouble(POSITION_SL), ctx.digits);
          double curTp = NormalizeDouble(PositionGetDouble(POSITION_TP), ctx.digits);
-         if(curSl != sl || curTp != tp)
+         double appliedSl=g_pyramidProtection!=NULL ? g_pyramidProtection.PreserveSl(ticket,sl) : sl;
+         if(curSl != appliedSl || curTp != tp)
          {
             if(m_exec.HasPendingModify(ticket)) continue;
-            if(m_exec.ModifySlTp(ticket, sl, tp)) modified = true;
+            if(m_exec.ModifySlTp(ticket, appliedSl, tp)) modified = true;
             else if(PositionSelectByTicket(ticket))
                Log_Warn("Strategy", "sltp", "modify SL/TP failed live ticket " + (string)ticket);
          }
@@ -455,11 +457,16 @@ public:
    void OnTick(const EAContext &ctx)
    {
       eGuardAction guardBeforePriority = m_guardLatched;
+      if(g_pyramidProtection!=NULL) g_pyramidProtection.SetExitOverride(true);
       if(ApplyGuardPriority(ctx))
       {
+         if(g_pyramidProtection!=NULL) g_pyramidProtection.SetExitOverride(false);
          FinalizeOverlapAfterAccountGuard(guardBeforePriority, ctx);
          return;
       }
+      if(g_pyramidProtection!=NULL) g_pyramidProtection.SetExitOverride(false);
+
+      if(g_pyramidProtection!=NULL && g_pyramidProtection.Drive(ctx)) return;
 
       if(m_recoveryExit != NULL && RecoveryMode_ == recovery_ACTIVE)
       {

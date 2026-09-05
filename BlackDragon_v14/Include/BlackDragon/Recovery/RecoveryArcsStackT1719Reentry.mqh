@@ -768,7 +768,8 @@ public:
          trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal != 0 &&
          trans.symbol == _Symbol)
       {
-         probed = ExpectedProtectiveCloseT1719(trans.deal, probe) &&
+         bool pyTrim=g_pyramidProtection!=NULL && g_pyramidProtection.ExpectedRhTrim(trans.deal);
+         probed = !pyTrim && ExpectedProtectiveCloseT1719(trans.deal, probe) &&
                   probe.recoveryOwned && probe.protectiveCandidate;
          if(probed)
          {

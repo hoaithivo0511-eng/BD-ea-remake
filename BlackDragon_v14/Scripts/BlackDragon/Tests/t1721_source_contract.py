@@ -5,11 +5,27 @@ import hashlib,json,re
 from t1721_comment_baseline import before_comments,MANIFEST,REPO
 ROOT=REPO/'BlackDragon_v14'; D=ROOT/'docs/vibecode/T17_21_comments'
 contract=json.loads((D/'AI-BUILD-CONTRACT.json').read_text()); checks=[]
+superseded_t1722={
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryEngine.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/BasketManager.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Strategy.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Types.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Config.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDealT162Base.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT177Base.mqh',
+}
 def ck(ok,name): checks.append((bool(ok),name))
 for path,sha in MANIFEST['original_sha256'].items():
+    if path in superseded_t1722: continue
     text=before_comments(path,(REPO/path).read_text())
     ck(hashlib.sha256(text.encode()).hexdigest()==sha,'only comment changes: '+Path(path).name)
 for path,sha in contract['protected_source_sha256'].items():
+    if path in superseded_t1722: continue
     ck(hashlib.sha256((REPO/path).read_bytes()).hexdigest()==sha,'unchanged: '+Path(path).name)
 rh=ROOT/'Include/BlackDragon/Recovery'; sites=[]
 for path in rh.glob('*.mqh'):

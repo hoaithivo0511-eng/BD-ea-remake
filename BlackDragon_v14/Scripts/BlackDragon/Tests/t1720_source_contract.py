@@ -8,6 +8,12 @@ REPO=ROOT.parent
 C=ROOT/'docs/vibecode/T17_20_one_bar/AI-BUILD-CONTRACT.json'
 contract=json.loads(C.read_text())
 checks=[]
+superseded_t1722={
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT1719Reentry.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh',
+ 'BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStack.mqh',
+}
 def ck(ok,name):checks.append((bool(ok),name))
 def read(p):return (REPO/p).read_text()
 prefix='BlackDragon_v14/Include/BlackDragon/Recovery/'
@@ -23,8 +29,10 @@ ck('wantedPosition' in gate and 'wantedDeal' in gate,'independent directional sc
 ck(not any(x in gate for x in ['OrderSend(', 'OrderSendAsync(', 'FileWrite', 'GlobalVariableSet', 'LatchReconcile(', 'TesterStop(']),'data WAIT gate has no trading/persistence/error latch side effects')
 ck('static ' not in gate,'no generation-local/transient bar counter')
 for p,sha in contract['protected_source_sha256'].items():
+ if p in superseded_t1722: continue
  ck(hashlib.sha256(before_comments(p,read(p)).encode()).hexdigest()==sha,'protected '+p.split('/')[-1])
 for p,sha in contract['additive_source_sha256'].items():
+ if p in superseded_t1722: continue
  text=before_comments(p,read(p))
  if p.endswith('RecoveryTypes.mqh'):
   text=re.sub(r'^input bool\s+RecoveryOneOrderPerBar_.*\n','',text,flags=re.M)

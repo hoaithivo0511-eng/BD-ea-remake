@@ -349,11 +349,22 @@ public:
       return CRecoveryExitCoordinatorT13Base::Drive(now, why);
    }
 
+   bool ExpectedT1722PySl(const bool mapped,const long ownerMagic,const ulong deal)
+   {
+      if(!mapped || ownerMagic!=(long)Magic || g_pyramidProtection==NULL) return false;
+      return g_pyramidProtection.ExpectedPySl(deal);
+   }
+
+   bool IsRecoveryCloseTransaction(const MqlTradeTransaction &trans) const
+   {
+      return RecoveryMode_==recovery_ACTIVE && m_recovery!=NULL && m_exec!=NULL &&
+             trans.type==TRADE_TRANSACTION_DEAL_ADD && trans.deal!=0 &&
+             trans.symbol==_Symbol && HistoryDealSelect(trans.deal);
+   }
+
    bool OnTradeTransaction(const MqlTradeTransaction &trans)
    {
-      if(RecoveryMode_ == recovery_ACTIVE && m_recovery != NULL && m_exec != NULL &&
-         trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal != 0 &&
-         trans.symbol == _Symbol && HistoryDealSelect(trans.deal))
+      if(IsRecoveryCloseTransaction(trans))
       {
          long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
          if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY)
@@ -364,6 +375,8 @@ public:
             long reason = HistoryDealGetInteger(trans.deal, DEAL_REASON);
             eRecoveryCoreDirection dir = recovery_CORE_BUY;
             bool mapped = MapClosingDeal(ownerMagic, type, dir);
+
+            if(ExpectedT1722PySl(mapped,ownerMagic,trans.deal)) return false;
 
             if(mapped && ownerMagic == (long)RecoveryMagic_)
             {

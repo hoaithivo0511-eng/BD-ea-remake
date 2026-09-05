@@ -15,6 +15,20 @@ enum eModeStops
    mode_Real, // Thật — đặt mức SL/TP tại broker
    mode_Virt  // Ảo — EA tự theo dõi và đóng rổ
 };
+enum ePyramidProtectionMode
+{
+   py_protect_OFF=0,
+   py_protect_VIRTUAL=1,
+   py_protect_BROKER=2
+};
+
+input group "23B — BẢO VỆ LỢI NHUẬN NHÓM PYRAMID CORE"
+input ePyramidProtectionMode PyramidSLMode_=py_protect_OFF; // Tắt / SL ảo / SL broker
+input double PyramidBETriggerPips_=10.0; // Lợi nhuận ròng nhóm để xét khóa (pip)
+input double PyramidLockProfitPips_=3.0; // Lợi nhuận ròng tối thiểu cần giữ (pip)
+input double PyramidLockSafetyPips_=1.0; // Đệm chi phí thực thi (pip)
+input double PyramidTrailGapPips_=0.0; // Khoảng trailing sau BE; 0 = chỉ khóa dương
+
 enum eExecMode
 {
    exec_Sync, // Đồng bộ

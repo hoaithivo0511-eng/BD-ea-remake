@@ -24,6 +24,7 @@
 #define BD_BASKETMANAGER_MQH
 #include "Types.mqh"
 #include "Logger.mqh"
+#include "OrderCommentCodec.mqh"
 
 //--- PURE breakeven formula (unit-tested in Tests/RunTests.mq5) ------
 //    fix #3: SIGNED cost (v13 used MathAbs -> wrong side on positive swap)
@@ -54,6 +55,7 @@ class CBasketManager
 {
 private:
    bool     m_dirty;
+   ulong    m_revision;
    double   m_dayProfit;
    datetime m_dayStart;
    datetime m_lastBuyBar;    // v13: tLastBuy  (max 1 order per bar per side)
@@ -69,7 +71,7 @@ public:
    BasketSide buy;
    BasketSide sell;
 
-   CBasketManager() : m_dirty(true), m_dayProfit(0), m_dayStart(0),
+   CBasketManager() : m_dirty(true), m_revision(0), m_dayProfit(0), m_dayStart(0),
                       m_lastBuyBar(0), m_lastSellBar(0),
                       m_commissionBuy(0), m_commissionSell(0),
                       m_dayStartBalance(0),
@@ -82,6 +84,7 @@ public:
    double   DayStartBalance() const { return m_dayStartBalance; }   // FE-402
 
    void Invalidate() { m_dirty = true; }
+   ulong Revision() const { return m_revision; }
 
    //--- C2: called once from OnInit and on day rollover ---------------
    void SeedDayProfit()
@@ -150,6 +153,7 @@ private:
    void Rebuild(const EAContext &ctx)
    {
       m_dirty = false;
+      m_revision++;
       ResetSide(buy);
       ResetSide(sell);
       m_commissionBuy  = 0;
@@ -173,6 +177,9 @@ private:
          p.tp        = PositionGetDouble(POSITION_TP);
          p.sl        = PositionGetDouble(POSITION_SL);
          p.openTime  = (datetime)PositionGetInteger(POSITION_TIME);
+         p.positionId = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+         p.isPyramid = magic==(long)Magic && OC_IsPyramid(PositionGetString(POSITION_COMMENT));
+         p.swap = PositionGetDouble(POSITION_SWAP);
 
          if(p.type == POSITION_TYPE_BUY)
          {
@@ -230,6 +237,20 @@ private:
          }
          double swap = PositionGetDouble(POSITION_SWAP);
          s.pos[w] = s.pos[i];
+         if(PyramidSLMode_!=py_protect_OFF)
+         {
+            double liveLots=PositionGetDouble(POSITION_VOLUME);
+            double liveOpen=PositionGetDouble(POSITION_PRICE_OPEN);
+            ulong liveId=(ulong)PositionGetInteger(POSITION_IDENTIFIER);
+            if(liveLots!=s.pos[w].lots || liveId!=s.pos[w].positionId || liveOpen!=s.pos[w].openPrice)
+            { m_dirty=true; m_revision++; }
+            s.pos[w].lots=liveLots;
+            s.pos[w].openPrice=liveOpen;
+            s.pos[w].positionId=liveId;
+            s.pos[w].sl=PositionGetDouble(POSITION_SL);
+            s.pos[w].tp=PositionGetDouble(POSITION_TP);
+         }
+         s.pos[w].swap=swap;
          s.pos[w].profit = PositionGetDouble(POSITION_PROFIT) + swap;  // v13 semantics: profit incl. swap
          totalProfit += s.pos[w].profit;
          swapSum     += swap;

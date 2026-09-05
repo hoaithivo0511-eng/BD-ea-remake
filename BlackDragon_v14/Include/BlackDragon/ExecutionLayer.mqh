@@ -273,11 +273,12 @@ bool Exec_T14OpenProofMatches(const int cycleKey,
    return false;
 }
 
-bool Exec_T14ModifyProofMatches(const ulong ticket,
-                                const long ownerMagic,
-                                const int cycleKey,
-                                const double targetSl,
-                                const double tolerance)
+bool Exec_ModifyProofMatchesCommand(const ulong ticket,
+                                    const long ownerMagic,
+                                    const int cycleKey,
+                                    const double targetSl,
+                                    const double tolerance,
+                                    const eExecCommandType commandType)
 {
    if(ticket == 0 || ownerMagic <= 0 || cycleKey == 0 || targetSl <= 0.0) return false;
    for(int n = 0; n < BD_EXEC_T14_PROOF_CAP; n++)
@@ -286,12 +287,22 @@ bool Exec_T14ModifyProofMatches(const ulong ticket,
       while(slot < 0) slot += BD_EXEC_T14_PROOF_CAP;
       slot %= BD_EXEC_T14_PROOF_CAP;
       SExecT14IdentityProof p = g_execT14Proof[slot];
-      if(!p.valid || p.commandType != EXEC_CMD_RECOVERY_MODIFY) continue;
+      if(!p.valid || p.commandType != commandType) continue;
       if(p.ticket != ticket || p.ownerMagic != ownerMagic || p.cycleKey != cycleKey) continue;
       if(MathAbs(p.sl - targetSl) > tolerance + 1e-12) continue;
       return true;
    }
    return false;
+}
+
+bool Exec_T14ModifyProofMatches(const ulong ticket,
+                                const long ownerMagic,
+                                const int cycleKey,
+                                const double targetSl,
+                                const double tolerance)
+{
+   return Exec_ModifyProofMatchesCommand(ticket,ownerMagic,cycleKey,targetSl,tolerance,
+                                         EXEC_CMD_RECOVERY_MODIFY);
 }
 
 string Exec_IntentName(const eIntent action)
@@ -308,6 +319,11 @@ string Exec_CommandName(const eExecCommandType cmd)
    if(cmd == EXEC_CMD_RECOVERY_OPEN) return "RECOVERY_OPEN";
    if(cmd == EXEC_CMD_RECOVERY_CLOSE) return "RECOVERY_CLOSE";
    if(cmd == EXEC_CMD_RECOVERY_MODIFY) return "RECOVERY_MODIFY";
+   if(cmd == EXEC_CMD_CORE_PYRAMID_OPEN) return "CORE_PYRAMID_OPEN";
+   if(cmd == EXEC_CMD_CORE_PYRAMID_CLOSE) return "CORE_PYRAMID_CLOSE";
+   if(cmd == EXEC_CMD_PY_PROTECT_CLOSE) return "PY_PROTECT_CLOSE";
+   if(cmd == EXEC_CMD_PY_PROTECT_MODIFY) return "PY_PROTECT_MODIFY";
+   if(cmd == EXEC_CMD_PY_RH_TRIM) return "PY_RH_TRIM";
    return "LEGACY";
 }
 
@@ -758,12 +774,27 @@ private:
              " ageSec=" + (string)age;
    }
 
+   bool ProtectedRequestAllowed(const MqlTradeRequest &req,
+                                const SExecRequestMeta &meta) const
+   {
+      if(g_pyramidProtection==NULL) return true;
+      return g_pyramidProtection.AllowsRequest(req,meta);
+   }
+
+   bool ProtectedRetryAllowed(const int attempt,const MqlTradeRequest &req,
+                              const SExecRequestMeta &meta) const
+   {
+      return attempt<=0 || ProtectedRequestAllowed(req,meta);
+   }
+
    bool Send(MqlTradeRequest &req, MqlTradeResult &res, const eIntent action,
              const SExecRequestMeta &meta, const double positionVolumeBefore,
              SExecSubmitOutcome &outcome)
    {
       outcome.disposition = EXEC_SUBMIT_REJECTED;
       outcome.retcode = 0;
+      if(!ProtectedRequestAllowed(req,meta))
+      { res.retcode=TRADE_RETCODE_REJECT; outcome.retcode=res.retcode; return false; }
       int positionCountBefore = CountOpenPositions(action, req.symbol, meta.ownerMagic);
 
       // Async path: fire and journal; confirmation arrives via broker state.
@@ -799,6 +830,8 @@ private:
             if(!SymbolInfoTick(req.symbol, tick)) break;
             req.price = (req.type == ORDER_TYPE_BUY) ? tick.ask : tick.bid;
          }
+         if(!ProtectedRetryAllowed(attempt,req,meta))
+         { res.retcode=TRADE_RETCODE_REJECT; outcome.retcode=res.retcode; return false; }
          ResetLastError();
          bool ok = OrderSend(req, res);
          if(ok && RetcodeOk(res.retcode))
@@ -1100,6 +1133,8 @@ public:
       req.deviation    = Exec_DeviationFromPrice(Exec_SlippagePriceForSymbol(sym),
                                                  SymbolInfoDouble(sym, SYMBOL_POINT));
       req.magic        = Exec_CloseRequestMagic(positionMagic);
+      if(g_pyramidProtection!=NULL)
+         req.comment=g_pyramidProtection.CloseComment((int)commandType,ticket);
       req.type_filling = FillingFor(sym);
       SExecRequestMeta meta;
       Exec_InitMeta(meta, positionMagic, cycleKey, commandType, reconcilePolicy);

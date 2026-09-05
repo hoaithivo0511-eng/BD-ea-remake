@@ -266,6 +266,16 @@ public:
       return m_arcs.FinalizeExpectedOverlapMutation(exec, dir, now, why);
    }
 
+   bool T1722PyMutationQuiet(const eRecoveryCoreDirection dir) const
+   { return !UseT16() || m_arcs.PyMutationQuiet(dir); }
+
+   bool T1722FinalizePyMutation(CExecutionLayer &exec,const eRecoveryCoreDirection dir,
+                               const datetime now,string &why)
+   {
+      if(!UseT16()) return true;
+      return m_arcs.FinalizeExpectedPyMutation(exec,dir,now,why);
+   }
+
    bool T16HasExposure(const eRecoveryCoreDirection dir) const
    {
       return UseT16() && m_arcs.HasExposure(dir);

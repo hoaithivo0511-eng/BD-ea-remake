@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.0",
+  "task": "T17.22",
+  "status": "IMPLEMENTED_LOCAL_VPS_VERIFIED_CI_PENDING",
+  "baseline": {
+    "head": "c108647d109b3cbca0e6477ddae59a677ee7a637",
+    "tree": "c35505e568af990a32c02a27c6337b59a4a0f6a5"
+  },
+  "allowed_paths": [
+    "BlackDragon_v14/Include/BlackDragon/",
+    "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/",
+    "BlackDragon_v14/docs/vibecode/",
+    ".github/workflows/verify-current.yml"
+  ],
+  "forbidden": [
+    "archive rewrites",
+    "live trading",
+    "merge",
+    "normal divergent push",
+    "change legacy input defaults",
+    "claim runtime/performance from pure model"
+  ],
+  "required_evidence": [
+    "model/source regression",
+    "native compile 0/0",
+    "native tests",
+    "virtual and broker tester",
+    "OFF differential",
+    "restart/partial/ambiguous tests",
+    "hot-path measurements"
+  ],
+  "guards": [
+    {
+      "id": "RETRO-A1",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": [
+        "state"
+      ],
+      "checker": "t1722_state",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A2",
+      "severity": "P0",
+      "class": "hard",
+      "required_evidence": [
+        "failure"
+      ],
+      "checker": "t1722_failure",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A3",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": [
+        "decisions"
+      ],
+      "checker": "t1722_decisions",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A4",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": [
+        "oracle"
+      ],
+      "checker": "t1722_oracle",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A5",
+      "severity": "P0",
+      "class": "hard",
+      "required_evidence": [
+        "freshness"
+      ],
+      "checker": "t1722_freshness",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A6",
+      "severity": "P0",
+      "class": "hard",
+      "required_evidence": [
+        "idempotence"
+      ],
+      "checker": "t1722_idempotence",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A7",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": [
+        "restart"
+      ],
+      "checker": "t1722_restart",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A8",
+      "severity": "P0",
+      "class": "hard",
+      "required_evidence": [
+        "latched_trigger"
+      ],
+      "checker": "t1722_latched_trigger",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A9",
+      "severity": "P0",
+      "class": "hard",
+      "required_evidence": [
+        "units"
+      ],
+      "checker": "t1722_units",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A10",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": [
+        "broker_parity"
+      ],
+      "checker": "t1722_broker_parity",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A11",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": [
+        "performance"
+      ],
+      "checker": "t1722_performance",
+      "waiver_allowed": false
+    },
+    {
+      "id": "RETRO-A12",
+      "severity": "P1",
+      "class": "hard",
+      "required_evidence": [
+        "source_contract"
+      ],
+      "checker": "t1722_source_contract",
+      "waiver_allowed": false
+    }
+  ]
+}
