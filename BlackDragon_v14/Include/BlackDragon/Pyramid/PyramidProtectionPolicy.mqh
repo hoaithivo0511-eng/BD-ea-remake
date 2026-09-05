@@ -50,6 +50,26 @@ bool PyProtect_ArmablePure(const int dir,const double bid,const double ask,
    return dir==0 ? bid-stop>minDistance : stop-ask>minDistance;
 }
 
+// T17.23 F01: distinguish "continue to arm" from "wait until the RH trim can
+// be funded". UNKNOWN/BLOCK is intentionally separate so missing trim evidence
+// never degrades into a successful pre-arm path.
+enum ePyProtectPrepareDecision
+{
+   PY_PREPARE_BLOCK_UNKNOWN = -1,
+   PY_PREPARE_CONTINUE = 0,
+   PY_PREPARE_WAIT_UNFUNDED,
+   PY_PREPARE_TRIM_READY
+};
+
+ePyProtectPrepareDecision PyProtect_PrepareDecisionPure(const long excess,
+                                                        const bool trimSelected,
+                                                        const bool fundedArmable)
+{
+   if(excess<=0) return PY_PREPARE_CONTINUE;
+   if(!trimSelected) return PY_PREPARE_BLOCK_UNKNOWN;
+   return fundedArmable ? PY_PREPARE_TRIM_READY : PY_PREPARE_WAIT_UNFUNDED;
+}
+
 bool PyProtect_AddFundedPure(const int dir,const double stop,const double fill,
                             const double lots,const double slope,const double existingNet,
                             const double floor,const double costs)

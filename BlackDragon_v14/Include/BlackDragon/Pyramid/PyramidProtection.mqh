@@ -70,7 +70,13 @@ struct SPyProtectRequestView
    long owner;
    double closingLots;
 };
-enum ePyProtectDriveResult { PY_DRIVE_NEXT=-1,PY_DRIVE_ALLOW=0,PY_DRIVE_BLOCK=1 };
+enum ePyProtectDriveResult
+{
+   PY_DRIVE_NEXT=-1,
+   PY_DRIVE_ALLOW=0,
+   PY_DRIVE_BLOCK=1,
+   PY_DRIVE_WAIT_UNFUNDED=2
+};
 struct SPyProtectDisk
 {
    uint signature;
@@ -608,10 +614,13 @@ private:
       m_basket.Update(m_context);
       Observe(m_context);
       if(!m_snap[d].valid || m_historyDirty || m_group[d].phase==PY_CLOSING) return false;
+      double obligation=m_group[d].stop;
+      if(m_group[d].phase==PY_PREPARE && m_group[d].candidate>0)
+         obligation=PyProtect_StrongerPure(d,obligation,m_group[d].candidate);
       double extraCosts=req.volume*m_slope*(PyramidLockSafetyPips_*m_pip+Cfg.SlippagePrice);
       if(m_snap[d].lots>0) extraCosts+=2*m_snap[d].exitFees*req.volume/m_snap[d].lots;
-      return PyProtect_AddFundedPure(d,m_group[d].stop,req.price,req.volume,m_slope,
-                                    NetAt(d,m_group[d].stop),m_group[d].floorCash,extraCosts);
+      return PyProtect_AddFundedPure(d,obligation,req.price,req.volume,m_slope,
+                                    NetAt(d,obligation),m_group[d].floorCash,extraCosts);
    }
    bool AllowsPreparedDeal(const MqlTradeRequest &req,const SPyProtectRequestView &view)
    {
@@ -628,7 +637,9 @@ private:
       bool changesCap=(view.opening && view.owner==(long)RecoveryMagic_) ||
                       (!view.opening && view.owner==(long)Magic);
       if(changesCap && hedge>PyProtect_CapUnitsPure(core,reserved,CapPct())) return false;
-      if(view.opening && view.pyramid && m_group[view.dir].stop>0)
+      bool hasProtectionObligation=m_group[view.dir].stop>0 ||
+         (m_group[view.dir].phase==PY_PREPARE && m_group[view.dir].candidate>0);
+      if(view.opening && view.pyramid && hasProtectionObligation)
          return FundedPyramidAdd(req,view.dir);
       return true;
    }
@@ -750,7 +761,20 @@ private:
                             MathMax(0.0,-m_group[d].trimCash-net));
       double after=PyProtect_LockPricePure(d,m_snap[d].weighted,m_snap[d].lots,
          m_snap[d].booked+m_snap[d].swap-Reserve(d,m_snap[d].lots),funded,m_slope,m_tick);
-      if(!PyProtect_ArmablePure(d,ctx.bid,ctx.ask,after,distance)) return PY_DRIVE_NEXT;
+      bool armable=PyProtect_ArmablePure(d,ctx.bid,ctx.ask,after,distance);
+      ePyProtectPrepareDecision decision=PyProtect_PrepareDecisionPure(excess,true,armable);
+      if(decision==PY_PREPARE_WAIT_UNFUNDED)
+      {
+         bool changed=m_group[d].phase!=PY_PREPARE || m_group[d].candidate!=after;
+         m_group[d].phase=PY_PREPARE;
+         m_group[d].candidate=PyProtect_StrongerPure(d,m_group[d].candidate,after);
+         if(changed && !Save()) return PY_DRIVE_BLOCK;
+         Log_WarnEvery("PYProtect","unfunded"+(string)d,
+                       "T17.23 PREPARE WAIT: RH trim chưa được tài trợ; không ARM bằng candidate cũ",
+                       Recovery_T165WaitLogSecondsPure(RecoveryWaitLogSeconds_));
+         return PY_DRIVE_WAIT_UNFUNDED;
+      }
+      if(decision!=PY_PREPARE_TRIM_READY) return PY_DRIVE_BLOCK;
       m_group[d].phase=PY_PREPARE; m_group[d].candidate=after;
       if(!Save()) return PY_DRIVE_BLOCK;
       return StartOperation(d,EXEC_CMD_PY_RH_TRIM,ticket,lots,0) ? PY_DRIVE_BLOCK : PY_DRIVE_ALLOW;
@@ -956,7 +980,7 @@ public:
       for(int d=0;d<2;d++)
       {
          int status=DriveSide(d,ctx);
-         if(status==PY_DRIVE_ALLOW) return false;
+         if(status==PY_DRIVE_ALLOW || status==PY_DRIVE_WAIT_UNFUNDED) return false;
          if(status==PY_DRIVE_BLOCK) return true;
       }
       return false;

@@ -60,7 +60,7 @@ jobs:
             t1713_concurrency_model.cpp t1714_runtime_model.cpp
             t1715_overlap_capability_model.cpp t1716_rebase_capacity_model.cpp t1717_stop_liveness_model.cpp
             t1719_reentry_model.cpp t1720_one_bar_model.cpp t1721_comment_model.cpp
-            t1722_protection_model.cpp)
+            t1722_protection_model.cpp t1723_audit_regression_model.cpp)
           for src in "${suites[@]}"; do
             exe="/tmp/${src%.cpp}"; out="build-current-model/${src%.cpp}.log"
             g++ -std=c++17 -O2 -Wall -Wextra -I BlackDragon_v14/Include "$R/$src" -o "$exe"
@@ -73,6 +73,7 @@ jobs:
           grep -q 'T17.20 RH one-bar model: 35 passed, 0 failed' build-current-model/t1720_one_bar_model.log
           grep -q 'T17.21 comment model: 75 passed, 0 failed' build-current-model/t1721_comment_model.log
           grep -q 'T17.22 PY protection: 45 passed, 0 failed' build-current-model/t1722_protection_model.log
+          grep -q 'T17.23 audit regressions: 5 passed, 0 failed' build-current-model/t1723_audit_regression_model.log
           echo 'CURRENT MODEL REGRESSION GREEN'
       - name: T17.11 through T17.22 source contracts
         shell: bash
@@ -89,6 +90,7 @@ jobs:
           python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/t1720_source_contract.py" | tee "build-current-model/t1720-source.log"
           python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/t1721_source_contract.py" | tee "build-current-model/t1721-source.log"
           python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/t1722_source_contract.py" | tee "build-current-model/t1722-source.log"
+          python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/t1723_source_contract.py" | tee "build-current-model/t1723-source.log"
           python3 "BlackDragon_v14/Scripts/BlackDragon/Tests/repository_contract.py" \
             | tee "build-current-model/repository-contract.log"
       - uses: actions/upload-artifact@v4
@@ -137,11 +139,11 @@ jobs:
           Start-Process "$env:MT5_DIR\metaeditor64.exe" -ArgumentList "/compile:`"$probe`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow
           $x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x
           if(-not(Test-Path "$mql5\Experts\VKMQLProbe.ex5")-or$x-match' : error '-or$x-match' : warning '){throw 'ProbeEA compile failed'}
-      - name: Compile full EA and all 31 native suites
+      - name: Compile full EA and all 32 native suites
         shell: pwsh
         run: |
           $mql5="$env:MT5_DIR\MQL5";$editor="$env:MT5_DIR\metaeditor64.exe";$b="$env:GITHUB_WORKSPACE\build-current-final"
-          $names=@('RunT1722PyProtectionTests','RunT1721OrderCommentTests','RunT1720RhOneBarTests','RunT1719RecoveryReentryTests','RunT1717StopLivenessTests','RunT1716RebaseCapacityTests','RunT1715OverlapCapabilityTests','RunT1714RuntimeTests','RunT1713ConcurrencyTests','RunT1712RuntimeTests','RunT1711RuntimeTests','RunT1710UnitSystemTests','RunT179RealTpTests','RunT178RuntimeFixTests','RunT177SchedulerTests','RunT177AnchorTests','RunT177OverlapTests','RunT177HedgeLadderTests','RunT177MigrationTests','RunT177JournalTests','RunPyramidT17Tests','RunTests','RunRecoveryFoundationTests','RunRecoveryMutationTests','RunRecoveryIdentityTests','RunRecoveryArcsTests','RunRecoveryLivenessTests','RunRecoveryReachabilityTests','RunRecoveryT165Tests','RunRecoveryT166Tests','RunT176HardeningTests')
+          $names=@('RunT1723AuditRegressionTests','RunT1722PyProtectionTests','RunT1721OrderCommentTests','RunT1720RhOneBarTests','RunT1719RecoveryReentryTests','RunT1717StopLivenessTests','RunT1716RebaseCapacityTests','RunT1715OverlapCapabilityTests','RunT1714RuntimeTests','RunT1713ConcurrencyTests','RunT1712RuntimeTests','RunT1711RuntimeTests','RunT1710UnitSystemTests','RunT179RealTpTests','RunT178RuntimeFixTests','RunT177SchedulerTests','RunT177AnchorTests','RunT177OverlapTests','RunT177HedgeLadderTests','RunT177MigrationTests','RunT177JournalTests','RunPyramidT17Tests','RunTests','RunRecoveryFoundationTests','RunRecoveryMutationTests','RunRecoveryIdentityTests','RunRecoveryArcsTests','RunRecoveryLivenessTests','RunRecoveryReachabilityTests','RunRecoveryT165Tests','RunRecoveryT166Tests','RunT176HardeningTests')
           foreach($n in $names){$src="$mql5\Scripts\BlackDragon\Tests\$n.mq5";$out="$mql5\Scripts\BlackDragon\Tests\$n.ex5";$log="$b\$n-compile.log";Start-Process $editor -ArgumentList "/compile:`"$src`" /inc:`"$mql5`" /log:`"$log`"" -Wait -NoNewWindow;$x=Get-Content $log -Encoding Unicode -Raw;Write-Host $x;$e=@(($x-split"`r?`n")|Where-Object{$_-match' : error '});$w=@(($x-split"`r?`n")|Where-Object{$_-match' : warning '});if(-not(Test-Path $out)-or$e.Count-or$w.Count){throw "$n compile failed: $($e.Count) errors/$($w.Count) warnings"};Copy-Item $out $b -Force}
           $source="$env:GITHUB_WORKSPACE\BlackDragon_v14\Experts\BlackDragon\BlackDragon.mq5";$src="$mql5\Experts\BlackDragon\BlackDragon.mq5";$out="$mql5\Experts\BlackDragon\BlackDragon.ex5";$log="$b\BlackDragon-compile.log"
           $originalHash=(Get-FileHash $source -Algorithm SHA256).Hash.ToLowerInvariant();$stagedHash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -150,10 +152,11 @@ jobs:
           "REPOSITORY=$env:GITHUB_REPOSITORY`nHEAD=$head`nTREE=$tree`nJOB=$env:GITHUB_JOB`nRUN_ID=$env:GITHUB_RUN_ID`nRUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT`nRUNNER_OS=$env:RUNNER_OS`nORIGINAL_MQ5_SHA256=$originalHash`nSTAGED_MQ5_SHA256=$stagedHash`nSTAGING_TRANSFORM=UTF16LE_BOM`nBLACKDRAGON_EX5_SHA256=$hash`nBLACKDRAGON_EX5_SIZE=$size"|Out-File "$b\PROVENANCE.txt" -Encoding utf8
           Copy-Item "$env:GITHUB_WORKSPACE\BlackDragon_v14\docs\vibecode\T17_22_py_protection\OWNER_QA_CHECKLIST.md" $b -Force
           Write-Host "CURRENT MetaEditor PASS 0 errors/0 warnings HEAD=$head TREE=$tree EX5=$hash SIZE=$size"
-      - name: Execute complete 31-suite native matrix
+      - name: Execute complete 32-suite native matrix
         shell: pwsh
         run: |
           $b="$env:GITHUB_WORKSPACE\build-current-final";$ld="$env:MT5_DIR\MQL5\Logs";$tests=@(
+            @{N='RunT1723AuditRegressionTests';P='T17\.23 audit regressions:\s*(\d+) passed,\s*(\d+) failed';E=5},
             @{N='RunT1722PyProtectionTests';P='T17\.22 PY protection:\s*(\d+) passed,\s*(\d+) failed';E=45},
             @{N='RunT1721OrderCommentTests';P='T17\.21 order comment tests:\s*(\d+) passed,\s*(\d+) failed';E=58},
             @{N='RunT1720RhOneBarTests';P='T17\.20 RH one-bar tests:\s*(\d+) passed,\s*(\d+) failed';E=24},
