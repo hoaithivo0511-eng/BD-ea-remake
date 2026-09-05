@@ -35,9 +35,9 @@ ck('m_group[d].phase==PY_PREPARE' in fund and
    'F01 later PY add is charged against durable PREPARE obligation')
 ck('OnDefinitiveReject' in protect and
    'PyProtect_RejectMatchesOperationPure' in protect and
-   'm_ops[found].complete=true' in protect and
+   'EraseOperationAt(found);' in protect and
    'requestedSl=m_members[mi].confirmedSl' in protect,
-   'F02 definitive reject terminates exact durable op and rolls back requested SL')
+   'F02 definitive reject consumes exact durable op and rolls back requested SL')
 execution=rd(INC/'ExecutionLayer.mqh')
 ck('g_pyramidProtection.OnDefinitiveReject' in execution and
    'm_journal[i].reconcileRequired=true' in execution and
