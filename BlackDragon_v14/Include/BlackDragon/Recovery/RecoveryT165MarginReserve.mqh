@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| RecoveryT165MarginReserve.mqh — T16.5 DCA margin reserve         |
+//| RecoveryT165MarginReserve.mqh — T17.6 DCA margin reserve         |
 //| Conservative preflight: before a Core DCA that can participate   |
 //| in Recovery, reserve enough current free margin for that DCA and |
 //| the next LEGAL ARCS Hedge generation implied by post-DCA Core.   |
@@ -24,16 +24,9 @@ bool Recovery_T165ProjectedDcaReserveAllows(const int coreDir,
    requiredMarginOut = 0.0;
    projectedHedgeLotOut = 0.0;
    if(RecoveryMode_ != recovery_ACTIVE || !RecoveryDcaMarginReserve_) return true;
-   // Margin reserve is an ARCS safety preflight. If this configuration is on
-   // the compatibility engine or this cycle already reached Max generations,
-   // there is no future ARCS generation to reserve for.
    if(!futureGenerationAllowed) return true;
    if(coreDir != BD_DIR_BUY && coreDir != BD_DIR_SELL) return false;
-   if(side.count <= 0 || proposedCoreLot <= 0.0) return true;
-
-   int postCount = side.count + 1;
-   if(!Recovery_DcaThresholdReached(postCount, RecoveryStartAfterDca_))
-      return true;
+   if(proposedCoreLot <= 0.0) return true;
 
    double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    if(step <= 0.0)
@@ -42,6 +35,17 @@ bool Recovery_T165ProjectedDcaReserveAllows(const int coreDir,
       return false;
    }
 
+   eRecoveryCoreDirection rdir = coreDir == BD_DIR_BUY ?
+                                  recovery_CORE_BUY : recovery_CORE_SELL;
+   // T17.6: threshold reachability is exact Core Magic as well. Managed
+   // manual magic-0 positions must not make the Recovery trigger appear closer.
+   SArcsPosition exactTriggerCore[];
+   int currentCoreCount = Recovery_ArcsBuildCore(rdir, step, exactTriggerCore);
+   if(currentCoreCount <= 0) return true;
+   int postCount = currentCoreCount + 1;
+   if(!Recovery_DcaThresholdReached(postCount, RecoveryStartAfterDca_))
+      return true;
+
    double normalizedCoreLot = Grid_NormalizeVolume(proposedCoreLot);
    if(normalizedCoreLot <= 0.0)
    {
@@ -49,9 +53,9 @@ bool Recovery_T165ProjectedDcaReserveAllows(const int coreDir,
       return false;
    }
 
-   eRecoveryCoreDirection rdir = coreDir == BD_DIR_BUY ?
-                                  recovery_CORE_BUY : recovery_CORE_SELL;
-   long currentCoreUnits = Recovery_VolumeToUnitsFloor(side.totalLots, step);
+   // T17.6: projected Core exposure uses exact Core Magic, never an aggregate
+   // BasketSide that may include flag_Hand_Ord magic-0 positions.
+   long currentCoreUnits = Recovery_ArcsCoreUnits(rdir, step);
    long dcaUnits = Recovery_VolumeToUnitsFloor(normalizedCoreLot, step);
    long postCoreUnits = currentCoreUnits + dcaUnits;
    long existingHedgeUnits = Recovery_ArcsTotalHedgeUnits(rdir, step);

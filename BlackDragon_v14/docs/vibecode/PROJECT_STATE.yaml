@@ -1,0 +1,51 @@
+project: BlackDragon v15.00 / T17.22
+repository: hoaithivo0511-eng/BD-ea-remake
+branch: feat/t17-full-pyramid
+pull_request: 28
+pull_request_state: DRAFT_OPEN_NOT_MERGED
+methodology: VibeCodeKit-MQL5 Full
+canonical:
+  entry_point: BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5
+  product_version: '15.00'
+  runtime_lineage: T17.22
+  dashboard: REMOVED
+  signal_overlay: WMF_OPTIONAL_PRESERVED
+  workflow: .github/workflows/verify-current.yml
+locked_baseline:
+  remote_head: c108647d109b3cbca0e6477ddae59a677ee7a637
+  remote_tree: c35505e568af990a32c02a27c6337b59a4a0f6a5
+  local_tree_equal: false
+  pr_draft: true
+stages:
+  T17_21_readable_comments:
+    status: VERIFIED_IN_T17_22_REGRESSION
+    contract: BlackDragon_v14/docs/vibecode/T17_21_comments/AI-BUILD-CONTRACT.json
+    separator: '|'
+    legacy_readers: true
+    trade_logic_changes: false
+  T17_22_core_py_protection:
+    status: IMPLEMENTED_LOCAL_VPS_VERIFIED_CI_PENDING
+    contract: BlackDragon_v14/docs/vibecode/T17_22_py_protection/AI-BUILD-CONTRACT.json
+    modes: OFF_VIRTUAL_BROKER
+    rh_coordination: true
+    fresh_settlement_snapshot: required
+runtime_release_gates:
+  deterministic_models: LOCAL_41_OF_41_PASS
+  source_invariants: LOCAL_PASS
+  metaeditor_compile: VPS_PASS_0_ERRORS_0_WARNINGS
+  native_mt5_scripts: REQUIRED_31_OF_31_1075_PASS_0_FAIL
+  exact_head_provenance: CI_PENDING
+  owner_strategy_tester: PENDING_OWNER
+  ready_for_review: false
+  merge: false
+  release: false
+  forward: false
+  live: false
+known_rules:
+- WAIT_RESET and ARMED block Core DCA only; Core Pyramid ADD remains settings-driven.
+- EXHAUSTED blocks DCA and Pyramid ADD but not risk-reducing Peel/close.
+- ShowWmfSignals and WMF arrows are not part of the removed dashboard.
+- Native compile and scripts are not Strategy Tester PASS.
+- Historical governance is frozen below docs/vibecode/archive.
+- Never force-push local divergent ancestry; create a commit on exact remote parent
+  and update ref with force=false.

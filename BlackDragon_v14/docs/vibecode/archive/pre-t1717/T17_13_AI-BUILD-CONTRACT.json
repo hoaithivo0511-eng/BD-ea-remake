@@ -1,0 +1,50 @@
+{
+  "schema": "vibecode-ai-build-contract/1.0",
+  "id": "BLACKDRAGON-T17.13",
+  "mode": "Full",
+  "approved_source": "owner-chat-2026-08-27",
+  "allowed_paths": [
+    "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1713ConcurrencyPolicy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDcaT1713.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramidT1713.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Policy.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT1713.mqh",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/**",
+    "BlackDragon_v14/docs/vibecode/T17_13_*",
+    "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+    ".github/workflows/verify-t1713-final.yml",
+    ".github/workflows/verify-t176-ownership.yml",
+    ".github/workflows/verify-t177-c2.yml",
+    ".github/workflows/verify-t177-c5.yml"
+  ],
+  "forbidden": [
+    "change entry, lot, risk or exit semantics",
+    "renumber persisted enums",
+    "add user-facing inputs",
+    "weaken mutation or reconciliation fail-closed barriers",
+    "enable live trading",
+    "merge or mark PR ready"
+  ],
+  "guards": [
+    {"id":"RETRO-A1","severity":"P0","checker":"t1713.scheduler_state_model","waiver_allowed":false},
+    {"id":"RETRO-A2","severity":"P0","checker":"t1713.fail_closed_mutation","waiver_allowed":false},
+    {"id":"RETRO-A3","severity":"P1","checker":"t1713.decision_locking_tests","waiver_allowed":false},
+    {"id":"RETRO-A4","severity":"P1","checker":"t1713.independent_execution_spy","waiver_allowed":false},
+    {"id":"RETRO-A5","severity":"P1","checker":"t1713.live_core_rebase","waiver_allowed":false},
+    {"id":"RETRO-A6","severity":"P0","checker":"t1713.one_mutation_per_tick","waiver_allowed":false},
+    {"id":"RETRO-A8","severity":"P0","checker":"t1713.durable_after_submit_only","waiver_allowed":false},
+    {"id":"RETRO-A9","severity":"P0","checker":"t1710.exact_regression","waiver_allowed":false},
+    {"id":"RETRO-A10","severity":"P1","checker":"t1713.windows_native_matrix","waiver_allowed":false},
+    {"id":"RETRO-A12","severity":"P1","checker":"t1713.source_contract","waiver_allowed":false}
+  ],
+  "required_evidence": [
+    "independent 11-BUY scheduler integration model with execution spy",
+    "T17.11 through T17.13 source contracts",
+    "full established deterministic regression",
+    "MetaEditor full EA and native suites with 0 errors and 0 warnings",
+    "exact HEAD, tree, workflow run and EX5 SHA256/size provenance"
+  ],
+  "forbidden_claims": ["Strategy Tester PASS", "release eligible", "forward eligible", "live ready"]
+}

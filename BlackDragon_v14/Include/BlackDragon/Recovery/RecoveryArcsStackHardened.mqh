@@ -6,6 +6,8 @@
 #ifndef BD_RECOVERY_ARCS_STACK_HARDENED_MQH
 #define BD_RECOVERY_ARCS_STACK_HARDENED_MQH
 
+#include "RecoveryT1714InterleavePolicy.mqh"
+
 #define private protected
 #define CRecoveryArcsStack CRecoveryArcsStackBase
 #include "RecoveryArcsStack.mqh"
@@ -142,13 +144,6 @@ private:
 
          long live = Recovery_ArcsLayerUnits(dir, layer.generation, m_volumeStep);
          if(live == layer.remainingUnits) continue;
-         if(live < 0 || live > layer.remainingUnits)
-         {
-            why = "protective layer broker volume tăng/không hợp lệ so với persisted ownership";
-            return false;
-         }
-
-         long observedClose = layer.remainingUnits - live;
          long provenClose = 0;
          for(int k = 0; k < ArraySize(deals); k++)
          {
@@ -170,15 +165,21 @@ private:
             d.programmedSl = HistoryDealGetDouble(deal, DEAL_SL);
             d.dealPrice = HistoryDealGetDouble(deal, DEAL_PRICE);
             d.volume = HistoryDealGetDouble(deal, DEAL_VOLUME);
-            if(!IsExpectedPersistedProtectiveClose(dir, layer, d)) continue;
+            bool pyTrim=g_pyramidProtection!=NULL && g_pyramidProtection.ExpectedRhTrim(deal);
+            if(!pyTrim && !IsExpectedPersistedProtectiveClose(dir, layer, d)) continue;
             provenClose += Recovery_VolumeToUnitsFloor(d.volume, m_volumeStep);
          }
 
-         if(provenClose != observedClose)
+         eRecoveryT1714LayerRefresh disposition =
+            Recovery_T1714LayerRefreshPure(layer.remainingUnits, live, provenClose);
+         if(disposition == recovery_T1714_REFRESH_RECONCILE)
          {
-            why = "persisted protective layer giảm volume nhưng không có exact protective-close proof";
+            why = live > layer.remainingUnits
+                  ? "protective layer broker volume tăng so với persisted ownership"
+                  : "persisted protective layer giảm volume nhưng không có exact protective-close proof";
             return false;
          }
+         if(disposition == recovery_T1714_REFRESH_UNCHANGED) continue;
 
          layer.remainingUnits = live;
          if(live == 0)
@@ -196,6 +197,7 @@ private:
 
    void RefreshClosedGenerationFromDeal(const MqlTradeTransaction &trans)
    {
+      if(g_pyramidProtection!=NULL && g_pyramidProtection.ExpectedRhTrim(trans.deal)) return;
       if(trans.deal == 0 || !HistoryDealSelect(trans.deal)) return;
       long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;
@@ -367,6 +369,17 @@ private:
    }
 
 public:
+   // T17.14 synchronous trade effects may be broker-visible before MT5 delivers
+   // DEAL_ADD callbacks. Refresh only exact-proven protective decreases so an
+   // unrelated Overlap finalizer validates fresh ownership without weakening
+   // manual/ambiguous mutation fail-closed behavior.
+   bool RefreshExpectedProtectiveCloseOwnership(
+      const eRecoveryCoreDirection dir,
+      string &why)
+   {
+      return RepairProtectiveLayerDecreases(dir, why);
+   }
+
    // T16.1 classifier: prefer durable layer target, but if event ordering has
    // already moved mutable state, exact ExecutionLayer MODIFY identity can
    // independently prove that this broker SL was Recovery-owned.

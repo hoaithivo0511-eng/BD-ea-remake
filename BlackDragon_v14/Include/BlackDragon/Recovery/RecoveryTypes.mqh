@@ -66,6 +66,7 @@ input eRecoveryCoreCloseMode CoreCloseMode_              = recovery_Oldest; // C
 input double                 HedgeLockNetProfitPips_     = 3.0;             // Mức lợi nhuận tối thiểu muốn khóa bằng SL cho Hedge còn lại (pip)
 input double                 HedgeLockSafetyBufferPips_  = 1.0;             // Biên an toàn vượt hòa vốn ròng khi đặt SL khóa Hedge (pip)
 input double                 ReHedgeGapPips_             = 50.0;            // Khoảng bất lợi từ điểm chốt Hedge để mở thế hệ Hedge kế tiếp (pip)
+input bool                   RecoveryOneOrderPerBar_     = false;           // RH: tối đa 1 lệnh mở mỗi nến chart/hướng, kể cả mở lại sau BE/SL
 input int                    MaxHedgeGenerations_        = 5;               // Số thế hệ Hedge tối đa; hợp lệ từ 1 đến Max
 
 // T15: keep all Recovery-owned semantic inputs visible before the persistence

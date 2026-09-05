@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "task": "T17.19",
+  "baseline_head": "b971f41fc92ac8b084ccfa6748a59ae166d5f939",
+  "baseline_tree": "6da21b0dbaeda85ce66f12825064521be40e75c5",
+  "allowed_files": [
+    "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/**",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/**",
+    "BlackDragon_v14/docs/vibecode/**",
+    "BlackDragon_v14/README.md",
+    "BlackDragon_v14/HANDOFF.md",
+    "BlackDragon_v14/Include/BlackDragon/ARCHITECTURE.md",
+    "BlackDragon_v14/Include/BlackDragon/CHANGELOG.md",
+    ".github/workflows/verify-current.yml"
+  ],
+  "required_preservation": [
+    "ARCS v4 byte layout",
+    "T17.18 dashboard-free composition and WMF arrow behavior",
+    "existing Core Pyramid ADD gates in WAIT_RESET and ARMED",
+    "risk-reducing exits and Pyramid Peel",
+    "fresh-Core Hedge Pyramid scheduling and hard cap",
+    "Mobile Control and service timer duties"
+  ],
+  "forbidden_changes": [
+    "direct ancestry push of local T17.18 commit",
+    "approximate or external close trigger",
+    "same DEAL callback re-open",
+    "Core DCA admission in WAIT_RESET or ARMED",
+    "Core Pyramid ADD suppression in WAIT_RESET or ARMED",
+    "ARCS v4 schema mutation",
+    "PR merge or live trading"
+  ],
+  "triggered_guards": ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A12"],
+  "required_evidence": [
+    "T17.19 independent C++ model and native MQL suite",
+    "T17.19 source contract plus T17.11 through T17.18 regressions",
+    "repository contract",
+    "exact branch-head Windows MetaEditor compile with zero errors and zero warnings",
+    "complete native matrix exact expected total",
+    "artifact, source, staged-source and EX5 hashes",
+    "TunnelVibemq5 compile/test evidence when a dedicated BlackDragon workspace exists",
+    "owner Strategy Tester remains pending until genuine tester evidence exists"
+  ],
+  "stop_conditions": [
+    "remote branch head moved before Git-data publication",
+    "GitHub-created tree differs from local tree",
+    "any model/source/repository contract failure",
+    "any MetaEditor error or warning",
+    "native total mismatch",
+    "artifact or provenance mismatch",
+    "tunnel source hash mismatch"
+  ],
+  "release_flags": {"release": false, "forward": false, "live": false, "merge": false}
+}

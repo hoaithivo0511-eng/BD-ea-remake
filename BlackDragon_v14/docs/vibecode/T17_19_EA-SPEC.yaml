@@ -1,0 +1,72 @@
+schema_version: "1.0"
+task: T17.19
+project: BlackDragon v15.00 terminal Recovery-Hedge re-entry
+status: CONTRACT_LOCKED
+baseline:
+  branch: feat/t17-full-pyramid
+  remote_head: b971f41fc92ac8b084ccfa6748a59ae166d5f939
+  remote_tree: 6da21b0dbaeda85ce66f12825064521be40e75c5
+evidence_input:
+  tester_log: 20260904.log
+  sha256: 85af0f469ccde3be1dfe0681bf18277e9e2e78c1013e60e546966bf7e55e31ea
+  finding: terminal MAXED_NO_HEDGE lets adverse Core DCA continue after a positive Recovery protective close
+risk:
+  tier: P1_EXECUTION_PERSISTENCE
+  guards: [A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A12]
+inputs:
+  - name: MaxRecoveryReentryCycles_
+    type: int
+    default: 2
+    range: [0, 20]
+    meaning: maximum terminal protective-close re-entry cycles per Core campaign; zero disables
+  - name: RecoveryReentryBufferPips_
+    type: double
+    existing: true
+    constraint_when_enabled: greater_than_zero
+state_machine:
+  phases: [NONE, COLLECTING, WAIT_RESET, ARMED, TRIGGER_PENDING, IN_CYCLE, EXHAUSTED]
+  terminal_eligibility:
+    - generationCount is at least MaxHedgeGenerations_
+    - all Recovery Hedge exposure for the Core direction is zero
+    - every accepted trigger deal has exact Recovery-owned protective-close identity
+    - aggregate realized Recovery cash for the terminal chain is nonnegative
+  buy_core:
+    wait_reset: Ask is at least anchor plus RecoveryReentryBufferPips_
+    trigger: Bid returns to or below anchor
+  sell_core:
+    wait_reset: Bid is at most anchor minus RecoveryReentryBufferPips_
+    trigger: Ask returns to or above anchor
+  restart:
+    - persist TRIGGER_PENDING before modifying the ARCS generation book
+    - reset the ARCS generation book while retaining deal cursor and the re-entry anchor
+    - start a fresh G1 sized from fresh exact-Magic Core exposure
+    - reuse the current staged Hedge Pyramid coverage, gap, hard-cap, timing, margin and execution gates
+admission:
+  WAIT_RESET: {core_dca: blocked, core_pyramid_add: existing_settings, pyramid_peel: allowed}
+  ARMED: {core_dca: blocked, core_pyramid_add: existing_settings, pyramid_peel: allowed}
+  TRIGGER_PENDING: {core_dca: blocked, core_pyramid_add: blocked_by_recovery_mutation, pyramid_peel: allowed}
+  IN_CYCLE: {core_dca: existing_recovery_policy, core_pyramid_add: existing_recovery_policy, pyramid_peel: allowed}
+  EXHAUSTED: {core_dca: blocked, core_pyramid_add: blocked, pyramid_peel: allowed}
+reset:
+  - exact Core direction becomes flat with no Recovery Hedge exposure
+  - confirmed global flatten
+  - new Core campaign identity
+fail_closed:
+  - corrupt or mismatched T17.19 persistence
+  - ambiguous or external protective close
+  - inconsistent anchor or impossible persisted phase
+  - failure to persist before retryable transition
+preserve:
+  - T17.18 dashboard-free baseline and ShowWmfSignals arrows
+  - ARCS v4 byte layout
+  - current Core Pyramid ADD settings and gates during WAIT_RESET and ARMED
+  - Recovery Hedge ladder stages and fresh-Core rebasing
+  - Mobile Control and timer safety/liveness duties
+release:
+  local_models: PENDING
+  metaeditor: PENDING
+  strategy_tester: PENDING_OWNER
+  tunnel_vps: BLOCKED_SETUP
+  merge: false
+  forward: false
+  live: false

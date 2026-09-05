@@ -612,7 +612,7 @@ int main()
       Check("AU-14-01 fix: last order profitable (fresh)", freshLast > 0);
       Check("AU-14-01 fix: overlap fires with fresh values",
             Exit_OverlapHit(8, 8, true, freshFirst, freshLast, 3));
-      Check("AU-14-01 fix: totalProfit tracks price (panel live again)",
+      Check("AU-14-01 fix: totalProfit tracks price for exit economics",
             fabs(side.totalProfit - (FloatPL(1.1000,bidNow,0.01)+FloatPL(1.0980,bidNow,0.02)
               +FloatPL(1.0960,bidNow,0.02)+FloatPL(1.0940,bidNow,0.03)+FloatPL(1.0920,bidNow,0.05)
               +FloatPL(1.0900,bidNow,0.08)+FloatPL(1.0880,bidNow,0.11)+FloatPL(1.0860,bidNow,0.17))) < 1e-6);
@@ -688,10 +688,9 @@ int main()
             !rejected.HasActive() && rejected.completions==1);
 
       // BD-001 coordinator trace model. Close phases precede entries and are terminal.
-      auto TickTrace = [](bool panelClose, bool pendingClose, bool guardClose,
+      auto TickTrace = [](bool pendingClose, bool guardClose,
                           bool exitBuy, bool exitSell){
          vector<string> trace;
-         if(panelClose){ trace.push_back("panel-close"); return trace; }
          if(pendingClose) return trace;
          if(guardClose){ trace.push_back("guard-close"); return trace; }
          if(exitBuy) trace.push_back("buy-close");
@@ -699,14 +698,14 @@ int main()
          if(exitBuy || exitSell) return trace;
          trace.push_back("entry"); trace.push_back("modify"); return trace;
       };
-      auto t1=TickTrace(false,false,true,false,false);
+      auto t1=TickTrace(false,true,false,false);
       Check("BD-001 guard close suppresses entry+modify", t1.size()==1 && t1[0]=="guard-close");
-      auto t2=TickTrace(false,false,false,true,true);
+      auto t2=TickTrace(false,false,true,true);
       Check("BD-001 simultaneous exits both sent then terminal",
             t2.size()==2 && t2[0]=="buy-close" && t2[1]=="sell-close");
       Check("BD-001 pending close suppresses all later work",
-            TickTrace(false,true,false,false,false).empty());
-      auto t3=TickTrace(false,false,false,false,false);
+            TickTrace(true,false,false,false).empty());
+      auto t3=TickTrace(false,false,false,false);
       Check("BD-001 no close preserves normal entry+modify path",
             t3.size()==2 && t3[0]=="entry" && t3[1]=="modify");
    }

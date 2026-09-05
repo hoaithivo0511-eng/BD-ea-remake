@@ -25,7 +25,11 @@ public:
    bool Allow(const EAContext &ctx, const int dir)
    {
       double adx[1];
-      if(CopyBuffer(m_handle, 0, 1, 1, adx) != 1) return true;   // fail-open
+      // T17.23 F07: enabling ADX means new risk requires valid indicator
+      // evidence. Temporary history/indicator unavailability waits instead of
+      // silently bypassing the user's filter.
+      if(m_handle==INVALID_HANDLE || CopyBuffer(m_handle, 0, 1, 1, adx) != 1)
+         return false;
       return adx[0] >= MinAdx;
    }
 };

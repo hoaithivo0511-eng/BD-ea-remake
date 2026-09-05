@@ -1,0 +1,47 @@
+schema_version: "1.0"
+task: T17.7
+status: OWNER_APPROVED
+approved_at: "2026-08-24"
+baseline_head: 904dad4d92e31ebed56c75a54d8bd0537b0012a1
+
+owner_approved_semantics:
+  - id: D1
+    title: FIRST_CORE uses cumulative ladder
+    decision: APPROVED
+    detail: "FIRST_CORE_CUMULATIVE giữ anchor tại giá Core exact-Magic đầu tiên của campaign và cộng dồn DistanceSequence theo serial. DCA/Peel không dịch anchor."
+  - id: D2
+    title: Recovery ownership is side-aware and WAIT is not a mutation
+    decision: APPROVED
+    detail: "Recovery cùng side đã sở hữu topology thì block Core Pyramid side đó. Opposite-side Recovery chỉ WAIT không được block Pyramid side còn lại. Chỉ MUTATED/PENDING/RECONCILE mới dừng mutation chain."
+  - id: D3
+    title: Overlap leg 2 must be revalidated after leg 1 fill
+    decision: APPROVED
+    detail: "Sau khi leg 1 broker-confirmed, refresh economics. Nếu leg 2 không còn an toàn thì durable WAIT, không ép close âm; ambiguous outcome -> RECONCILE."
+  - id: D4
+    title: Input simplification uses versioned compatibility migration
+    decision: APPROVED
+    detail: "Không xóa input cũ đột ngột. Gộp/lược bằng migration map, compatibility aliases và persistence versioning để .set cũ có đường chuyển."
+
+additional_owner_requirement:
+  id: D5
+  title: Vietnamese human-readable runtime journal
+  decision: APPROVED_MANDATORY
+  detail:
+    - "Log/journal runtime phải ưu tiên tiếng Việt ngắn gọn, dễ đọc."
+    - "Nhìn log phải biết ngay trạng thái, vấn đề, lỗi hoặc lý do đang chờ."
+    - "Hạn chế thuật ngữ kỹ thuật/enum nội bộ trong thông điệp cho người dùng."
+    - "Không spam mỗi tick; log khi đổi trạng thái hoặc heartbeat có kiểm soát."
+    - "Vẫn giữ số liệu điều tra cần thiết: BUY/SELL, ticket, lot, giá, serial/generation, target/current/remaining khi liên quan."
+
+non_negotiable_invariants:
+  - "MoneyGuard absolute floating priority giữ P0."
+  - "One actual trade mutation chain per tick."
+  - "Broker outcome ambiguity luôn fail-closed/reconcile."
+  - "Exact Core Magic ownership cho Recovery/Pyramid accounting."
+  - "Hedge Pyramid add-only; không tự đóng Hedge chỉ vì target giảm."
+  - "Campaign realized Pyramid debt không bị mất qua Peel/restart/Overlap seed removal."
+  - "PR #28 giữ Draft cho tới owner Strategy Tester PASS và owner explicit merge approval."
+
+superseded_or_deferred:
+  - "T17.6 Stage A/B vẫn là baseline behavior và phải regression-pass."
+  - "Không merge main trong T17.7 BUILD."

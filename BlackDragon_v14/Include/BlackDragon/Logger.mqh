@@ -1,16 +1,12 @@
 //+------------------------------------------------------------------+
-//| Logger.mqh — BlackDragon v14.0.0 / T16.5                         |
-//| Purpose   : Leveled, throttled logging. Replaces Alert+Sleep     |
-//|             chains (bug #7). No Sleep() anywhere.                |
-//| Invariants: Never blocks. Repeated WARN diagnostics are throttled|
-//|             while trade/fill/state-transition INFO remains exact.|
+//| Logger.mqh — BlackDragon T17.7 C6 Vietnamese journal            |
+//| Leveled/throttled logging; no blocking or trade side effects.    |
 //+------------------------------------------------------------------+
 #ifndef BD_LOGGER_MQH
 #define BD_LOGGER_MQH
 
-// T16.5: the old 60-second repeated-warning cadence generated very large
-// Strategy Tester journals during long Recovery waits. Keep the FIRST event
-// immediate, then reduce the default heartbeat to once per five minutes.
+#include "JournalT177.mqh"
+
 #define BD_LOG_THROTTLE_SEC 300
 
 string   g_logKeys[];
@@ -23,7 +19,6 @@ bool Log_ThrottleAllow(const string key, const int intervalSec)
    for(int i = 0; i < n; i++)
    {
       if(g_logKeys[i] != key) continue;
-      // interval=0 => first occurrence only for the lifetime of this EA run.
       if(intervalSec <= 0) return false;
       if(now - g_logLast[i] < intervalSec) return false;
       g_logLast[i] = now;
@@ -38,41 +33,45 @@ bool Log_ThrottleAllow(const string key, const int intervalSec)
 
 void Log_Info(const string module, const string msg)
 {
-   Print("[BD:", module, "] ", msg);
+   Print("[BD:", module, "] THÔNG TIN | ", Journal_T177NormalizePayloadPure(msg));
 }
 
-// Keyed INFO is reserved for lifecycle/order evidence and remains immediate.
-// Waiting/heartbeat INFO must use Log_InfoEvery() instead.
 void Log_Info(const string module, const string key, const string msg)
 {
-   Print("[BD:", module, "] ", msg, " [", key, "]");
+   Print("[BD:", module, "] THÔNG TIN | ", Journal_T177NormalizePayloadPure(msg), " [", key, "]");
 }
 
 void Log_InfoEvery(const string module, const string key,
                    const string msg, const int intervalSec)
 {
    if(!Log_ThrottleAllow("I|" + module + "|" + key, intervalSec)) return;
-   Print("[BD:", module, "] ", msg, " [", key, "]");
+   Print("[BD:", module, "] THÔNG TIN | ", Journal_T177NormalizePayloadPure(msg), " [", key, "]");
 }
 
-// Default WARN: first event immediate, repeated key at most once per 5 min.
 void Log_Warn(const string module, const string key, const string msg)
 {
    if(!Log_ThrottleAllow("W|" + module + "|" + key, BD_LOG_THROTTLE_SEC)) return;
-   Print("[BD:", module, "] WARN ", msg);
+   string human=Journal_T177NormalizePayloadPure(msg);
+   if(Journal_T177StartsWithPure(human,"CHỜ "))
+      Print("[BD:", module, "] ", human);
+   else
+      Print("[BD:", module, "] CẢNH BÁO | ", human);
 }
 
-// Custom heartbeat for long-running, expected waits. interval=0 logs only the
-// first event; errors and concrete trade mutations must NOT use this helper.
 void Log_WarnEvery(const string module, const string key,
                    const string msg, const int intervalSec)
 {
    if(!Log_ThrottleAllow("W|" + module + "|" + key, intervalSec)) return;
-   Print("[BD:", module, "] WARN ", msg);
+   string human=Journal_T177NormalizePayloadPure(msg);
+   if(Journal_T177StartsWithPure(human,"CHỜ "))
+      Print("[BD:", module, "] ", human);
+   else
+      Print("[BD:", module, "] CẢNH BÁO | ", human);
 }
 
 void Log_Error(const string module, const string msg)
 {
-   Print("[BD:", module, "] ERROR ", msg, " (LastError=", GetLastError(), ")");
+   Print("[BD:", module, "] LỖI | ", Journal_T177NormalizePayloadPure(msg),
+         " | LastError=", GetLastError());
 }
 #endif // BD_LOGGER_MQH

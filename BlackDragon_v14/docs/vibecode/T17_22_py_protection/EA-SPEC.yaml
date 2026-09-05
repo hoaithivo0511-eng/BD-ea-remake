@@ -1,0 +1,46 @@
+schema_version: '1.0'
+task: T17.22
+mode: Full
+status: IMPLEMENTED_LOCAL_VPS_VERIFIED_CI_PENDING
+baseline:
+  head: c108647d109b3cbca0e6477ddae59a677ee7a637
+  tree: c35505e568af990a32c02a27c6337b59a4a0f6a5
+authorization: 'Owner: Duyệt tiến hành theo plan; preceding selections 1/2/3 and reuse/freshness
+  amendment.'
+approved_plan_sha256: b391be9f5e65534dd9e074159f998d3663ef7a70c04e0a0dd2ea28832a02b956
+semantics:
+  scope: Core PY BUY/SELL group, independent BE/SL only; existing Core TP/global exits
+    retained
+  modes:
+  - 'OFF'
+  - VIRTUAL
+  - BROKER
+  defaults:
+    PyramidSLMode_: 0
+    PyramidBETriggerPips_: 10.0
+    PyramidLockProfitPips_: 3.0
+    PyramidLockSafetyPips_: 1.0
+    PyramidTrailGapPips_: 0.0
+  defaults_note: Disabled-by-default implementation defaults; not owner optimized
+    trading parameters.
+  pnl: group live net + exact cohort realized, no double swap/entry commission; RH
+    trim accounted separately once
+  floor: BUY never lowers / SELL never raises confirmed SL; cash floor never reduced
+    by ADD/partial close
+  lifecycle: group reset only after exact flat and settled, Core campaign ledger/serial
+    preserved
+  rh: prepare retained exposure envelope before arm; expected trim bypasses RHSL/reentry;
+    no duplicate funding credit
+  funding: PY alone funds protection/coordination; losses already realized by preparatory
+    RH trims raise required PY protection floor; never charged to Core funding ledger
+  trigger: latched until exact cohort closure despite bounce/no-effect reject; account
+    emergency preempts
+  restart: persist before side effect; exact member IDs, operation and confirmed SL
+    survive; unknown blocks additions, never fabricates zero costs
+  performance: reuse basket refresh; event-driven cohort history; final live validation
+    at mutation boundary; no new protection-only whole-account scan/history each quiet
+    tick
+release:
+  merge: false
+  live: false
+  forward: false

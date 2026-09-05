@@ -15,15 +15,28 @@ bool Recovery_T163DeferredLockYieldPure(const bool recoveryConsumed,
           !executionPending && !executionReconcile;
 }
 
+bool Recovery_T1711TerminalNoHedgePure(const int generationCount,
+                                       const int maxGenerations,
+                                       const long coreUnits,
+                                       const long hedgeUnits,
+                                       const bool terminalPhase)
+{
+   return terminalPhase && maxGenerations >= 1 &&
+          generationCount >= maxGenerations &&
+          coreUnits > 0 && hedgeUnits <= 0;
+}
+
 bool Recovery_T163MaxedNoHedgePure(const int generationCount,
                                    const int maxGenerations,
                                    const long coreUnits,
                                    const long hedgeUnits,
                                    const bool terminalPhase)
 {
-   return terminalPhase && maxGenerations >= 1 &&
-          generationCount >= maxGenerations &&
-          coreUnits > 0 && hedgeUnits <= 0;
+   return Recovery_T1711TerminalNoHedgePure(generationCount,
+                                            maxGenerations,
+                                            coreUnits,
+                                            hedgeUnits,
+                                            terminalPhase);
 }
 
 // Compatibility view only. Internal ARCS durable phase is not rewritten.

@@ -6,6 +6,7 @@
 #define BD_RECOVERY_ARCS_TYPES_MQH
 
 #include "RecoveryT16Config.mqh"
+#include <BlackDragon/OrderCommentCodec.mqh>
 
 enum eArcsLayerState
 {
@@ -187,14 +188,12 @@ int Recovery_ArcsCommentFieldInt(const string comment, const string key)
 
 int Recovery_ArcsGenerationFromComment(const string comment)
 {
-   if(StringFind(comment, "BDR|C=") != 0) return -1;
-   return Recovery_ArcsCommentFieldInt(comment, "|G=");
+   return OC_RhGeneration(comment);
 }
 
 int Recovery_ArcsCycleFromComment(const string comment)
 {
-   if(StringFind(comment, "BDR|C=") != 0) return -1;
-   return Recovery_ArcsCommentFieldInt(comment, "BDR|C=");
+   return OC_RhCycle(comment);
 }
 
 bool Recovery_ArcsLayerStateHasExposure(const eArcsLayerState s)
@@ -211,6 +210,22 @@ bool Recovery_ArcsPhaseMutating(const eArcsPhase p)
           p == ARCS_CORE_FUNDING || p == ARCS_LOCK_PENDING ||
           p == ARCS_PROTECTIVE_CLOSE_WAIT ||
           p == ARCS_GLOBAL_PROTECT || p == ARCS_GLOBAL_CLOSING;
+}
+
+// T17.11: an ACTIVE/no-TP observation is read-only when the broker snapshot
+// still matches the durable layer. A real fill/price-basis change is semantic
+// and must remain persistable before the scheduler yields.
+bool Recovery_T1711ActiveTpSnapshotChangedPure(const long liveUnits,
+                                               const long openedUnits,
+                                               const long remainingUnits,
+                                               const double weightedEntry,
+                                               const double storedWeightedEntry,
+                                               const double netBE,
+                                               const double storedNetBE)
+{
+   return liveUnits != openedUnits || liveUnits != remainingUnits ||
+          MathAbs(weightedEntry - storedWeightedEntry) > 1e-12 ||
+          MathAbs(netBE - storedNetBE) > 1e-12;
 }
 
 #endif // BD_RECOVERY_ARCS_TYPES_MQH

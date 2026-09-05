@@ -1,0 +1,31 @@
+schema_version: "1.0"
+task: T17.20
+mode: Full
+status: OWNER_REQUEST_AUTHORIZED
+baseline_head: 4ea008a1b16bd0cf3b520628d127abed5ed7c563
+baseline_tree: 91fe36c3969ac4ae7dda65b0d7f3d2b02ac0077a
+input:
+  name: RecoveryOneOrderPerBar_
+  type: bool
+  default: false
+  group: "16 — Phục hồi thích ứng bằng Hedge"
+semantics:
+  off: exact existing RH admission; no new history/series work
+  on: at most one filled RH opening order per chart bar per symbol and RecoveryMagic direction
+  candle: chart PERIOD_CURRENT, same bar domain as Core DCA
+  first_rh: existing entry trigger; Core DCA does not consume the independent RH slot
+  later_rh: includes generation transitions, staged/bundled children, BE/SL re-entry and closed positions
+  be_sl: closing does not clear the slot of the candle in which RH opened
+  next_candle: may open when all existing admission gates allow
+  rejection: no new bar slot consumed without an opening fill; existing pending/ambiguous journal rules remain
+  restart: reconstruct current bar from broker live positions and deal history
+  unavailable_evidence: wait for data, do not latch execution failure or consume a durable open intent
+  persistence: no new cache/file/schema; timing input can be enabled against current broker history
+preserve:
+  - all lot, price, coverage, generation cap and NewCycle calculations
+  - first-entry signal/gap logic and existing MinuteStop/layer-stage rules
+  - RH-01/RH-02 audit findings remain unfixed by owner instruction
+  - SL/TP/Overlap/Peel and Core DCA/Pyramid admission
+  - ARCS v4 and T17.19 re-entry v1 persistence
+  - default settings other than the one additive disabled input
+release: {merge: false, forward: false, live: false}

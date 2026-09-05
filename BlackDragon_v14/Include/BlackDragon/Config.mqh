@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| Config.mqh — BlackDragon v14.9.0                                 |
+//| Config.mqh — BlackDragon v15.00                                  |
 //| Purpose   : ALL user inputs + named constants. No trade logic.   |
 //| Invariants: retained input identifiers/default meanings stay     |
 //|             stable unless explicitly migrated by release notes.  |
@@ -8,12 +8,27 @@
 //+------------------------------------------------------------------+
 #ifndef BD_CONFIG_MQH
 #define BD_CONFIG_MQH
+#include "UnitSystem.mqh"
 
 enum eModeStops
 {
    mode_Real, // Thật — đặt mức SL/TP tại broker
    mode_Virt  // Ảo — EA tự theo dõi và đóng rổ
 };
+enum ePyramidProtectionMode
+{
+   py_protect_OFF=0,
+   py_protect_VIRTUAL=1,
+   py_protect_BROKER=2
+};
+
+input group "23B — BẢO VỆ LỢI NHUẬN NHÓM PYRAMID CORE"
+input ePyramidProtectionMode PyramidSLMode_=py_protect_OFF; // Tắt / SL ảo / SL broker
+input double PyramidBETriggerPips_=10.0; // Lợi nhuận ròng nhóm để xét khóa (pip)
+input double PyramidLockProfitPips_=3.0; // Lợi nhuận ròng tối thiểu cần giữ (pip)
+input double PyramidLockSafetyPips_=1.0; // Đệm chi phí thực thi (pip)
+input double PyramidTrailGapPips_=0.0; // Khoảng trailing sau BE; 0 = chỉ khóa dương
+
 enum eExecMode
 {
    exec_Sync, // Đồng bộ
@@ -59,7 +74,7 @@ input ENUM_TIMEFRAMES TF_Stoh     = PERIOD_CURRENT; // Khung thời gian Stochas
 input int             Up_Level    = 90;             // Ngưỡng Stochastic xác nhận Sell
 input int             Down_Level  = 10;             // Ngưỡng Stochastic xác nhận Buy
 input int             KPeriod     = 7;              // Chu kỳ %K của Stochastic
-input int             DPeriod     = 1;              // Chu kỳ %D của Stochastic
+input int             DPeriod     = 1;               // Chu kỳ %D của Stochastic
 input int             Slowing     = 2;              // Hệ số Slowing của Stochastic
 
 input group "04 — Tín hiệu WMF"
@@ -83,17 +98,17 @@ input string   MartinSequence_ = "1.5";               // Chuỗi hệ số nhân
 input double   MaxLot_         = 5;                   // Lot tối đa cho mỗi lệnh
 
 input group "06 — Khoảng cách DCA"
-input int    MinuteStop        = 0;                         // Thời gian tối thiểu giữa hai lệnh DCA (phút)
-input string DistanceSequence_ = "20x5-24-28.8-34.6-41.5"; // Chuỗi khoảng cách DCA (pip); hết chuỗi lặp khoảng cách cuối
+input int    MinuteStop        = 0;                         // Delay tối thiểu giữa các ADD DCA/Pyramid Core/bậc Hedge Pyramid (phút); 0 = tắt
+input string DistanceSequence_ = "20x5-24-28.8-34.6-41.5"; // DCA: pip thật ở PIP_UNIFIED; bridge cũ ở LEGACY_COMPAT
 
 input group "07 — TP / SL / Trailing / Overlap"
 input eModeStops TP_Mode       = mode_Virt; // Chế độ Take Profit của rổ
-input double     TP_           = 200.0;     // TP của rổ tính từ giá hòa vốn (point chuẩn)
+input double     TP_           = 200.0;     // Legacy: point chuẩn; PIP_UNIFIED: pip
 input eModeStops SL_Mode       = mode_Virt; // Chế độ Stop Loss của rổ
-input double     SL_           = 0.0;       // SL của rổ tính từ lệnh đầu (point chuẩn)
+input double     SL_           = 0.0;       // Legacy: point chuẩn; PIP_UNIFIED: pip
 input eModeStops Trail_Mode    = mode_Virt; // Chế độ Trailing Stop của rổ
-input double     iTS           = 0.0;       // Mức lời kích hoạt Trailing (point chuẩn)
-input double     iTD           = 100.0;     // Khoảng cách Trailing Stop (point chuẩn)
+input double     iTS           = 0.0;       // Legacy: point chuẩn; PIP_UNIFIED: pip
+input double     iTD           = 100.0;     // Legacy: point chuẩn; PIP_UNIFIED: pip
 input bool       Overlap       = true;      // Bật chốt cặp lệnh đầu-cuối (Overlap)
 input int        OverlapOrderNumber = 8;    // Bắt đầu Overlap từ số lệnh
 input double     OverlapPercent     = 3.0;  // Biên lợi nhuận thêm khi Overlap (%)
@@ -119,7 +134,7 @@ input double DailySLPercent = 0.0; // Giới hạn lỗ ngày theo số dư đ�
 input int    NewDayDelayMin = 0;   // Phút chờ sau 00:00 ngày mới trước khi chạy lại
 
 input group "10 — Bộ lọc mở chuỗi mới"
-input int    MaxSpred     = 0;     // Spread tối đa để mở chuỗi mới (point chuẩn; 0 = tắt)
+input int    MaxSpred     = 0;     // Legacy: point chuẩn; PIP_UNIFIED: pip; 0 = tắt
 input bool   UseAdxFilter = false; // Dùng ADX lọc mở chuỗi mới
 input int    AdxPeriod    = 14;    // Chu kỳ ADX trên timeframe chart
 input double MinAdx       = 20.0;  // ADX tối thiểu để mở chuỗi mới
@@ -155,41 +170,28 @@ input eNewsFailMode NewsFailMode = news_fail_TradeOn; // Xử lý khi lịch tin
 
 input group "13 — Khớp lệnh & chuẩn hóa broker"
 input eExecMode ExecMode    = exec_Async; // Chế độ gửi lệnh Sync / Async
-input int       Slippage_   = 3;          // Độ lệch giá tối đa cho phép (point chuẩn)
-input bool      AutoGoldPip = true;       // Tự chuẩn hóa point Vàng 2/3 chữ số
+input eUnitSystemMode UnitSystemMode_ = unit_LEGACY_COMPAT; // Legacy .set hoặc chuẩn hóa toàn bộ theo pip
+input int       Slippage_   = 3;          // Legacy: point chuẩn; PIP_UNIFIED: pip
+input bool      AutoGoldPip = true;       // Chỉ áp dụng trong LEGACY_COMPAT
 
 input group "14 — Điều khiển từ MT5 Mobile"
 input bool UseMobileControl = true; // Bật điều khiển EA từ MT5 Mobile
 
-input group "15 — Panel & hiển thị chart"
-input int    X1_          = 10;            // Vị trí Panel theo trục X
-input int    Y1_          = 25;            // Vị trí Panel theo trục Y
-input bool   fDraw        = true;          // Hiển thị Panel và đối tượng trên chart
-input int    FontSizeMark = 13;            // Cỡ chữ thông tin
-input string FontNameMark = "Verdana";     // Font chữ thông tin
-input color  ColorText    = clrWhite;      // Màu chữ thông tin
-input color  ColorFonRec  = clrDarkViolet; // Màu nền nút Pause khi bình thường
-input int    FontSizeButt = 11;            // Cỡ chữ nút điều khiển
-input string FontNameButt = "Verdana";     // Font chữ nút điều khiển
-input color  ColorButt    = clrWhite;      // Màu chữ nút điều khiển
-input color  cCIP         = clrGray;       // Màu nền Panel
-
-#define BD_VERSION            "14.9.0"
+#define BD_VERSION            "15.00"
 #define BD_STATE_FILE_SUFFIX  "_BD_v14.bin"
-#define BD_OBJ_PREFIX         "ke_EA_BD_"
-#define BD_OBJ_PREFIX_REZ     "ke_Rez_EA_BD_"
+#define BD_WMF_OBJ_PREFIX     "ke_EA_BD_wmf"
 #define BD_MAX_SEND_RETRIES   3
 #define BD_ASYNC_TIMEOUT_SEC  5
 #define BD_ASYNC_HARD_TIMEOUT_SEC 30
 #define BD_ASYNC_CLOSE_HARD_TIMEOUT_SEC 10
 #define BD_NEWS_REFRESH_SEC   3600
-#define BD_PANEL_TIMER_MS     500
+#define BD_SERVICE_TIMER_MS   500
 #define BD_MAX_LOT_STEPS      200
 #define BD_WMF_MARKS_MAX      200
-#define BD_POINTS_PER_PIP     10
 #define BD_MC_DELETE_RETRY_SEC 5
 #define BD_RSI_PERIOD         50
 #define BD_RSI_OVER           50
+#define BD_UNIT_POLICY_REV     1
 
 struct SConfig
 {
@@ -206,9 +208,18 @@ struct SConfig
    double SL;
    double TrailStart;
    double TrailDistance;
-   int    X1;
-   int    Y1;
-   double EditLot;
+   eUnitSystemMode UnitMode;
+   double Point;
+   double TickSize;
+   double PipSize;
+   double LegacyPointSize;
+   double TPPrice;
+   double SLPrice;
+   double TrailStartPrice;
+   double TrailDistancePrice;
+   double MaxSpreadPrice;
+   double SlippagePrice;
+   double DcaInputUnitPrice;
    int    PointScale;
    bool   RemoteStop;
    datetime HaltUntil;
@@ -230,9 +241,18 @@ void Config_Init()
    Cfg.SL            = SL_;
    Cfg.TrailStart    = iTS;
    Cfg.TrailDistance = iTD;
-   Cfg.X1            = X1_;
-   Cfg.Y1            = Y1_;
-   Cfg.EditLot       = Lot_Init_;
+   Cfg.UnitMode       = UnitSystemMode_;
+   Cfg.Point          = 0.0;
+   Cfg.TickSize       = 0.0;
+   Cfg.PipSize        = 0.0;
+   Cfg.LegacyPointSize = 0.0;
+   Cfg.TPPrice        = 0.0;
+   Cfg.SLPrice        = 0.0;
+   Cfg.TrailStartPrice = 0.0;
+   Cfg.TrailDistancePrice = 0.0;
+   Cfg.MaxSpreadPrice = 0.0;
+   Cfg.SlippagePrice = 0.0;
+   Cfg.DcaInputUnitPrice = 0.0;
    Cfg.PointScale    = 1;
    Cfg.RemoteStop    = false;
    Cfg.HaltUntil     = 0;
@@ -246,5 +266,27 @@ void Config_ApplyPointScale(const int scale)
    Cfg.SL            *= Cfg.PointScale;
    Cfg.TrailStart    *= Cfg.PointScale;
    Cfg.TrailDistance *= Cfg.PointScale;
+}
+
+bool Config_BindUnitProfile(const bool isGold, const double point, const int digits,
+                            const double tickSize, string &why)
+{
+   SUnitProfile p;
+   if(!Unit_BuildProfilePure(isGold, point, digits, tickSize, AutoGoldPip, p, why))
+      return false;
+   Config_ApplyPointScale(Unit_LegacyPointScalePure(isGold, point, AutoGoldPip));
+   Cfg.UnitMode        = UnitSystemMode_;
+   Cfg.Point           = p.point;
+   Cfg.TickSize        = p.tickSize;
+   Cfg.PipSize         = p.pipSize;
+   Cfg.LegacyPointSize = p.legacyPointSize;
+   Cfg.TPPrice         = Unit_ConfigDistancePricePure(TP_, UnitSystemMode_, p.legacyPointSize, p.pipSize);
+   Cfg.SLPrice         = Unit_ConfigDistancePricePure(SL_, UnitSystemMode_, p.legacyPointSize, p.pipSize);
+   Cfg.TrailStartPrice = Unit_ConfigDistancePricePure(iTS, UnitSystemMode_, p.legacyPointSize, p.pipSize);
+   Cfg.TrailDistancePrice = Unit_ConfigDistancePricePure(iTD, UnitSystemMode_, p.legacyPointSize, p.pipSize);
+   Cfg.MaxSpreadPrice  = Unit_ConfigDistancePricePure((double)MaxSpred, UnitSystemMode_, p.legacyPointSize, p.pipSize);
+   Cfg.SlippagePrice   = Unit_ConfigDistancePricePure((double)Slippage_, UnitSystemMode_, p.legacyPointSize, p.pipSize);
+   Cfg.DcaInputUnitPrice = Unit_DcaDistancePricePure(1.0, UnitSystemMode_, p.legacyPointSize, p.pipSize);
+   return true;
 }
 #endif // BD_CONFIG_MQH

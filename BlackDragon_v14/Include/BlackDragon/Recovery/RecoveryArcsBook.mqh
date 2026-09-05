@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| RecoveryArcsBook.mqh — broker-observable ARCS Core/Hedge book    |
-//| Every Recovery position is attributed to its generation comment. |
+//| RecoveryArcsBook.mqh — T17 role-aware ARCS Core/Hedge book       |
+//| Trigger/DCA count loại Pyramid; economic exposure vẫn gồm Pyramid.|
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ARCS_BOOK_MQH
 #define BD_RECOVERY_ARCS_BOOK_MQH
@@ -9,6 +9,7 @@
 #include "RecoveryExit.mqh"
 #include "RecoveryLock.mqh"
 #include "RecoveryBundle.mqh"
+#include <BlackDragon/Pyramid/PyramidConfig.mqh>
 
 struct SArcsPosition
 {
@@ -60,6 +61,36 @@ long Recovery_ArcsHedgeType(const eRecoveryCoreDirection dir)
    return dir == recovery_CORE_BUY ? POSITION_TYPE_SELL : POSITION_TYPE_BUY;
 }
 
+bool Recovery_ArcsCurrentCorePositionMatches(const long wantedType)
+{
+   return PositionGetString(POSITION_SYMBOL) == _Symbol &&
+          PositionGetInteger(POSITION_MAGIC) == (long)Magic &&
+          PositionGetInteger(POSITION_TYPE) == wantedType;
+}
+
+void Recovery_ArcsAppendCurrentCorePosition(const double step,
+                                            SArcsPosition &out[])
+{
+   SArcsPosition p;
+   ZeroMemory(p);
+   p.ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+   p.positionId = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+   p.openTime = (datetime)PositionGetInteger(POSITION_TIME);
+   p.lots = PositionGetDouble(POSITION_VOLUME);
+   p.units = Recovery_VolumeToUnitsFloor(p.lots, step);
+   p.openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   p.sl = PositionGetDouble(POSITION_SL);
+   p.tp = PositionGetDouble(POSITION_TP);
+   p.floatingCash = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+   p.generation = 0;
+   if(p.ticket == 0 || p.units <= 0 || p.openPrice <= 0.0) return;
+   int n = ArraySize(out);
+   ArrayResize(out, n + 1);
+   out[n] = p;
+}
+
+// Economic Core volume ALWAYS includes Seed + DCA + Pyramid. Hedge sizing,
+// guard scope and recovery coverage therefore protect the real broker risk.
 long Recovery_ArcsCoreUnits(const eRecoveryCoreDirection dir,
                             const double step)
 {
@@ -69,16 +100,14 @@ long Recovery_ArcsCoreUnits(const eRecoveryCoreDirection dir,
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
-         PositionGetInteger(POSITION_MAGIC) != (long)Magic ||
-         PositionGetInteger(POSITION_TYPE) != wanted)
-         continue;
+      if(ticket == 0 || !Recovery_ArcsCurrentCorePositionMatches(wanted)) continue;
       units += Recovery_VolumeToUnitsFloor(PositionGetDouble(POSITION_VOLUME), step);
    }
    return units;
 }
 
+// Trigger Core book deliberately excludes BDP Pyramid positions. Existing
+// legacy/non-BDP Core positions preserve old Seed+DCA semantics exactly.
 int Recovery_ArcsBuildCore(const eRecoveryCoreDirection dir,
                            const double step,
                            SArcsPosition &out[])
@@ -89,27 +118,28 @@ int Recovery_ArcsBuildCore(const eRecoveryCoreDirection dir,
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
-         PositionGetInteger(POSITION_MAGIC) != (long)Magic ||
-         PositionGetInteger(POSITION_TYPE) != wanted)
-         continue;
-      SArcsPosition p;
-      ZeroMemory(p);
-      p.ticket = ticket;
-      p.positionId = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
-      p.openTime = (datetime)PositionGetInteger(POSITION_TIME);
-      p.lots = PositionGetDouble(POSITION_VOLUME);
-      p.units = Recovery_VolumeToUnitsFloor(p.lots, step);
-      p.openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      p.sl = PositionGetDouble(POSITION_SL);
-      p.tp = PositionGetDouble(POSITION_TP);
-      p.floatingCash = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-      p.generation = 0;
-      if(p.units <= 0 || p.openPrice <= 0.0) continue;
-      int n = ArraySize(out);
-      ArrayResize(out, n + 1);
-      out[n] = p;
+      if(ticket == 0 || !Recovery_ArcsCurrentCorePositionMatches(wanted)) continue;
+      if(Pyramid_IsComment(PositionGetString(POSITION_COMMENT))) continue;
+      Recovery_ArcsAppendCurrentCorePosition(step, out);
+   }
+   Recovery_ArcsSortPositionsOldest(out);
+   return ArraySize(out);
+}
+
+// Economic position book includes Pyramid and is used when realized Hedge
+// credit is allowed to reduce actual Core exposure.
+int Recovery_ArcsBuildEconomicCore(const eRecoveryCoreDirection dir,
+                                   const double step,
+                                   SArcsPosition &out[])
+{
+   ArrayResize(out, 0);
+   if(step <= 0.0) return 0;
+   long wanted = Recovery_ArcsCoreType(dir);
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !Recovery_ArcsCurrentCorePositionMatches(wanted)) continue;
+      Recovery_ArcsAppendCurrentCorePosition(step, out);
    }
    Recovery_ArcsSortPositionsOldest(out);
    return ArraySize(out);
@@ -301,7 +331,7 @@ void Recovery_ArcsBuildCoreCloseCandidates(const eRecoveryCoreDirection dir,
 {
    ArrayResize(out, 0);
    SArcsPosition core[];
-   Recovery_ArcsBuildCore(dir, step, core);
+   Recovery_ArcsBuildEconomicCore(dir, step, core);
    for(int i = 0; i < ArraySize(core); i++)
    {
       SRecoveryCloseCandidate c;

@@ -9,36 +9,42 @@
 #define BD_TYPES_MQH
 #include "Config.mqh"
 
-//--- One open position (replaces sInfoOrder; string comment dropped: C6)
+// Shared side identifiers are a cross-module primitive. They live here rather
+// than in EntryFilters so ExecutionLayer/Strategy/tests can depend on them
+// without importing filter/news modules. Values intentionally remain 0/1.
+#define BD_DIR_BUY  0
+#define BD_DIR_SELL 1
+
 struct PositionInfo
 {
    ulong    ticket;
-   int      type;        // POSITION_TYPE_BUY / _SELL
+   int      type;
    double   openPrice;
    double   lots;
-   double   profit;      // profit + swap (same as v13)
+   double   profit;
    double   tp;
    double   sl;
    datetime openTime;
+   ulong    positionId;    // T17.22 immutable history identity
+   bool     isPyramid;
+   double   swap;          // profit already includes this value
 };
 
-//--- One direction of the hedge basket (owned by BasketManager)
 struct BasketSide
 {
    int          count;
    double       totalLots;
-   double       totalProfit;   // sum(profit+swap)
-   double       breakeven;     // NoLoss level (swap/commission adjusted)
-   double       tpLevel;       // 0 = off
-   double       slLevel;       // 0 = off
+   double       totalProfit;
+   double       breakeven;
+   double       tpLevel;
+   double       slLevel;
    double       trailLevel;
    bool         trailArmed;
-   double       extremePrice;  // incremental max(buy)/min(sell) since last order (C4)
-   double       swapSum;       // AU-14-01: refreshed per tick together with profit
-   PositionInfo pos[];         // sorted oldest -> newest (fix #5)
+   double       extremePrice;
+   double       swapSum;
+   PositionInfo pos[];
 };
 
-//--- Per-tick context. Engines: READ ONLY.
 struct EAContext
 {
    double   ask;
@@ -47,13 +53,12 @@ struct EAContext
    int      digits;
    int      spreadPoints;
    datetime now;
-   datetime barTime;       // iTime(_Symbol,0,0)
-   bool     newsAllowsNew; // Flag_Mojno_New_Ord
-   bool     signalBuy;     // Flag_Open_Buy
-   bool     signalSell;    // Flag_Open_Sell
+   datetime barTime;
+   bool     newsAllowsNew;
+   bool     signalBuy;
+   bool     signalSell;
 };
 
-//--- What the strategy wants Execution to do
 enum eIntent
 {
    INTENT_NONE = 0,
@@ -66,21 +71,24 @@ struct TradeIntent
 {
    eIntent action;
    double  volume;
-   ulong   ticket;   // for close/modify
+   ulong   ticket;
    double  sl;
    double  tp;
 };
 
-//--- T2 execution ownership/reconciliation metadata ------------------------
-// Legacy commands keep the historical bounded-release watchdog policy.
-// Recovery commands can opt into fail-closed reconciliation without changing
-// the timeout semantics of existing Core trading paths.
+// T17: Pyramid dùng owner-aware execution journal riêng để timeout/connection
+// không tạo duplicate add. Legacy Core/DCA và Recovery giữ nguyên semantic.
 enum eExecCommandType
 {
    EXEC_CMD_LEGACY = 0,
    EXEC_CMD_RECOVERY_OPEN,
    EXEC_CMD_RECOVERY_CLOSE,
-   EXEC_CMD_RECOVERY_MODIFY
+   EXEC_CMD_RECOVERY_MODIFY,
+   EXEC_CMD_CORE_PYRAMID_OPEN,
+   EXEC_CMD_CORE_PYRAMID_CLOSE,
+   EXEC_CMD_PY_PROTECT_CLOSE,
+   EXEC_CMD_PY_PROTECT_MODIFY,
+   EXEC_CMD_PY_RH_TRIM
 };
 
 enum eExecReconcilePolicy
@@ -92,12 +100,49 @@ enum eExecReconcilePolicy
 struct SExecRequestMeta
 {
    long                 ownerMagic;
-   int                  cycleKey;       // 0 for legacy/non-cycle commands
+   int                  cycleKey;
    eExecCommandType     commandType;
    eExecReconcilePolicy reconcilePolicy;
 };
 
-//--- Async journal lifecycle (BD-002)
+// Optional T17.22 adapter; no extra scan or dispatch when disabled.
+class IPyramidProtection
+{
+public:
+   virtual string CloseComment(const int command,const ulong ticket) { return ""; }
+   virtual void SetExitOverride(const bool enabled) { }
+   virtual double CoordinationCash(const int dir) const { return 0.0; }
+   virtual bool AllowsRequest(const MqlTradeRequest &req,const SExecRequestMeta &meta) { return true; }
+   virtual bool ExpectedRhTrim(const ulong deal) { return false; }
+   virtual bool ExpectedPySl(const ulong deal) { return false; }
+   virtual bool OwnsSl(const ulong ticket) { return false; }
+   virtual double PreserveSl(const ulong ticket,const double legacy) { return legacy; }
+   virtual bool OnDefinitiveReject(const int cycleKey,const int commandType,
+                                   const ulong ticket,const uint retcode) { return false; }
+   virtual bool Drive(const EAContext &ctx) { return false; }
+};
+IPyramidProtection *g_pyramidProtection=NULL;
+ulong g_pyramidDealRevision=0;
+
+// T17.11: non-persisted submission outcome used only by Core/DCA admission.
+// This is deliberately separate from the persisted Recovery state enums.
+enum eExecSubmitDisposition
+{
+   EXEC_SUBMIT_REJECTED = 0,
+   EXEC_SUBMIT_ACCEPTED,
+   EXEC_SUBMIT_TRANSIENT,
+   EXEC_SUBMIT_CAPACITY_BLOCKED
+};
+
+struct SExecSubmitOutcome
+{
+   eExecSubmitDisposition disposition;
+   uint                   retcode;
+   double                 normalizedVolume;
+   double                 requiredMargin;
+   double                 freeMargin;
+};
+
 enum ePendingPhase
 {
    PENDING_SENT = 0,
@@ -112,11 +157,10 @@ enum ePendingEvidence
    PENDING_EVIDENCE_RESULT_STATE
 };
 
-//--- Async journal entry (Nhom B + Recovery T2 metadata)
 struct PendingRequest
 {
    uint     requestId;
-   ulong    ticket;      // position being closed/modified (0 for open)
+   ulong    ticket;
    string   symbol;
    eIntent  action;
    ePendingPhase phase;
@@ -143,17 +187,15 @@ struct PendingRequest
    bool     active;
 };
 
-//--- Exit decision returned by IExitPolicy
 enum eExitKind { EXIT_NONE=0, EXIT_TP, EXIT_SL, EXIT_TRAIL, EXIT_OVERLAP };
 struct ExitDecision
 {
    eExitKind kind;
-   int       direction;      // 0 = buy basket, 1 = sell basket
-   ulong     pairFirst;      // overlap only
-   ulong     pairLast;       // overlap only
+   int       direction;
+   ulong     pairFirst;
+   ulong     pairLast;
 };
 
-//--- Extension interfaces (P5 entry points) -------------------------
 interface ISignal      { void Compute(EAContext &ctx); };
 interface IEntryFilter { bool Allow(const EAContext &ctx, const int dir); };
 interface ILotSizer    { double FirstLot(void); double NextLot(const BasketSide &side); };

@@ -1,0 +1,22 @@
+schema: vibecode-decisions/1.0
+decisions:
+  - id: T1713-D1
+    status: approved
+    decision: Treat Recovery BUILDING, ACTIVE, LOCKED and REHEDGE_PENDING as read-only Core-growth states only when ContinueDcaAfterHedge is true.
+    locking_tests: [continue_building, continue_active, continue_locked, continue_rehedge, continue_opt_out]
+  - id: T1713-D2
+    status: approved
+    decision: Preserve exclusive ownership for broker mutation, close/protect pending and reconcile states and admit at most one execution intent per scheduler tick.
+    locking_tests: [recovery_mutation_blocks, overlap_submitted_blocks, recovery_reconcile_blocks]
+  - id: T1713-D3
+    status: approved
+    decision: Keep a pre-leg Overlap pair as a soft candidate; release stale PAIR_ARMED before broker mutation and recompute from current basket facts.
+    locking_tests: [pair_armed_yields, soft_release_persists, unsafe_candidate_not_committed]
+  - id: T1713-D4
+    status: approved
+    decision: Rebase Hedge generation targets from current exact Core units after admitted Core growth; retain existing coverage, corridor, unit and hard-cap policies.
+    locking_tests: [live_core_target_rebase, existing_t1710_unit_regression, existing_c4_hard_cap_regression]
+  - id: T1713-D5
+    status: approved
+    decision: Deliver an exact-HEAD Windows MetaEditor EX5 for owner Strategy Tester; compile and deterministic evidence must not be promoted to Strategy Tester or release PASS.
+    locking_tests: [exact_head_provenance, ex5_sha256_size, owner_tester_pending]

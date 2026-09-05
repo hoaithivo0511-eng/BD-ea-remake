@@ -12,7 +12,7 @@
 //|             C4 incremental trail extreme (no CopyHigh per tick), |
 //|             AU-14-01 floating profit/swap refreshed EVERY tick   |
 //|             (C1 caches only event-static data; profit moves with |
-//|             price -> stale cache killed Overlap + panel P/L),    |
+//|             price -> stale cache killed Overlap + guard P/L),    |
 //|             BD-R7 vanished tickets compacted out immediately,    |
 //|             BD-R3 trail extreme is session state, re-anchored    |
 //|             only by a NEWER leg (v14.7.2),                       |
@@ -24,16 +24,16 @@
 #define BD_BASKETMANAGER_MQH
 #include "Types.mqh"
 #include "Logger.mqh"
+#include "OrderCommentCodec.mqh"
 
 //--- PURE breakeven formula (unit-tested in Tests/RunTests.mq5) ------
 //    fix #3: SIGNED cost (v13 used MathAbs -> wrong side on positive swap)
 //    fix #8: tickValue<=0 -> no shift (symbol data not synchronized yet)
 double Basket_Breakeven(const double avgOpen, const double totalLots, const double costMoney,
-                        const double tickValue, const double point, const bool isBuy)
+                        const double tickValue, const double tickSize, const bool isBuy)
 {
    if(totalLots <= 0) return 0;
-   double shift = 0;
-   if(tickValue > 0) shift = costMoney / (tickValue * totalLots) * point;
+   double shift = Unit_CostShiftPricePure(costMoney, totalLots, tickValue, tickSize);
    return isBuy ? avgOpen - shift : avgOpen + shift;
 }
 
@@ -51,16 +51,34 @@ bool Basket_OwnsMagic(const long dealMagic, const long botMagic, const bool hand
    return dealMagic == botMagic || (dealMagic == 0 && handOrders);
 }
 
+// T17.23 F04: daily accounting is cash-based. Entry commission/fee and
+// close-by/inout deals are part of the realized account-currency delta.
+bool Basket_IsDayCashEntry(const long entry)
+{
+   return entry==DEAL_ENTRY_IN || entry==DEAL_ENTRY_OUT ||
+          entry==DEAL_ENTRY_INOUT || entry==DEAL_ENTRY_OUT_BY;
+}
+
+double Basket_DealCash(const double profit,const double swap,
+                       const double commission,const double fee)
+{
+   return profit+swap+commission+fee;
+}
+
 class CBasketManager
 {
 private:
    bool     m_dirty;
+   ulong    m_revision;
    double   m_dayProfit;
    datetime m_dayStart;
    datetime m_lastBuyBar;    // v13: tLastBuy  (max 1 order per bar per side)
    datetime m_lastSellBar;   // v13: tLastSell
    double   m_commissionBuy;
    double   m_commissionSell;
+   bool     m_commissionBuyValid;
+   bool     m_commissionSellValid;
+   ulong    m_dayCashDeals[];
    double   m_dayStartBalance;   // FE-402: balance at day start (for % daily targets)
    double   m_extremeBuy;        // BD-R3 (v14.7.2): trailing extreme, survives Rebuild()
    double   m_extremeSell;
@@ -70,9 +88,10 @@ public:
    BasketSide buy;
    BasketSide sell;
 
-   CBasketManager() : m_dirty(true), m_dayProfit(0), m_dayStart(0),
+   CBasketManager() : m_dirty(true), m_revision(0), m_dayProfit(0), m_dayStart(0),
                       m_lastBuyBar(0), m_lastSellBar(0),
                       m_commissionBuy(0), m_commissionSell(0),
+                      m_commissionBuyValid(true), m_commissionSellValid(true),
                       m_dayStartBalance(0),
                       m_extremeBuy(0), m_extremeSell(DBL_MAX),
                       m_anchorBuy(0), m_anchorSell(0) {}
@@ -81,14 +100,34 @@ public:
    datetime LastSellBar() const { return m_lastSellBar; }
    double   DayProfit()   const { return m_dayProfit;   }
    double   DayStartBalance() const { return m_dayStartBalance; }   // FE-402
+   bool CommissionHistoryReady() const
+   { return !UseCommissionInBE || (m_commissionBuyValid && m_commissionSellValid); }
 
    void Invalidate() { m_dirty = true; }
+   ulong Revision() const { return m_revision; }
+
+   bool DayDealSeen(const ulong deal) const
+   {
+      if(deal==0) return true;
+      for(int i=ArraySize(m_dayCashDeals)-1;i>=0;i--)
+         if(m_dayCashDeals[i]==deal) return true;
+      return false;
+   }
+
+   void MarkDayDeal(const ulong deal)
+   {
+      if(deal==0 || DayDealSeen(deal)) return;
+      int n=ArraySize(m_dayCashDeals);
+      ArrayResize(m_dayCashDeals,n+1);
+      m_dayCashDeals[n]=deal;
+   }
 
    //--- C2: called once from OnInit and on day rollover ---------------
    void SeedDayProfit()
    {
       m_dayStart  = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
       m_dayProfit = 0;
+      ArrayResize(m_dayCashDeals,0);
       if(!HistorySelect(m_dayStart, TimeCurrent() + 1))
       {
          m_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);   // FE-402 fallback
@@ -98,13 +137,19 @@ public:
       {
          ulong tic = HistoryDealGetTicket(i);
          if(tic == 0) continue;
-         // BD-R6: same ownership rule as the position scan below.
+         // BD-R6 ownership + T17.23 cash reducer: seed and callback use the
+         // same deal scope so entry costs cannot disappear after restart.
+         long entry=HistoryDealGetInteger(tic, DEAL_ENTRY);
          if(Basket_OwnsMagic(HistoryDealGetInteger(tic, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
             HistoryDealGetString(tic, DEAL_SYMBOL) == _Symbol &&
-            HistoryDealGetInteger(tic, DEAL_ENTRY) == DEAL_ENTRY_OUT)
-            m_dayProfit += HistoryDealGetDouble(tic, DEAL_PROFIT)
-                         + HistoryDealGetDouble(tic, DEAL_SWAP)
-                         + HistoryDealGetDouble(tic, DEAL_COMMISSION);
+            Basket_IsDayCashEntry(entry))
+         {
+            m_dayProfit += Basket_DealCash(HistoryDealGetDouble(tic, DEAL_PROFIT),
+                                           HistoryDealGetDouble(tic, DEAL_SWAP),
+                                           HistoryDealGetDouble(tic, DEAL_COMMISSION),
+                                           HistoryDealGetDouble(tic, DEAL_FEE));
+            MarkDayDeal(tic);
+         }
       }
       // FE-402: balance at day start = current balance minus what THIS bot
       // already realized today (deposits/withdrawals mid-day would skew this
@@ -112,10 +157,14 @@ public:
       m_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE) - m_dayProfit;
    }
 
-   //--- C2: called from OnTradeTransaction on DEAL_ENTRY_OUT ----------
-   void OnDealClosed(const double profit, const double swap, const double commission)
+   //--- T17.23 F04: event reducer is idempotent by exact deal ticket.
+   void OnDealCash(const ulong deal,const double profit,const double swap,
+                   const double commission,const double fee)
    {
-      m_dayProfit += profit + swap + commission;
+      CheckDayRollover(TimeCurrent());
+      if(deal==0 || DayDealSeen(deal)) return;
+      m_dayProfit += Basket_DealCash(profit,swap,commission,fee);
+      MarkDayDeal(deal);
    }
 
    void CheckDayRollover(const datetime now)
@@ -151,10 +200,13 @@ private:
    void Rebuild(const EAContext &ctx)
    {
       m_dirty = false;
+      m_revision++;
       ResetSide(buy);
       ResetSide(sell);
       m_commissionBuy  = 0;
       m_commissionSell = 0;
+      m_commissionBuyValid = true;
+      m_commissionSellValid = true;
 
       int total = PositionsTotal();
       for(int i = 0; i < total; i++)
@@ -174,6 +226,9 @@ private:
          p.tp        = PositionGetDouble(POSITION_TP);
          p.sl        = PositionGetDouble(POSITION_SL);
          p.openTime  = (datetime)PositionGetInteger(POSITION_TIME);
+         p.positionId = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+         p.isPyramid = magic==(long)Magic && OC_IsPyramid(PositionGetString(POSITION_COMMENT));
+         p.swap = PositionGetDouble(POSITION_SWAP);
 
          if(p.type == POSITION_TYPE_BUY)
          {
@@ -189,10 +244,13 @@ private:
       SortSide(buy);   // fix #5: never rely on pool ordering
       SortSide(sell);
 
-      if(UseCommissionInBE)   // rebuild-only history lookups (cheap: event-driven)
+      if(UseCommissionInBE)   // rebuild-only history lookups (event-driven)
       {
-         m_commissionBuy  = SumCommission(buy);
-         m_commissionSell = SumCommission(sell);
+         m_commissionBuyValid  = TrySumCommission(buy,m_commissionBuy);
+         m_commissionSellValid = TrySumCommission(sell,m_commissionSell);
+         if(!m_commissionBuyValid || !m_commissionSellValid)
+            Log_Warn("Basket","becommissionhistory",
+                     "T17.23 UseCommissionInBE history/position identifier chưa sẵn sàng; BE/TP/trail và mutation tăng rủi ro fail-closed");
       }
       SeedExtreme(buy,  ctx, true);
       SeedExtreme(sell, ctx, false);
@@ -211,7 +269,7 @@ private:
    //    price, open time). Floating profit and swap change with every tick,
    //    so they are re-read here — one PositionSelectByTicket per cached
    //    ticket, the same per-tick API cost as the SwapSum() this replaces.
-   //    Consumers: Exit_OverlapHit (pos[].profit) and the panel (totalProfit).
+   //    Consumers: Exit_OverlapHit (pos[].profit) and money guards (totalProfit).
    //    BD-R7: a ticket that no longer exists is compacted out of the array
    //    IN PLACE (write index w) and count/totalLots/totalProfit/swapSum are
    //    rebuilt from the survivors, so no consumer downstream in this tick
@@ -231,6 +289,20 @@ private:
          }
          double swap = PositionGetDouble(POSITION_SWAP);
          s.pos[w] = s.pos[i];
+         if(PyramidSLMode_!=py_protect_OFF)
+         {
+            double liveLots=PositionGetDouble(POSITION_VOLUME);
+            double liveOpen=PositionGetDouble(POSITION_PRICE_OPEN);
+            ulong liveId=(ulong)PositionGetInteger(POSITION_IDENTIFIER);
+            if(liveLots!=s.pos[w].lots || liveId!=s.pos[w].positionId || liveOpen!=s.pos[w].openPrice)
+            { m_dirty=true; m_revision++; }
+            s.pos[w].lots=liveLots;
+            s.pos[w].openPrice=liveOpen;
+            s.pos[w].positionId=liveId;
+            s.pos[w].sl=PositionGetDouble(POSITION_SL);
+            s.pos[w].tp=PositionGetDouble(POSITION_TP);
+         }
+         s.pos[w].swap=swap;
          s.pos[w].profit = PositionGetDouble(POSITION_PROFIT) + swap;  // v13 semantics: profit incl. swap
          totalProfit += s.pos[w].profit;
          swapSum     += swap;
@@ -271,17 +343,23 @@ private:
       }
    }
 
-   double SumCommission(const BasketSide &s)
+   bool TrySumCommission(const BasketSide &s,double &sum)
    {
-      double sum = 0;
+      sum = 0.0;
       for(int i = 0; i < s.count; i++)
-         if(HistorySelectByPosition(s.pos[i].ticket))
-            for(int d = HistoryDealsTotal() - 1; d >= 0; d--)
-            {
-               ulong dt = HistoryDealGetTicket(d);
-               if(dt != 0) sum += HistoryDealGetDouble(dt, DEAL_COMMISSION);
-            }
-      return sum;
+      {
+         // HistorySelectByPosition requires the immutable POSITION_IDENTIFIER,
+         // not the mutable broker position ticket.
+         if(s.pos[i].positionId==0 || !HistorySelectByPosition(s.pos[i].positionId))
+            return false;
+         for(int d = HistoryDealsTotal() - 1; d >= 0; d--)
+         {
+            ulong dt = HistoryDealGetTicket(d);
+            if(dt == 0) return false;
+            sum += HistoryDealGetDouble(dt, DEAL_COMMISSION);
+         }
+      }
+      return true;
    }
 
    //--- BD-R3 (v14.7.2, quyet dinh Chu nha 11/08/2026) -----------------
@@ -362,12 +440,15 @@ private:
    void ComputeLevels(const EAContext &ctx)
    {
       double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-      ComputeSide(buy,  ctx, tickValue, true,  m_commissionBuy);
-      ComputeSide(sell, ctx, tickValue, false, m_commissionSell);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      ComputeSide(buy,  ctx, tickValue, tickSize, true,  m_commissionBuy, m_commissionBuyValid);
+      ComputeSide(sell, ctx, tickValue, tickSize, false, m_commissionSell, m_commissionSellValid);
    }
 
    void ComputeSide(BasketSide &s, const EAContext &ctx, const double tickValue,
-                    const bool isBuy, const double commission)
+                    const double tickSize,
+                    const bool isBuy, const double commission,
+                    const bool commissionValid)
    {
       s.breakeven = 0; s.tpLevel = 0; s.slLevel = 0;
       s.trailLevel = 0; s.trailArmed = false;
@@ -381,33 +462,44 @@ private:
       if(s.totalLots <= 0) return;
       double avg = wsum / s.totalLots;
 
-      if(tickValue <= 0)
-         Log_Warn("Basket", "tickval", "SYMBOL_TRADE_TICK_VALUE<=0, skipping cost shift this tick");
-      s.breakeven = Basket_Breakeven(avg, s.totalLots, swapSum + commission, tickValue, ctx.point, isBuy);
+      // Unknown commission history must never be interpreted as zero cost.
+      // Keep the configured loss stop available, but suppress cost-derived
+      // positive BE/TP/trailing authority until history becomes valid.
+      if(UseCommissionInBE && !commissionValid)
+      {
+         s.breakeven = avg;
+         if(Cfg.SLPrice != 0) s.slLevel = isBuy ? s.pos[0].openPrice - Cfg.SLPrice
+                                                : s.pos[0].openPrice + Cfg.SLPrice;
+         return;
+      }
 
-      if(Cfg.TP != 0) s.tpLevel = isBuy ? s.breakeven + Cfg.TP * ctx.point
-                                        : s.breakeven - Cfg.TP * ctx.point;
-      if(Cfg.SL != 0) s.slLevel = isBuy ? s.pos[0].openPrice - Cfg.SL * ctx.point
-                                        : s.pos[0].openPrice + Cfg.SL * ctx.point;
+      if(tickValue <= 0 || tickSize <= 0)
+         Log_Warn("Basket", "tickmeta", "tick value/size unavailable, skipping cost shift this tick");
+      s.breakeven = Basket_Breakeven(avg, s.totalLots, swapSum + commission, tickValue, tickSize, isBuy);
+
+      if(Cfg.TPPrice != 0) s.tpLevel = isBuy ? s.breakeven + Cfg.TPPrice
+                                             : s.breakeven - Cfg.TPPrice;
+      if(Cfg.SLPrice != 0) s.slLevel = isBuy ? s.pos[0].openPrice - Cfg.SLPrice
+                                             : s.pos[0].openPrice + Cfg.SLPrice;
 
       // [STRATEGY-BEHAVIOR] trail only if TrailStart!=0 and (TrailStart<TP or TP==0)
-      if(Cfg.TrailStart != 0 && (Cfg.TrailStart < Cfg.TP || Cfg.TP == 0))
+      if(Cfg.TrailStartPrice != 0 && (Cfg.TrailStartPrice < Cfg.TPPrice || Cfg.TPPrice == 0))
       {
          if(isBuy)
          {
-            if(s.extremePrice > s.breakeven + Cfg.TrailStart * ctx.point)
-            { s.trailLevel = s.extremePrice - Cfg.TrailDistance * ctx.point; s.trailArmed = true; }
+            if(s.extremePrice > s.breakeven + Cfg.TrailStartPrice)
+            { s.trailLevel = s.extremePrice - Cfg.TrailDistancePrice; s.trailArmed = true; }
             else
-            { s.trailLevel = s.breakeven + Cfg.TrailStart * ctx.point; s.trailArmed = false; }
+            { s.trailLevel = s.breakeven + Cfg.TrailStartPrice; s.trailArmed = false; }
          }
          else
          {
             // v13 adds current spread to the sell arming threshold
             if(s.extremePrice != DBL_MAX &&
-               s.extremePrice < s.breakeven - (Cfg.TrailStart + ctx.spreadPoints) * ctx.point)
-            { s.trailLevel = s.extremePrice + Cfg.TrailDistance * ctx.point; s.trailArmed = true; }
+               s.extremePrice < s.breakeven - Cfg.TrailStartPrice - MathMax(ctx.ask - ctx.bid, 0.0))
+            { s.trailLevel = s.extremePrice + Cfg.TrailDistancePrice; s.trailArmed = true; }
             else
-            { s.trailLevel = s.breakeven - Cfg.TrailStart * ctx.point; s.trailArmed = false; }
+            { s.trailLevel = s.breakeven - Cfg.TrailStartPrice; s.trailArmed = false; }
          }
       }
    }

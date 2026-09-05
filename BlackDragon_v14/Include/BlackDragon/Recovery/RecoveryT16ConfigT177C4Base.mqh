@@ -1,0 +1,424 @@
+//+------------------------------------------------------------------+
+//| RecoveryT16Config.mqh — T17.6 over T16.6 ARCS configuration     |
+//| Vietnamese-facing inputs + sizing / broker-min policy helpers.   |
+//+------------------------------------------------------------------+
+#ifndef BD_RECOVERY_T16_CONFIG_MQH
+#define BD_RECOVERY_T16_CONFIG_MQH
+
+#include "RecoveryTypes.mqh"
+#include "RecoveryT164Reachability.mqh"
+#include <BlackDragon/Pyramid/PyramidConfig.mqh>
+
+#define BD_ARCS_MAX_LAYERS 64
+#define BD_ARCS_MIN_VOLUME_POLICY_REV 1
+#define BD_T176_HEDGE_POLICY_REV 1
+
+enum eRecoverySizingPolicy
+{
+   HEDGE_CAN_BANG = 0,
+   ARCS_XEP_LOP   = 1
+};
+
+enum eRecoverySLMode
+{
+   SL_BROKER  = 0,
+   SL_VIRTUAL = 1
+};
+
+enum eRecoveryModifyDisposition
+{
+   RECOVERY_MODIFY_ACCEPTED = 0,
+   RECOVERY_MODIFY_DEFER_NO_EFFECT,
+   RECOVERY_MODIFY_RECONCILE
+};
+
+input group "18 — ARCS: KHỐI LƯỢNG HEDGE"
+input eRecoverySizingPolicy RecoverySizingPolicy_ = ARCS_XEP_LOP; // Kiểu tính Hedge: cân bằng hoặc xếp lớp ARCS
+input double HedgeVolumePercent_ = 100.0; // Tỷ lệ khối lượng Hedge so với Core hiện tại (%); có thể <100 hoặc >100
+
+input group "19 — ARCS: SL & KHÓA LỢI NHUẬN"
+input eRecoverySLMode HedgeSLMode_ = SL_BROKER; // Chế độ SL Hedge: broker hoặc SL ảo do EA quản lý
+
+input group "20 — ARCS: GLOBAL SL / CHUYỂN PHA"
+input bool   EnableGlobalHedgeSL_          = true; // Bật Global SL cho toàn bộ lớp Hedge sau nhiều vòng
+input int    GlobalSLAfterGenerations_     = 5;    // Sau bao nhiêu thế hệ Hedge thì chuyển sang Global SL
+input double GlobalHedgeSLNetProfitPips_   = 3.0;  // Lợi nhuận ròng tối thiểu muốn khóa cho từng lớp tại Global SL (pip)
+input double RecoveryReentryBufferPips_    = 10.0; // Buffer xác nhận tái kích hoạt Recovery sau khi Global SL khớp (pip)
+
+input group "21 — ARCS: OVERLAP SAU KHI HEDGE"
+input bool OverlapAfterHedge_ = false; // true: vẫn tỉa Overlap Core khi Recovery đã Hedge; ARCS refresh Core/Hedge trước bước kế tiếp
+
+input group "22 — ARCS: AN TOÀN MARGIN & NHẬT KÝ"
+input bool RecoveryDcaMarginReserve_ = true; // true: trước DCA Core, giữ đủ margin ước tính cho DCA + thế hệ Hedge kế tiếp
+input int  RecoveryWaitLogSeconds_   = 900;  // Chu kỳ heartbeat log khi Recovery chỉ đang CHỜ (giây); 0 = chỉ log lần đầu mỗi key
+
+bool Recovery_T16SizingPolicyValid(const eRecoverySizingPolicy policy)
+{
+   return policy == HEDGE_CAN_BANG || policy == ARCS_XEP_LOP;
+}
+
+bool Recovery_T16SlModeValid(const eRecoverySLMode mode)
+{
+   return mode == SL_BROKER || mode == SL_VIRTUAL;
+}
+
+long Recovery_T16PercentUnitsPure(const long coreUnits,
+                                  const double hedgePercent)
+{
+   if(coreUnits <= 0 || hedgePercent <= 0.0) return 0;
+   return (long)MathFloor((double)coreUnits * hedgePercent / 100.0 + 1e-9);
+}
+
+long Recovery_T16NewGenerationRawUnitsPure(const eRecoverySizingPolicy policy,
+                                           const long coreUnits,
+                                           const long existingHedgeUnits,
+                                           const double hedgePercent)
+{
+   long desired = Recovery_T16PercentUnitsPure(coreUnits, hedgePercent);
+   if(desired <= 0) return 0;
+   if(policy == ARCS_XEP_LOP) return desired;
+   long existing = existingHedgeUnits > 0 ? existingHedgeUnits : 0;
+   return desired > existing ? desired - existing : 0;
+}
+
+long Recovery_T166ClampPositiveGenerationUnitsPure(const long rawUnits,
+                                                   const long minUnits)
+{
+   if(rawUnits <= 0) return 0;
+   if(minUnits <= 0) return rawUnits;
+   return rawUnits < minUnits ? minUnits : rawUnits;
+}
+
+long Recovery_T16CurrentBrokerMinUnits()
+{
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double minVolume = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   if(step <= 0.0 || minVolume <= 0.0) return 0;
+   return Recovery_VolumeToUnitsCeil(minVolume, step);
+}
+
+// Pure oracle for T17 hard-cap alignment. Only the runtime wrapper below reads
+// input globals; model/native tests can exercise the edge without mutating an
+// input variable.
+double Recovery_T17RuntimeHedgePercentPure(const eHedgePyramidMode mode,
+                                           const double requestedPercent,
+                                           const double configuredPercent,
+                                           const double hardMaxCoverage)
+{
+   if(mode == hedge_pyramid_TAT || requestedPercent <= 0.0)
+      return requestedPercent;
+   if(MathAbs(requestedPercent - configuredPercent) > 1e-9)
+      return requestedPercent;
+   if(hardMaxCoverage > 0.0 && requestedPercent > hardMaxCoverage)
+      return hardMaxCoverage;
+   return requestedPercent;
+}
+
+// T17 runtime target alignment. The historical raw helper above remains a
+// broker-independent oracle. Runtime callers that pass the configured
+// HedgeVolumePercent_ must see the same final coverage cap as the staged
+// Hedge Pyramid engine. This keeps StartGeneration, post-Overlap sizing and
+// T16.5 DCA margin reserve on one executable target and prevents a phantom
+// BUILDING generation when retained Hedge already satisfies the hard cap.
+double Recovery_T17RuntimeHedgePercent(const double requestedPercent)
+{
+   return Recovery_T17RuntimeHedgePercentPure(HedgePyramidMode_,
+                                              requestedPercent,
+                                              HedgeVolumePercent_,
+                                              HedgePyramidMaxCoveragePercent_);
+}
+
+// T17.6: when staged Hedge Pyramid is enabled, coverage means TOTAL live
+// Recovery Hedge/current exact-Magic Core. Retained prior generations therefore
+// count toward every stage/final target even when the base ARCS sizing policy is
+// ARCS_XEP_LOP. Plain ARCS (Hedge Pyramid OFF) preserves legacy stacking.
+long Recovery_T16NewGenerationUnitsPure(const eRecoverySizingPolicy policy,
+                                        const long coreUnits,
+                                        const long existingHedgeUnits,
+                                        const double hedgePercent)
+{
+   double runtimePercent = Recovery_T17RuntimeHedgePercent(hedgePercent);
+   eRecoverySizingPolicy effectivePolicy =
+      HedgePyramidMode_ == hedge_pyramid_TAT ? policy : HEDGE_CAN_BANG;
+   long raw = Recovery_T16NewGenerationRawUnitsPure(effectivePolicy,
+                                                    coreUnits,
+                                                    existingHedgeUnits,
+                                                    runtimePercent);
+   if(raw <= 0) return 0;
+
+   long minUnits = Recovery_T16CurrentBrokerMinUnits();
+   long planned = Recovery_T166ClampPositiveGenerationUnitsPure(raw, minUnits);
+   if(planned > raw)
+   {
+      static long lastRaw = -1;
+      static long lastPlanned = -1;
+      if(lastRaw != raw || lastPlanned != planned)
+      {
+         double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+         Print("[BD:Recovery] INFO T16.6 Hedge target clamped to broker minimum raw=",
+               DoubleToString(Recovery_UnitsToVolume(raw, step), 8),
+               " planned=",
+               DoubleToString(Recovery_UnitsToVolume(planned, step), 8));
+         lastRaw = raw;
+         lastPlanned = planned;
+      }
+   }
+   return planned;
+}
+
+// A BUILDING target may legitimately change when Core volume or retained prior
+// generations change. Hedge Pyramid is add-only, so a lower recomputed target
+// never forces an automatic close of already-live generation volume.
+long Recovery_T176RebasedGenerationTargetPure(const long liveGenerationUnits,
+                                              const long computedTargetUnits)
+{
+   long live = liveGenerationUnits > 0 ? liveGenerationUnits : 0;
+   long computed = computedTargetUnits > 0 ? computedTargetUnits : 0;
+   return live > computed ? live : computed;
+}
+
+double Recovery_T17AttainableCoveragePercentPure(const eHedgePyramidMode hedgePyramidMode,
+                                                  const double hedgeVolumePercent,
+                                                  const double hardMaxCoverage)
+{
+   if(hedgeVolumePercent <= 0.0) return 0.0;
+   if(hedgePyramidMode == hedge_pyramid_TAT || hardMaxCoverage <= 0.0)
+      return hedgeVolumePercent;
+   return MathMin(hedgeVolumePercent, hardMaxCoverage);
+}
+
+bool Recovery_T17CrossInputsValidPure(const eRecoveryMode recoveryMode,
+                                      const eHedgePyramidMode hedgePyramidMode,
+                                      const bool continueDcaAfterHedge,
+                                      const double minHedgeCoveragePercent,
+                                      const double hedgeVolumePercent,
+                                      const double hardMaxCoverage)
+{
+   if(hedgePyramidMode != hedge_pyramid_TAT && recoveryMode == recovery_OFF)
+      return false;
+   if(recoveryMode == recovery_ACTIVE && continueDcaAfterHedge &&
+      minHedgeCoveragePercent > 0.0 && hedgePyramidMode != hedge_pyramid_TAT)
+   {
+      double attainable = Recovery_T17AttainableCoveragePercentPure(hedgePyramidMode,
+                                                                     hedgeVolumePercent,
+                                                                     hardMaxCoverage);
+      if(minHedgeCoveragePercent > attainable + 1e-9) return false;
+   }
+   return true;
+}
+
+// Advisory cross-validator for the exact runaway topology observed in the
+// owner log. It does not silently rewrite an approved .set; startup emits one
+// high-severity warning so an intentionally wide stress fixture remains usable.
+bool Recovery_T1716UnsafeGrowthEnvelopePure(
+   const eRecoveryMode recoveryMode,
+   const bool continueDcaAfterHedge,
+   const eCorePyramidMode corePyramidMode,
+   const int pyramidMaxAdds,
+   const int maxOrdersBuy,
+   const int maxOrdersSell,
+   const double pyramidMaxTotalLots,
+   const double pyramidRiskBudgetPercent,
+   const bool anyLossStopEnabled)
+{
+   int sideCap=MathMax(maxOrdersBuy,maxOrdersSell);
+   bool addCapConsumesWholeSide=sideCap>0 && pyramidMaxAdds>=sideCap;
+   bool noPyramidBudget=pyramidMaxTotalLots<=0.0 &&
+                        pyramidRiskBudgetPercent<=0.0;
+   return recoveryMode==recovery_ACTIVE && continueDcaAfterHedge &&
+          corePyramidMode==pyramid_TAI_KICH_HOAT &&
+          addCapConsumesWholeSide && noPyramidBudget &&
+          !anyLossStopEnabled;
+}
+
+bool Recovery_T17ValidateCrossInputs(string &why)
+{
+   why = "";
+   if(!Recovery_T17CrossInputsValidPure(RecoveryMode_,
+                                        HedgePyramidMode_,
+                                        ContinueDcaAfterHedge_,
+                                        MinHedgeCoveragePercent_,
+                                        HedgeVolumePercent_,
+                                        HedgePyramidMaxCoveragePercent_))
+   {
+      if(HedgePyramidMode_ != hedge_pyramid_TAT && RecoveryMode_ == recovery_OFF)
+         why = "Bật Hedge Pyramid yêu cầu RecoveryMode_ khác OFF";
+      else
+      {
+         double attainable = Recovery_T17AttainableCoveragePercentPure(HedgePyramidMode_,
+                                                                        HedgeVolumePercent_,
+                                                                        HedgePyramidMaxCoveragePercent_);
+         why = "MinHedgeCoveragePercent_ vượt coverage tối đa có thể đạt=" +
+               DoubleToString(attainable, 2) + "%";
+      }
+      return false;
+   }
+   return true;
+}
+
+bool Recovery_T16VirtualSlHitPure(const eRecoveryCoreDirection coreDir,
+                                  const double bid,
+                                  const double ask,
+                                  const double slPrice)
+{
+   if(bid <= 0.0 || ask <= 0.0 || slPrice <= 0.0) return false;
+   if(coreDir == recovery_CORE_BUY) return ask >= slPrice;
+   return bid <= slPrice;
+}
+
+bool Recovery_T16VirtualSlArmingValidPure(const eRecoveryCoreDirection coreDir,
+                                          const double bid,
+                                          const double ask,
+                                          const double slPrice)
+{
+   if(bid <= 0.0 || ask <= 0.0 || slPrice <= 0.0) return false;
+   if(coreDir == recovery_CORE_BUY) return slPrice > ask;
+   return slPrice < bid;
+}
+
+double Recovery_T16GlobalSlFoldPure(const eRecoveryCoreDirection coreDir,
+                                    const double accumulated,
+                                    const double candidate)
+{
+   if(candidate <= 0.0) return accumulated;
+   if(accumulated <= 0.0) return candidate;
+   return coreDir == recovery_CORE_BUY ? MathMin(accumulated, candidate)
+                                       : MathMax(accumulated, candidate);
+}
+
+eRecoveryModifyDisposition Recovery_T162ModifyDispositionPure(const bool requestAccepted,
+                                                               const bool outcomeAmbiguous)
+{
+   if(requestAccepted) return RECOVERY_MODIFY_ACCEPTED;
+   if(outcomeAmbiguous) return RECOVERY_MODIFY_RECONCILE;
+   return RECOVERY_MODIFY_DEFER_NO_EFFECT;
+}
+
+long Recovery_T162PostOverlapGenerationUnitsPure(const eRecoverySizingPolicy policy,
+                                                 const long refreshedCoreUnits,
+                                                 const long refreshedHedgeUnits,
+                                                 const double hedgePercent)
+{
+   return Recovery_T16NewGenerationUnitsPure(policy,
+                                             refreshedCoreUnits,
+                                             refreshedHedgeUnits,
+                                             hedgePercent);
+}
+
+uint Recovery_T16SemanticFingerprint()
+{
+   // Exact OFF-parity: when both Pyramid modules are disabled, preserve the
+   // canonical T16.6 string byte-for-byte so an existing safe Recovery state
+   // is not invalidated merely by upgrading to the T17 binary.
+   string canonical =
+      "base=" + (string)Recovery_CurrentSemanticConfigFingerprint() +
+      "|sizing=" + (string)(int)RecoverySizingPolicy_ +
+      "|hedgePct=" + DoubleToString(HedgeVolumePercent_, 12) +
+      "|slMode=" + (string)(int)HedgeSLMode_ +
+      "|globalEnable=" + (EnableGlobalHedgeSL_ ? "1" : "0") +
+      "|globalAfter=" + (string)GlobalSLAfterGenerations_ +
+      "|globalProfit=" + DoubleToString(GlobalHedgeSLNetProfitPips_, 12) +
+      "|reentryBuffer=" + DoubleToString(RecoveryReentryBufferPips_, 12) +
+      "|overlapAfterHedge=" + (OverlapAfterHedge_ ? "1" : "0") +
+      "|dcaMarginReserve=" + (RecoveryDcaMarginReserve_ ? "1" : "0") +
+      "|minVolumePolicyRev=" + (string)BD_ARCS_MIN_VOLUME_POLICY_REV +
+      "|layerCapacity=" + (string)BD_ARCS_MAX_LAYERS;
+   if(CorePyramidMode_ != pyramid_TAT || HedgePyramidMode_ != hedge_pyramid_TAT)
+      canonical += "|" + Pyramid_SemanticText();
+   // T17.6 staged-Hedge semantics must never silently reinterpret a T17.5
+   // persisted BUILDING target. Only configurations that enable Hedge Pyramid
+   // receive this new semantic revision; plain T16.6/ARCS parity is untouched.
+   if(HedgePyramidMode_ != hedge_pyramid_TAT)
+      canonical += "|t176HedgePolicyRev=" + (string)BD_T176_HEDGE_POLICY_REV;
+   // LEGACY_COMPAT keeps the existing fingerprint byte-for-byte. An explicit
+   // PIP_UNIFIED opt-in changes Core/DCA/TP topology, so active Recovery state
+   // from the other policy must fail closed instead of being reinterpreted.
+   if(UnitSystemMode_ == unit_PIP_UNIFIED)
+      canonical += "|unitPolicyRev=" + (string)BD_UNIT_POLICY_REV +
+                   "|unitMode=" + (string)(int)UnitSystemMode_;
+   return Recovery_Fnv1aTextPure(canonical);
+}
+
+bool Recovery_T16ValidateConfig(string &why)
+{
+   why = "";
+   if(RecoveryMode_ == recovery_OFF) return true;
+   if(!Recovery_T16SizingPolicyValid(RecoverySizingPolicy_))
+   {
+      why = "Kiểu xử lý Hedge không hợp lệ";
+      return false;
+   }
+   if(HedgeVolumePercent_ <= 0.0)
+   {
+      why = "Tỷ lệ khối lượng Hedge (%) phải > 0";
+      return false;
+   }
+   if(!Recovery_T16SlModeValid(HedgeSLMode_))
+   {
+      why = "Chế độ SL Hedge không hợp lệ";
+      return false;
+   }
+   if(MaxHedgeGenerations_ > BD_ARCS_MAX_LAYERS)
+   {
+      why = "Số vòng Hedge tối đa vượt capacity ARCS=" + (string)BD_ARCS_MAX_LAYERS;
+      return false;
+   }
+   if(RecoveryWaitLogSeconds_ < 0 || RecoveryWaitLogSeconds_ > 86400)
+   {
+      why = "Chu kỳ heartbeat log Recovery phải trong [0,86400] giây";
+      return false;
+   }
+   if(!Recovery_T17ValidateCrossInputs(why))
+      return false;
+
+   if(!Recovery_T164ValidateReachability(RecoveryMode_,
+                                         Flag_Trade_Buy_, Flag_Trade_Sell_,
+                                         MaxOrdersBuy, MaxOrdersSell,
+                                         RecoveryStartAfterDca_, why))
+      return false;
+
+   if(EnableGlobalHedgeSL_)
+   {
+      if(GlobalSLAfterGenerations_ < 1)
+      {
+         why = "Số vòng kích hoạt Global SL phải >= 1 khi bật Global SL";
+         return false;
+      }
+      if(GlobalSLAfterGenerations_ > MaxHedgeGenerations_)
+      {
+         why = "Số vòng kích hoạt Global SL không được lớn hơn Số vòng Hedge tối đa";
+         return false;
+      }
+      if(GlobalHedgeSLNetProfitPips_ < 0.0)
+      {
+         why = "Lợi nhuận tối thiểu Global SL phải >= 0 pip";
+         return false;
+      }
+      if(RecoveryReentryBufferPips_ < 0.0)
+      {
+         why = "Buffer tái kích hoạt Recovery phải >= 0 pip";
+         return false;
+      }
+   }
+   return true;
+}
+
+bool Recovery_T16UseStackEngine()
+{
+   if(RecoveryMode_ == recovery_ACTIVE &&
+      !Recovery_T164ValidateReachabilityPure(RecoveryMode_,
+                                             Flag_Trade_Buy_, Flag_Trade_Sell_,
+                                             MaxOrdersBuy, MaxOrdersSell,
+                                             RecoveryStartAfterDca_))
+      return true;
+
+   if(HedgePyramidMode_ != hedge_pyramid_TAT) return true;
+   if(RecoverySizingPolicy_ == ARCS_XEP_LOP) return true;
+   if(MathAbs(HedgeVolumePercent_ - 100.0) > 1e-12) return true;
+   if(HedgeSLMode_ == SL_VIRTUAL) return true;
+   if(EnableGlobalHedgeSL_) return true;
+   if(OverlapAfterHedge_) return true;
+   return false;
+}
+
+#endif // BD_RECOVERY_T16_CONFIG_MQH

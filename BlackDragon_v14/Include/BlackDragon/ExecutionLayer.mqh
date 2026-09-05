@@ -43,6 +43,21 @@ ulong Exec_Deviation(const int slippagePoints, const int pointScale)
    return (ulong)(s * k);
 }
 
+ulong Exec_DeviationFromPrice(const double slippagePrice, const double point)
+{
+   return Unit_PriceToBrokerPointsCeilPure(slippagePrice, point);
+}
+
+double Exec_SlippagePriceForSymbol(const string sym)
+{
+   double point = SymbolInfoDouble(sym, SYMBOL_POINT);
+   bool isGold = Sym_IsGoldSym(sym);
+   double pip = Unit_PipSizePure(isGold, point,
+                                 (int)SymbolInfoInteger(sym, SYMBOL_DIGITS));
+   double legacy = Unit_LegacyPointSizePure(isGold, point, AutoGoldPip);
+   return Unit_ConfigDistancePricePure((double)Slippage_, UnitSystemMode_, legacy, pip);
+}
+
 //--- BD-R1: legacy per-intent hard timeout remains unchanged.
 int Exec_HardTimeoutSec(const eIntent action)
 {
@@ -93,6 +108,33 @@ bool Exec_RetryableRetcode(const uint rc)
    return rc == TRADE_RETCODE_REQUOTE || rc == TRADE_RETCODE_PRICE_CHANGED ||
           rc == TRADE_RETCODE_PRICE_OFF || rc == TRADE_RETCODE_TIMEOUT ||
           rc == TRADE_RETCODE_CONNECTION;
+}
+
+eExecSubmitDisposition Exec_SubmitDispositionPure(const bool accepted,
+                                                   const uint rc)
+{
+   if(accepted) return EXEC_SUBMIT_ACCEPTED;
+   if(rc == TRADE_RETCODE_NO_MONEY) return EXEC_SUBMIT_CAPACITY_BLOCKED;
+   if(Exec_RetryableRetcode(rc)) return EXEC_SUBMIT_TRANSIENT;
+   return EXEC_SUBMIT_REJECTED;
+}
+
+// T17.16 account-capacity circuit breaker. A broker NO_MONEY response is an
+// account-wide capacity fact, not a one-bar DCA fact. Risk-increasing opens
+// stay embargoed until free margin covers the rejected request plus a 10%
+// recovery buffer; closes and SL/TP maintenance never pass through this gate.
+double Exec_RiskAddRecoveryThresholdPure(const double requiredMargin)
+{
+   return requiredMargin > 0.0 ? requiredMargin * 1.10 : 0.0;
+}
+
+bool Exec_RiskAddEmbargoBlocksPure(const bool active,
+                                   const double freeMargin,
+                                   const double recoveryThreshold)
+{
+   if(!active) return false;
+   if(recoveryThreshold <= 0.0) return true;
+   return freeMargin + 1e-8 < recoveryThreshold;
 }
 
 bool Exec_AmbiguousRetcode(const uint rc)
@@ -231,11 +273,12 @@ bool Exec_T14OpenProofMatches(const int cycleKey,
    return false;
 }
 
-bool Exec_T14ModifyProofMatches(const ulong ticket,
-                                const long ownerMagic,
-                                const int cycleKey,
-                                const double targetSl,
-                                const double tolerance)
+bool Exec_ModifyProofMatchesCommand(const ulong ticket,
+                                    const long ownerMagic,
+                                    const int cycleKey,
+                                    const double targetSl,
+                                    const double tolerance,
+                                    const eExecCommandType commandType)
 {
    if(ticket == 0 || ownerMagic <= 0 || cycleKey == 0 || targetSl <= 0.0) return false;
    for(int n = 0; n < BD_EXEC_T14_PROOF_CAP; n++)
@@ -244,12 +287,22 @@ bool Exec_T14ModifyProofMatches(const ulong ticket,
       while(slot < 0) slot += BD_EXEC_T14_PROOF_CAP;
       slot %= BD_EXEC_T14_PROOF_CAP;
       SExecT14IdentityProof p = g_execT14Proof[slot];
-      if(!p.valid || p.commandType != EXEC_CMD_RECOVERY_MODIFY) continue;
+      if(!p.valid || p.commandType != commandType) continue;
       if(p.ticket != ticket || p.ownerMagic != ownerMagic || p.cycleKey != cycleKey) continue;
       if(MathAbs(p.sl - targetSl) > tolerance + 1e-12) continue;
       return true;
    }
    return false;
+}
+
+bool Exec_T14ModifyProofMatches(const ulong ticket,
+                                const long ownerMagic,
+                                const int cycleKey,
+                                const double targetSl,
+                                const double tolerance)
+{
+   return Exec_ModifyProofMatchesCommand(ticket,ownerMagic,cycleKey,targetSl,tolerance,
+                                         EXEC_CMD_RECOVERY_MODIFY);
 }
 
 string Exec_IntentName(const eIntent action)
@@ -266,6 +319,11 @@ string Exec_CommandName(const eExecCommandType cmd)
    if(cmd == EXEC_CMD_RECOVERY_OPEN) return "RECOVERY_OPEN";
    if(cmd == EXEC_CMD_RECOVERY_CLOSE) return "RECOVERY_CLOSE";
    if(cmd == EXEC_CMD_RECOVERY_MODIFY) return "RECOVERY_MODIFY";
+   if(cmd == EXEC_CMD_CORE_PYRAMID_OPEN) return "CORE_PYRAMID_OPEN";
+   if(cmd == EXEC_CMD_CORE_PYRAMID_CLOSE) return "CORE_PYRAMID_CLOSE";
+   if(cmd == EXEC_CMD_PY_PROTECT_CLOSE) return "PY_PROTECT_CLOSE";
+   if(cmd == EXEC_CMD_PY_PROTECT_MODIFY) return "PY_PROTECT_MODIFY";
+   if(cmd == EXEC_CMD_PY_RH_TRIM) return "PY_RH_TRIM";
    return "LEGACY";
 }
 
@@ -277,6 +335,109 @@ private:
    bool m_asyncAllowed;
    bool m_busyOpenBuy;    // legacy Core busy flags only
    bool m_busyOpenSell;
+   bool m_capacityRejectReady[2];
+   int m_legacyIntentIndex[2];
+   datetime m_legacyIntentBar[2];
+   double m_legacyIntentRequiredMargin[2];
+   SExecSubmitOutcome m_capacityReject[2];
+   bool m_riskAddEmbargoActive;
+   double m_riskAddRecoveryThreshold;
+   double m_riskAddRequiredMargin;
+   double m_riskAddFreeAtReject;
+   string m_riskAddEmbargoKey;
+
+   bool IsRiskAddAction(const eIntent action) const
+   {
+      return action == INTENT_OPEN_BUY || action == INTENT_OPEN_SELL;
+   }
+
+   string RiskAddEmbargoKey() const
+   {
+      string key = "BD_CAP_" + (string)AccountInfoInteger(ACCOUNT_LOGIN) +
+                   "_" + _Symbol + "_" + (string)Magic;
+      return StringSubstr(key,0,63);
+   }
+
+   bool HasSymbolExposure() const
+   {
+      for(int i=PositionsTotal()-1;i>=0;i--)
+      {
+         ulong ticket=PositionGetTicket(i);
+         if(ticket!=0 && PositionGetString(POSITION_SYMBOL)==_Symbol)
+            return true;
+      }
+      return false;
+   }
+
+   double RequiredMarginForOpen(const eIntent action,
+                                const string symbol,
+                                const double volume) const
+   {
+      if(!IsRiskAddAction(action) || symbol=="" || volume<=0.0) return 0.0;
+      MqlTick tick;
+      if(!SymbolInfoTick(symbol,tick)) return 0.0;
+      ENUM_ORDER_TYPE type=action==INTENT_OPEN_BUY?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+      double price=action==INTENT_OPEN_BUY?tick.ask:tick.bid;
+      double required=0.0;
+      if(!OrderCalcMargin(type,symbol,volume,price,required)) return 0.0;
+      return MathMax(0.0,required);
+   }
+
+   void PersistRiskAddEmbargo()
+   {
+      if(m_riskAddEmbargoKey=="") return;
+      if(m_riskAddEmbargoActive && m_riskAddRecoveryThreshold>0.0)
+         GlobalVariableSet(m_riskAddEmbargoKey,m_riskAddRecoveryThreshold);
+      else if(GlobalVariableCheck(m_riskAddEmbargoKey))
+         GlobalVariableDel(m_riskAddEmbargoKey);
+   }
+
+   void ClearRiskAddEmbargo(const string reason)
+   {
+      if(!m_riskAddEmbargoActive) return;
+      m_riskAddEmbargoActive=false;
+      m_riskAddRecoveryThreshold=0.0;
+      m_riskAddRequiredMargin=0.0;
+      m_riskAddFreeAtReject=0.0;
+      PersistRiskAddEmbargo();
+      Log_Info("Exec","T17.16 capacity embargo cleared | "+reason);
+   }
+
+   void LatchRiskAddEmbargo(const eIntent action,
+                            const string symbol,
+                            const double volume)
+   {
+      if(!IsRiskAddAction(action)) return;
+      double required=RequiredMarginForOpen(action,symbol,volume);
+      double threshold=Exec_RiskAddRecoveryThresholdPure(required);
+      // If the broker omitted enough data to calculate margin, keep the
+      // existing stronger threshold; a zero-threshold latch remains fail-closed.
+      if(!m_riskAddEmbargoActive || threshold>m_riskAddRecoveryThreshold)
+      {
+         m_riskAddRecoveryThreshold=threshold;
+         m_riskAddRequiredMargin=required;
+      }
+      m_riskAddEmbargoActive=true;
+      m_riskAddFreeAtReject=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      PersistRiskAddEmbargo();
+      Log_Warn("Exec","t1716capacity",
+               "NO_MONEY: khóa mọi lệnh tăng rủi ro | free="+
+               DoubleToString(m_riskAddFreeAtReject,2)+
+               " required="+DoubleToString(m_riskAddRequiredMargin,2)+
+               " reopenAt="+DoubleToString(m_riskAddRecoveryThreshold,2));
+   }
+
+   bool RiskAddEmbargoBlocks()
+   {
+      if(!m_riskAddEmbargoActive) return false;
+      double free=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      if(!Exec_RiskAddEmbargoBlocksPure(true,free,m_riskAddRecoveryThreshold))
+      {
+         ClearRiskAddEmbargo("free margin="+DoubleToString(free,2));
+         return false;
+      }
+      return true;
+   }
 
    bool RetcodeOk(const uint rc) const
    {
@@ -572,6 +733,27 @@ private:
       }
    }
 
+   void RecordLegacyCapacityRejectAt(const int i, const uint retcode)
+   {
+      if(i < 0 || i >= ArraySize(m_journal) || retcode != TRADE_RETCODE_NO_MONEY)
+         return;
+      LatchRiskAddEmbargo(m_journal[i].action,
+                          m_journal[i].symbol,
+                          m_journal[i].volume);
+      if(m_journal[i].commandType != EXEC_CMD_LEGACY) return;
+      int dir = -1;
+      if(m_journal[i].action == INTENT_OPEN_BUY) dir = BD_DIR_BUY;
+      if(m_journal[i].action == INTENT_OPEN_SELL) dir = BD_DIR_SELL;
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL) return;
+      ZeroMemory(m_capacityReject[dir]);
+      m_capacityReject[dir].disposition = EXEC_SUBMIT_CAPACITY_BLOCKED;
+      m_capacityReject[dir].retcode = retcode;
+      m_capacityReject[dir].normalizedVolume = m_journal[i].volume;
+      m_capacityReject[dir].requiredMargin = m_legacyIntentRequiredMargin[dir];
+      m_capacityReject[dir].freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      m_capacityRejectReady[dir] = true;
+   }
+
    string Journal_DiagnosticAt(const int i) const
    {
       if(i < 0 || i >= ArraySize(m_journal) || !m_journal[i].active) return "";
@@ -592,9 +774,27 @@ private:
              " ageSec=" + (string)age;
    }
 
-   bool Send(MqlTradeRequest &req, MqlTradeResult &res, const eIntent action,
-             const SExecRequestMeta &meta, const double positionVolumeBefore)
+   bool ProtectedRequestAllowed(const MqlTradeRequest &req,
+                                const SExecRequestMeta &meta) const
    {
+      if(g_pyramidProtection==NULL) return true;
+      return g_pyramidProtection.AllowsRequest(req,meta);
+   }
+
+   bool ProtectedRetryAllowed(const int attempt,const MqlTradeRequest &req,
+                              const SExecRequestMeta &meta) const
+   {
+      return attempt<=0 || ProtectedRequestAllowed(req,meta);
+   }
+
+   bool Send(MqlTradeRequest &req, MqlTradeResult &res, const eIntent action,
+             const SExecRequestMeta &meta, const double positionVolumeBefore,
+             SExecSubmitOutcome &outcome)
+   {
+      outcome.disposition = EXEC_SUBMIT_REJECTED;
+      outcome.retcode = 0;
+      if(!ProtectedRequestAllowed(req,meta))
+      { res.retcode=TRADE_RETCODE_REJECT; outcome.retcode=res.retcode; return false; }
       int positionCountBefore = CountOpenPositions(action, req.symbol, meta.ownerMagic);
 
       // Async path: fire and journal; confirmation arrives via broker state.
@@ -602,9 +802,15 @@ private:
       {
          if(!OrderSendAsync(req, res) || res.retcode != TRADE_RETCODE_PLACED)
          {
+            if(res.retcode==TRADE_RETCODE_NO_MONEY)
+               LatchRiskAddEmbargo(action,req.symbol,req.volume);
+            outcome.retcode = res.retcode;
+            outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
             Log_Warn("Exec", "async" + (string)action, "OrderSendAsync rejected, retcode=" + (string)res.retcode);
             return false;
          }
+         outcome.retcode = res.retcode;
+         outcome.disposition = Exec_SubmitDispositionPure(true, res.retcode);
          Journal_Add(res.request_id, req, action, meta, positionCountBefore, positionVolumeBefore);
          if(meta.commandType == EXEC_CMD_LEGACY)
          {
@@ -624,10 +830,14 @@ private:
             if(!SymbolInfoTick(req.symbol, tick)) break;
             req.price = (req.type == ORDER_TYPE_BUY) ? tick.ask : tick.bid;
          }
+         if(!ProtectedRetryAllowed(attempt,req,meta))
+         { res.retcode=TRADE_RETCODE_REJECT; outcome.retcode=res.retcode; return false; }
          ResetLastError();
          bool ok = OrderSend(req, res);
          if(ok && RetcodeOk(res.retcode))
          {
+            outcome.retcode = res.retcode;
+            outcome.disposition = Exec_SubmitDispositionPure(true, res.retcode);
             // Recovery commands retain correlation even in sync mode. Legacy
             // sync requests remain journal-free exactly as before T2.
             if(meta.commandType != EXEC_CMD_LEGACY)
@@ -642,6 +852,8 @@ private:
 
          if(Exec_IsFailClosed(meta.reconcilePolicy) && Exec_AmbiguousRetcode(res.retcode))
          {
+            outcome.retcode = res.retcode;
+            outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
             int j = Journal_Add(res.request_id, req, action, meta,
                                 positionCountBefore, positionVolumeBefore);
             m_journal[j].requestRetcode = res.retcode;
@@ -655,7 +867,19 @@ private:
       }
       Log_Warn("Exec", "send" + (string)action,
                "OrderSend failed retcode=" + (string)res.retcode + " comment=" + res.comment);
+      if(res.retcode==TRADE_RETCODE_NO_MONEY)
+         LatchRiskAddEmbargo(action,req.symbol,req.volume);
+      outcome.retcode = res.retcode;
+      outcome.disposition = Exec_SubmitDispositionPure(false, res.retcode);
       return false;
+   }
+
+   bool Send(MqlTradeRequest &req, MqlTradeResult &res, const eIntent action,
+             const SExecRequestMeta &meta, const double positionVolumeBefore)
+   {
+      SExecSubmitOutcome ignored;
+      ZeroMemory(ignored);
+      return Send(req, res, action, meta, positionVolumeBefore, ignored);
    }
 
 public:
@@ -667,11 +891,48 @@ public:
       m_asyncAllowed = !MQLInfoInteger(MQL_TESTER);
       m_busyOpenBuy  = false;
       m_busyOpenSell = false;
+      m_riskAddEmbargoKey=RiskAddEmbargoKey();
+      m_riskAddEmbargoActive=false;
+      m_riskAddRecoveryThreshold=0.0;
+      m_riskAddRequiredMargin=0.0;
+      m_riskAddFreeAtReject=0.0;
+      if(!HasSymbolExposure() && GlobalVariableCheck(m_riskAddEmbargoKey))
+         GlobalVariableDel(m_riskAddEmbargoKey);
+      if(HasSymbolExposure() && GlobalVariableCheck(m_riskAddEmbargoKey))
+      {
+         m_riskAddRecoveryThreshold=GlobalVariableGet(m_riskAddEmbargoKey);
+         m_riskAddEmbargoActive=m_riskAddRecoveryThreshold>0.0;
+         if(m_riskAddEmbargoActive)
+            Log_Warn("Exec","t1716capacityrestore",
+                     "khôi phục capacity embargo | reopenAt="+
+                     DoubleToString(m_riskAddRecoveryThreshold,2));
+      }
+      for(int dir=BD_DIR_BUY; dir<=BD_DIR_SELL; dir++)
+      {
+         m_capacityRejectReady[dir] = false;
+         m_legacyIntentIndex[dir] = 0;
+         m_legacyIntentBar[dir] = 0;
+         m_legacyIntentRequiredMargin[dir] = 0.0;
+         ZeroMemory(m_capacityReject[dir]);
+      }
       if(ExecMode == exec_Async && !m_asyncAllowed)
          Log_Info("Exec", "tester detected: async mode falls back to sync");
    }
 
    bool BusyOpen(const int dir) const { return dir == 0 ? m_busyOpenBuy : m_busyOpenSell; }
+
+   bool TakeLegacyCapacityReject(const int dir, int &dcaIndex,
+                                 datetime &intentBar,
+                                 SExecSubmitOutcome &outcome)
+   {
+      if(dir < BD_DIR_BUY || dir > BD_DIR_SELL || !m_capacityRejectReady[dir])
+         return false;
+      dcaIndex = m_legacyIntentIndex[dir];
+      intentBar = m_legacyIntentBar[dir];
+      outcome = m_capacityReject[dir];
+      m_capacityRejectReady[dir] = false;
+      return true;
+   }
 
    bool HasPendingClose(const ulong ticket) const
    {
@@ -706,6 +967,15 @@ public:
       return false;
    }
 
+   // Read-only capability query. Unlike HasPending(), this never runs journal
+   // reconciliation and is therefore safe inside admission policy evaluation.
+   bool HasPendingMutation() const
+   {
+      for(int i = ArraySize(m_journal) - 1; i >= 0; i--)
+         if(m_journal[i].active) return true;
+      return false;
+   }
+
    bool HasReconcileRequired(const int cycleKey) const
    {
       if(cycleKey == 0) return false;
@@ -737,12 +1007,25 @@ public:
    }
 
    //--- Legacy market-open API: semantics retained -------------------------
-   bool OpenMarket(const int dir, double volume, const int dcaIndex)
+   bool OpenMarketOutcome(const int dir, double volume, const int dcaIndex,
+                          SExecSubmitOutcome &outcome,
+                          const datetime intentBar=0)
    {
+      ZeroMemory(outcome);
+      outcome.disposition = EXEC_SUBMIT_REJECTED;
       if(!License_Check()) return false;
       double requested = volume;
       volume = Grid_NormalizeVolume(volume);
       if(volume <= 0) return false;
+      if(RiskAddEmbargoBlocks())
+      {
+         outcome.disposition=EXEC_SUBMIT_CAPACITY_BLOCKED;
+         outcome.retcode=TRADE_RETCODE_NO_MONEY;
+         outcome.normalizedVolume=volume;
+         outcome.requiredMargin=m_riskAddRecoveryThreshold;
+         outcome.freeMargin=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+         return false;
+      }
       if(MathAbs(volume - requested) > 1e-12)
          Log_Info("Exec", "order #" + IntegerToString(dcaIndex) + " lot adjusted: requested " +
                   DoubleToString(requested, 3) + " -> using " + DoubleToString(volume, 3) +
@@ -756,13 +1039,32 @@ public:
       req.volume       = volume;
       req.type         = (dir == 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       req.price        = (dir == 0) ? tick.ask : tick.bid;
-      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale);
+      req.deviation    = Exec_DeviationFromPrice(Cfg.SlippagePrice, _Point);
       req.magic        = Magic;
       req.comment      = Exec_BuildComment(sOrdComm, dcaIndex);
       req.type_filling = m_filling;
+      outcome.normalizedVolume = volume;
+      outcome.freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      double requiredMargin = 0.0;
+      if(OrderCalcMargin(req.type, req.symbol, req.volume, req.price, requiredMargin))
+         outcome.requiredMargin = MathMax(0.0, requiredMargin);
+      if(m_asyncAllowed && ExecMode == exec_Async &&
+         dir >= BD_DIR_BUY && dir <= BD_DIR_SELL)
+      {
+         m_legacyIntentIndex[dir] = dcaIndex;
+         m_legacyIntentBar[dir] = intentBar;
+         m_legacyIntentRequiredMargin[dir] = outcome.requiredMargin;
+      }
       SExecRequestMeta meta;
       Exec_InitMeta(meta, (long)Magic, 0, EXEC_CMD_LEGACY, EXEC_RECONCILE_LEGACY_RELEASE);
-      return Send(req, res, dir == 0 ? INTENT_OPEN_BUY : INTENT_OPEN_SELL, meta, 0.0);
+      return Send(req, res, dir == 0 ? INTENT_OPEN_BUY : INTENT_OPEN_SELL,
+                  meta, 0.0, outcome);
+   }
+
+   bool OpenMarket(const int dir, double volume, const int dcaIndex)
+   {
+      SExecSubmitOutcome outcome;
+      return OpenMarketOutcome(dir, volume, dcaIndex, outcome);
    }
 
    //--- Owner-aware market-open primitive for later Recovery slices. -------
@@ -775,6 +1077,7 @@ public:
       if(!License_Check() || ownerMagic <= 0 || cycleKey == 0) return false;
       volume = Grid_NormalizeVolume(volume);
       if(volume <= 0) return false;
+      if(RiskAddEmbargoBlocks()) return false;
       MqlTick tick;
       if(!SymbolInfoTick(_Symbol, tick)) return false;
       MqlTradeRequest req; MqlTradeResult res;
@@ -784,7 +1087,7 @@ public:
       req.volume       = volume;
       req.type         = (dir == 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       req.price        = (dir == 0) ? tick.ask : tick.bid;
-      req.deviation    = Exec_Deviation(Slippage_, Cfg.PointScale);
+      req.deviation    = Exec_DeviationFromPrice(Cfg.SlippagePrice, _Point);
       req.magic        = (ulong)ownerMagic;
       req.comment      = comment;
       req.type_filling = m_filling;
@@ -827,8 +1130,11 @@ public:
       req.volume       = target;
       req.type         = (type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
       req.price        = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
-      req.deviation    = Exec_Deviation(Slippage_, Sym_PointScaleFor(sym));
+      req.deviation    = Exec_DeviationFromPrice(Exec_SlippagePriceForSymbol(sym),
+                                                 SymbolInfoDouble(sym, SYMBOL_POINT));
       req.magic        = Exec_CloseRequestMagic(positionMagic);
+      if(g_pyramidProtection!=NULL)
+         req.comment=g_pyramidProtection.CloseComment((int)commandType,ticket);
       req.type_filling = FillingFor(sym);
       SExecRequestMeta meta;
       Exec_InitMeta(meta, positionMagic, cycleKey, commandType, reconcilePolicy);
@@ -880,11 +1186,13 @@ public:
                         const eExecCommandType commandType,
                         const eExecReconcilePolicy reconcilePolicy)
    {
-      if(!PositionSelectByTicket(ticket)) return false;
+      if(ticket==0 || !PositionSelectByTicket(ticket)) return false;
+      if((ulong)PositionGetInteger(POSITION_TICKET)!=ticket ||
+         PositionGetDouble(POSITION_VOLUME)<=0.0) return false;
       if(m_asyncAllowed && ExecMode == exec_Async && HasPendingModify(ticket)) return false;
       string sym = PositionGetString(POSITION_SYMBOL);
       long positionMagic = PositionGetInteger(POSITION_MAGIC);
-      if(!Exec_OwnerMatches(positionMagic, expectedOwnerMagic)) return false;
+      if(sym=="" || !Exec_OwnerMatches(positionMagic, expectedOwnerMagic)) return false;
       MqlTradeRequest req; MqlTradeResult res;
       ZeroMemory(req); ZeroMemory(res);
       req.action   = TRADE_ACTION_SLTP;
@@ -893,6 +1201,7 @@ public:
       req.sl       = sl;
       req.tp       = tp;
       req.magic    = Exec_CloseRequestMagic(positionMagic);
+      if(req.position==0 || req.symbol=="") return false;
       SExecRequestMeta meta;
       Exec_InitMeta(meta, positionMagic, cycleKey, commandType, reconcilePolicy);
       return Send(req, res, INTENT_MODIFY_SLTP, meta, PositionGetDouble(POSITION_VOLUME));
@@ -900,7 +1209,9 @@ public:
 
    bool ModifySlTp(const ulong ticket, const double sl, const double tp)
    {
-      if(!PositionSelectByTicket(ticket)) return false;
+      if(ticket==0 || !PositionSelectByTicket(ticket)) return false;
+      if((ulong)PositionGetInteger(POSITION_TICKET)!=ticket ||
+         PositionGetDouble(POSITION_VOLUME)<=0.0) return false;
       long positionMagic = PositionGetInteger(POSITION_MAGIC);
       return ModifySlTpOwned(ticket, sl, tp, positionMagic, 0,
                              EXEC_CMD_LEGACY, EXEC_RECONCILE_LEGACY_RELEASE);
@@ -928,7 +1239,26 @@ public:
          {
             if(!RetcodeOk(result.retcode))
             {
-               Journal_CompleteAt(i); // explicit rejection is a proven outcome
+               RecordLegacyCapacityRejectAt(i, result.retcode);
+               bool pyCommand=m_journal[i].commandType==EXEC_CMD_PY_PROTECT_CLOSE ||
+                              m_journal[i].commandType==EXEC_CMD_PY_PROTECT_MODIFY ||
+                              m_journal[i].commandType==EXEC_CMD_PY_RH_TRIM;
+               bool consumed=!pyCommand;
+               if(pyCommand && g_pyramidProtection!=NULL)
+                  consumed=g_pyramidProtection.OnDefinitiveReject(
+                     m_journal[i].cycleKey,(int)m_journal[i].commandType,
+                     m_journal[i].ticket,result.retcode);
+               if(consumed)
+                  Journal_CompleteAt(i); // explicit rejection persisted/consumed
+               else
+               {
+                  // A proven no-effect result that cannot be bound back to its
+                  // durable PY operation is an integrity fault, not permission
+                  // to silently drop the journal and spin forever.
+                  m_journal[i].reconcileRequired=true;
+                  Log_Error("Exec",
+                            "T17.23 pyreject: definitive PY reject did not match durable operation; giữ fail-closed journal");
+               }
                if(result.retcode != 0)
                   Log_Warn("Exec", "txrej", "async request rejected retcode=" + (string)result.retcode);
             }

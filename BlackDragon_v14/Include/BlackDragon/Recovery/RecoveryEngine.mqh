@@ -1,7 +1,6 @@
 //+------------------------------------------------------------------+
-//| RecoveryEngine.mqh — T14 identity + T16.5 ARCS compatibility    |
+//| RecoveryEngine.mqh — T17.12 lifecycle-safe Recovery wrapper     |
 //| Exact T13/T14 engine remains available for the legacy contract.  |
-//| T16 routes new sizing/stack/SL/Overlap semantics into ARCS.      |
 //+------------------------------------------------------------------+
 #ifndef BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
 #define BD_RECOVERY_ENGINE_T16_WRAPPER_MQH
@@ -10,6 +9,7 @@
 #include "RecoveryPersistence.mqh"
 #include "RecoveryT16Config.mqh"
 #include "RecoveryT165GuardScope.mqh"
+#include <BlackDragon/OrderCommentCodec.mqh>
 
 bool Recovery_T14HistoryOpenProof(const eRecoveryCoreDirection dir,
                                   const SRecoveryPersistPending &p)
@@ -31,9 +31,7 @@ bool Recovery_T14HistoryOpenProof(const eRecoveryCoreDirection dir,
    datetime from = p.startedAt > 2 ? p.startedAt - 2 : 0;
    if(!HistorySelect(from, TimeCurrent())) return false;
 
-   string prefix = "BDR|C=" + (string)p.cycleKey +
-                   "|G=" + (string)p.generation +
-                   "|B=" + (string)p.bundleId + "|";
+   // T17.21: exact legacy/new comment identity; remaining proof gates unchanged.
    long expectedType = Recovery_HedgeDirection(dir) == 0 ? DEAL_TYPE_BUY : DEAL_TYPE_SELL;
    int matches = 0;
    double matchedVolume = 0.0;
@@ -51,7 +49,7 @@ bool Recovery_T14HistoryOpenProof(const eRecoveryCoreDirection dir,
       long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT) continue;
       string comment = HistoryDealGetString(deal, DEAL_COMMENT);
-      if(StringFind(comment, prefix) != 0) continue;
+      if(!OC_RhMatchesBundle(comment, p.cycleKey, p.generation, p.bundleId)) continue;
       if((ulong)HistoryDealGetInteger(deal, DEAL_ORDER) == 0) continue;
       matches++;
       matchedVolume += HistoryDealGetDouble(deal, DEAL_VOLUME);
@@ -83,12 +81,15 @@ bool Recovery_T14PendingVolumeEffectConfirmed(const bool isOpen,
 #undef Recovery_PendingVolumeEffectConfirmed
 #undef CRecoveryEngine
 
-#include "RecoveryArcsStackPostDeal.mqh"
+#include "RecoveryArcsStackT177Scheduler.mqh"
+#include "RecoveryArcsStackT177HedgeLadder.mqh"
+#include "RecoveryArcsStackT1719Reentry.mqh"
 
 class CRecoveryEngine : public CRecoveryEngineT15Base
 {
 private:
-   CRecoveryArcsStackFinal m_arcs;
+   CRecoveryArcsStackT1719 m_arcs;
+   bool m_initialized;
 
    bool UseT16() const
    {
@@ -103,10 +104,17 @@ private:
    }
 
 public:
+   CRecoveryEngine(void) : CRecoveryEngineT15Base()
+   {
+      m_initialized = false;
+   }
+
    bool Init()
    {
-      if(UseT16()) return m_arcs.Init();
-      return CRecoveryEngineT15Base::Init();
+      m_initialized = false;
+      bool ok = UseT16() ? m_arcs.Init() : CRecoveryEngineT15Base::Init();
+      m_initialized = ok;
+      return ok;
    }
 
    void OnTick(const EAContext &ctx)
@@ -119,8 +127,6 @@ public:
    {
       if(UseT16()) m_arcs.OnTradeTransaction(trans);
       else CRecoveryEngineT15Base::OnTradeTransaction(trans);
-      // Run after the Recovery ledger/history consumers. This cache observer
-      // may HistoryDealSelect without disturbing their selected history range.
       ObserveGuardDeal(trans);
    }
 
@@ -138,6 +144,7 @@ public:
 
    bool FlushPersistence()
    {
+      if(!m_initialized) return true;
       if(UseT16()) return m_arcs.FlushPersistence();
       return CRecoveryEngineT15Base::FlushPersistence();
    }
@@ -146,8 +153,6 @@ public:
    {
       if(UseT16()) m_arcs.RecordDealCursor(deal);
       else CRecoveryEngineT15Base::RecordDealCursor(deal);
-      // T8 can suppress the normal Recovery OnTradeTransaction path for a
-      // coordinator-owned close; keep Guard realized scope complete anyway.
       Recovery_T165GuardObserveDeal(deal, TimeCurrent());
    }
 
@@ -261,14 +266,56 @@ public:
       return m_arcs.FinalizeExpectedOverlapMutation(exec, dir, now, why);
    }
 
+   bool T1722PyMutationQuiet(const eRecoveryCoreDirection dir) const
+   { return !UseT16() || m_arcs.PyMutationQuiet(dir); }
+
+   bool T1722FinalizePyMutation(CExecutionLayer &exec,const eRecoveryCoreDirection dir,
+                               const datetime now,string &why)
+   {
+      if(!UseT16()) return true;
+      return m_arcs.FinalizeExpectedPyMutation(exec,dir,now,why);
+   }
+
    bool T16HasExposure(const eRecoveryCoreDirection dir) const
    {
       return UseT16() && m_arcs.HasExposure(dir);
    }
 
+   long T16CurrentHedgeUnits(const eRecoveryCoreDirection dir) const
+   {
+      if(!UseT16()) return 0;
+      double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+      return step > 0.0 ? Recovery_ArcsTotalHedgeUnits(dir, step) : 0;
+   }
+
    bool T16CanOpenFurtherGeneration(const eRecoveryCoreDirection dir) const
    {
       return UseT16() && m_arcs.CanOpenFurtherGeneration(dir);
+   }
+
+   bool TerminalNoHedge(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.TerminalNoHedge(dir);
+   }
+
+   bool T1719BlocksCoreDca(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719BlocksCoreDca(dir);
+   }
+
+   bool T1719BlocksCorePyramidAdd(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719BlocksCorePyramidAdd(dir);
+   }
+
+   bool T1719AllowsCorePyramidAdd(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719AllowsCorePyramidAdd(dir);
+   }
+
+   bool T1719AllowsCorePyramidPeel(const eRecoveryCoreDirection dir) const
+   {
+      return UseT16() && m_arcs.T1719AllowsCorePyramidPeel(dir);
    }
 
    bool T16ExpectedBrokerSlDeal(const ulong deal)

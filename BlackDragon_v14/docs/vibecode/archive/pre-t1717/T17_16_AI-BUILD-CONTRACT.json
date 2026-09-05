@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "task": "T17.16",
+  "baseline_head": "666d56293bdd2a42c972ca09074e359ff7ba6d9d",
+  "baseline_tree": "5aaecd7987f62a9afc1169312e38ff2ee0b4bf00",
+  "allowed_files": [
+    "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177HedgeLadder.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadderC4Base.mqh",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16ConfigT177C4Base.mqh",
+    "BlackDragon_v14/Experts/BlackDragon/BlackDragon.mq5",
+    "BlackDragon_v14/Scripts/BlackDragon/Tests/*1716*",
+    "BlackDragon_v14/docs/vibecode/T17_16_*",
+    "BlackDragon_v14/docs/vibecode/PROJECT_STATE.yaml",
+    ".github/workflows/verify-t1716-final.yml"
+  ],
+  "forbidden_semantic_changes": [
+    "entry signals",
+    "DCA or Pyramid lot sequence",
+    "Hedge coverage sequence/final target/hard cap",
+    "Overlap economics",
+    "live trading activation",
+    "automatic merge or Ready-for-Review"
+  ],
+  "triggered_guards": ["A1", "A2", "A3", "A4", "A5", "A6", "A8", "A9", "A10", "A12"],
+  "required_tests": [
+    "same-stage denominator rebase re-enters new-bar/gap/profit gates",
+    "exact admitted broker partial completes without duplicate stage gap",
+    "Overlap refresh clears old stage authority and ladder resumes only after gates",
+    "NO_MONEY blocks DCA/Pyramid/Recovery across a new bar",
+    "margin recovery hysteresis re-enables admission",
+    "close/modify surfaces remain outside the embargo"
+  ],
+  "forbidden_claims": [
+    "Strategy Tester PASS before owner rerun",
+    "forward/live eligible",
+    "profitability or safety guarantee"
+  ]
+}

@@ -1,0 +1,39 @@
+schema: vibecode-ea-spec/1.0
+id: BLACKDRAGON-T17.14
+mode: Full
+status: approved_build
+source_of_truth: owner-chat-2026-08-27-runtime-log-fix-approval
+baseline:
+  head: e8b5a301db148c9aa797cdfa0772270125d5e036
+  tree: 24a53f2d19c99178e02ea0332ebb689957304be0
+runtime_evidence:
+  log_sha256: 298dbced0324b16d2f87c4fd46d24d52db877e9743165899769326839b4751e9
+  failing_time: "2026-06-04 12:11:41"
+requirements:
+  - id: R14-01
+    severity: P0
+    text: Before post-Overlap ARCS validation, broker-observed protective layer decreases must be consumed only when exact persisted protective-SL history proves the complete volume delta.
+  - id: R14-02
+    severity: P0
+    text: Protective-close replay is idempotent; callback-before-finalizer, finalizer-before-callback and duplicate callback orderings produce one ownership transition and no false reconcile hold.
+  - id: R14-03
+    severity: P0
+    text: Missing proof, partial proof, unexpected volume increase, manual close or ambiguous execution remains fail-closed and must not be normalized as expected SL.
+  - id: R14-04
+    severity: P0
+    text: A latched account-wide MoneyGuard preempts narrower Recovery/Overlap blocking work and drives an idempotent global close-to-flat until the entire execution journal is quiet.
+  - id: R14-05
+    severity: P1
+    text: Side, Magic and Daily MoneyGuard coordination semantics remain unchanged; pending OPEN outcome remains known before contradictory close requests.
+  - id: R14-06
+    severity: P1
+    text: Exact-head Windows MetaEditor and native regression evidence must be produced before handing a new EX5 to the owner for Strategy Tester rerun.
+non_goals:
+  - entry signal, DCA spacing, lot sizing, coverage target or profit-target changes
+  - automatic recovery from unproven/manual ARCS mutation
+  - changing owner .set risk limits in this source fix
+  - forward, profitability or live-readiness claims
+release:
+  strategy_tester: PENDING_OWNER_RERUN
+  release_eligible: false
+  merge_allowed: false

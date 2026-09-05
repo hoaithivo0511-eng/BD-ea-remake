@@ -9,6 +9,8 @@
 
 #include "RecoveryArcsBook.mqh"
 #include <BlackDragon/ExecutionLayer.mqh>
+#include "RecoveryOpenBarGate.mqh"
+#include "RecoveryOrderComment.mqh"
 #include <BlackDragon/Logger.mqh>
 
 class CRecoveryArcsStack
@@ -226,6 +228,48 @@ private:
       return recovery_CORE_BUY;
    }
 
+   bool T1722DealAfterCursor(const int di,const ulong deal) const
+   {
+      if(PyramidSLMode_==py_protect_OFF) return true;
+      return CursorAfter(HistoryDealGetInteger(deal,DEAL_TIME_MSC),deal,
+                         m_dir[di].lastDealTimeMsc,m_dir[di].lastDealTicket);
+   }
+
+   void ApplyRecoveryCloseDeal(const ulong deal,const eRecoveryCoreDirection dir,
+                               const int di,const double cash,const bool pyTrim)
+   {
+      ulong posId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+      int generation = Recovery_ArcsGenerationFromPositionHistory(posId);
+      int li = FindLayerByGeneration(dir, generation);
+      if(li < 0) return;
+      SArcsLayer l;
+      GetLayer(dir, li, l);
+      if(!HistoryDealSelect(deal)) return;
+      long units = Recovery_VolumeToUnitsFloor(HistoryDealGetDouble(deal, DEAL_VOLUME), m_volumeStep);
+      if(!pyTrim && l.state == ARCS_LAYER_TP_PENDING && m_dir[di].phase == ARCS_TP_PENDING)
+      {
+         l.fundingClosedUnits += units;
+         l.realizedFundingCash += cash;
+         m_dir[di].hedgeFundingCash += cash;
+         Recovery_ArcsRecomputeCredit(m_dir[di]);
+      }
+      else
+         l.realizedOtherCash += cash;
+      if(pyTrim)
+      {
+         if(l.state==ARCS_LAYER_TP_PENDING && m_dir[di].phase==ARCS_CORE_FUNDING)
+            l.tpBaselineUnits=l.tpBaselineUnits>units ? l.tpBaselineUnits-units : 0;
+         l.remainingUnits=Recovery_ArcsLayerUnits(dir,l.generation,m_volumeStep);
+         if(l.remainingUnits==0)
+         {
+            l.state=ARCS_LAYER_CLOSED;
+            l.virtualSlArmed=false;
+            if(m_dir[di].activeLayer==li) m_dir[di].phase=ARCS_LOCKED;
+         }
+      }
+      PutLayer(dir, li, l);
+   }
+
    void ApplyCloseDeal(const ulong deal)
    {
       if(deal == 0 || !HistoryDealSelect(deal)) return;
@@ -239,32 +283,15 @@ private:
       eRecoveryCoreDirection dir = DirectionForClose(owner, type, mapped);
       if(!mapped) return;
       int di = Idx(dir);
+      if(!T1722DealAfterCursor(di,deal)) return;
+      bool pyTrim=g_pyramidProtection!=NULL && g_pyramidProtection.ExpectedRhTrim(deal);
+      if(!HistoryDealSelect(deal)) return;
       double cash = Recovery_DealCashPure(HistoryDealGetDouble(deal, DEAL_PROFIT),
                                           HistoryDealGetDouble(deal, DEAL_SWAP),
                                           HistoryDealGetDouble(deal, DEAL_COMMISSION),
                                           HistoryDealGetDouble(deal, DEAL_FEE));
       if(owner == (long)RecoveryMagic_)
-      {
-         ulong posId = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
-         int generation = Recovery_ArcsGenerationFromPositionHistory(posId);
-         int li = FindLayerByGeneration(dir, generation);
-         if(li >= 0)
-         {
-            SArcsLayer l;
-            GetLayer(dir, li, l);
-            long units = Recovery_VolumeToUnitsFloor(HistoryDealGetDouble(deal, DEAL_VOLUME), m_volumeStep);
-            if(l.state == ARCS_LAYER_TP_PENDING && m_dir[di].phase == ARCS_TP_PENDING)
-            {
-               l.fundingClosedUnits += units;
-               l.realizedFundingCash += cash;
-               m_dir[di].hedgeFundingCash += cash;
-               Recovery_ArcsRecomputeCredit(m_dir[di]);
-            }
-            else
-               l.realizedOtherCash += cash;
-            PutLayer(dir, li, l);
-         }
-      }
+         ApplyRecoveryCloseDeal(deal,dir,di,cash,pyTrim);
       else if(m_dir[di].phase == ARCS_CORE_FUNDING && cash < 0.0)
       {
          m_dir[di].coreLossSpent += -cash;
@@ -277,7 +304,9 @@ private:
    {
       why = "";
       int di = Idx(dir);
-      if(!HistorySelect(0, TimeCurrent()))
+      datetime replayFrom=PyramidSLMode_!=py_protect_OFF && m_dir[di].lastDealTimeMsc>0
+                          ? (datetime)(m_dir[di].lastDealTimeMsc/1000) : 0;
+      if(!HistorySelect(replayFrom, TimeCurrent()))
       {
          why = "không đọc được history để replay ARCS";
          return false;
@@ -293,9 +322,41 @@ private:
                          m_dir[di].lastDealTicket)) continue;
          long magic = HistoryDealGetInteger(deal, DEAL_MAGIC);
          if(magic != (long)Magic && magic != (long)RecoveryMagic_ && magic != 0) continue;
+
+         // T17.23 F03: the cursor above belongs to exactly one Recovery Core
+         // direction. Never place a close from the opposite direction into this
+         // replay batch, otherwise ApplyCloseDeal() can advance that other
+         // direction's cursor before its own replay begins.
+         long entry=HistoryDealGetInteger(deal,DEAL_ENTRY);
+         if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) continue;
+         long owner=ResolveClosedOwnerMagic(deal);
+         if(owner!=(long)Magic && owner!=(long)RecoveryMagic_) continue;
+         long type=HistoryDealGetInteger(deal,DEAL_TYPE);
+         bool mapped=false;
+         eRecoveryCoreDirection dealDir=DirectionForClose(owner,type,mapped);
+         if(!mapped || dealDir!=dir) continue;
+
          int n = ArraySize(replay);
          ArrayResize(replay, n + 1);
          replay[n] = deal;
+      }
+      // History enumeration order is not an ownership proof. Apply the durable
+      // cursor in a deterministic (time_msc,ticket) order so restart/replay and
+      // delayed callbacks cannot skip or double-book a close fill.
+      for(int i=1;i<ArraySize(replay);i++)
+      {
+         ulong key=replay[i];
+         if(!HistoryDealSelect(key)) { why="không select được deal khi sort replay"; return false; }
+         long keyMsc=HistoryDealGetInteger(key,DEAL_TIME_MSC);
+         int j=i-1;
+         while(j>=0)
+         {
+            if(!HistoryDealSelect(replay[j])) { why="không select được deal trước khi sort replay"; return false; }
+            long priorMsc=HistoryDealGetInteger(replay[j],DEAL_TIME_MSC);
+            if(priorMsc<keyMsc || (priorMsc==keyMsc && replay[j]<key)) break;
+            replay[j+1]=replay[j]; j--;
+         }
+         replay[j+1]=key;
       }
       for(int i = 0; i < ArraySize(replay); i++) ApplyCloseDeal(replay[i]);
       return true;
@@ -546,14 +607,19 @@ private:
          LatchReconcile(dir, why);
          return false;
       }
+      if(!Recovery_OneOrderPerBarAllows(hedgeDir, TimeCurrent(), why))
+      {
+         Log_WarnEvery("Recovery", "t1720bar" + (string)key, why, 60);
+         return false;
+      }
+
       double volume = Recovery_UnitsToVolume(child, meta.volumeStep);
       int childNo = 1;
       SArcsPosition pos[];
       childNo += Recovery_ArcsBuildLayerPositions(dir, l.generation, m_volumeStep, pos);
-      string comment = "BDR|C=" + (string)key +
-                       "|G=" + (string)l.generation +
-                       "|B=" + (string)l.bundleId +
-                       "|N=" + (string)childNo;
+      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,
+                                      0, childNo,
+                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);
       if(!SaveBeforeMutation(why)) return false;
       if(!exec.OpenMarketOwned(hedgeDir, volume,
                                (long)RecoveryMagic_, key,
@@ -589,6 +655,13 @@ private:
          LatchReconcile(dir, why);
          return false;
       }
+      bool snapshotChanged = Recovery_T1711ActiveTpSnapshotChangedPure(snap.units,
+                                                                       l.openedUnits,
+                                                                       l.remainingUnits,
+                                                                       snap.weightedEntry,
+                                                                       l.weightedEntry,
+                                                                       snap.netBE,
+                                                                       l.netBE);
       l.openedUnits = snap.units;
       l.remainingUnits = snap.units;
       l.weightedEntry = snap.weightedEntry;
@@ -597,7 +670,7 @@ private:
                                      ctx.bid, ctx.ask,
                                      m_tpDistancePrice))
       {
-         PutLayer(dir, li, l);
+         if(snapshotChanged) PutLayer(dir, li, l);
          why = "TP Hedge ảo chưa đạt";
          return false;
       }
@@ -1519,8 +1592,13 @@ public:
       if(!m_initialized || RecoveryMode_ != recovery_ACTIVE ||
          trans.type != TRADE_TRANSACTION_DEAL_ADD || trans.deal == 0 ||
          trans.symbol != _Symbol || !HistoryDealSelect(trans.deal)) return;
-      ApplyCloseDeal(trans.deal);
       string why = "";
+      if(PyramidSLMode_!=py_protect_OFF)
+      {
+         if(!ReplayAfterCursor(recovery_CORE_BUY,why) || !ReplayAfterCursor(recovery_CORE_SELL,why))
+         { LatchReconcile(recovery_CORE_BUY,why); LatchReconcile(recovery_CORE_SELL,why); return; }
+      }
+      else ApplyCloseDeal(trans.deal);
       if(m_dirty && !Save(why)) Log_Error("Recovery", "T16 deal persistence failed: " + why);
    }
 

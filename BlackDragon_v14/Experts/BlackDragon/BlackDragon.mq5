@@ -1,21 +1,29 @@
 //+------------------------------------------------------------------+
-//| BlackDragon.mq5 — EA Black Dragon v14.9.0 (modular rebuild)      |
-//| Event handlers + module registration ONLY. All logic lives in    |
-//| MQL5/Include/BlackDragon/. Read ARCHITECTURE.md before editing.  |
+//| BlackDragon.mq5 — EA Black Dragon v15.00 / T17.22 PY protection |
+//| Event handlers + module registration ONLY.                       |
 //+------------------------------------------------------------------+
-#property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14."
-#property version   "14.90"
+#property copyright "Original strategy: Copyright 2026, Ramil Minniakhmetov. Modular rebuild v14/T17."
+#property version   "15.00"
 
 #include <BlackDragon/Config.mqh>
 #include <BlackDragon/Recovery/RecoveryTypes.mqh>
+#include <BlackDragon/Pyramid/PyramidAnchorT177.mqh>
+// C2 compatibility: while RecoveryT16Config is parsed, route Pyramid semantic
+// text through the T17.7 wrapper. DYNAMIC returns the exact legacy string;
+// FIRST_CORE adds its explicit semantic revision to persistence identity.
+#define Pyramid_SemanticText Pyramid_T177ExtendedSemanticText
 #include <BlackDragon/Recovery/RecoveryEngine.mqh>
-#include <BlackDragon/Recovery/RecoveryDca.mqh>
+#undef Pyramid_SemanticText
+// T17.13 wrappers retain T17.6/T17.7 bases and only relax read-only Core-growth admission.
+#include <BlackDragon/Pyramid/CorePyramidT1713.mqh>
+#include <BlackDragon/Recovery/RecoveryDcaT1713.mqh>
 #include <BlackDragon/Recovery/RecoveryExitCoordinator.mqh>
 #include <BlackDragon/Types.mqh>
 #include <BlackDragon/Logger.mqh>
 #include <BlackDragon/License.mqh>
 #include <BlackDragon/SignalEngine.mqh>
 #include <BlackDragon/WmfSignal.mqh>
+#include <BlackDragon/WmfSignalOverlay.mqh>
 #include <BlackDragon/GridEngine.mqh>
 #include <BlackDragon/EntryFilters.mqh>
 #include <BlackDragon/NewsCalendar.mqh>
@@ -24,74 +32,79 @@
 #include <BlackDragon/ExecutionLayer.mqh>
 #include <BlackDragon/MoneyGuard.mqh>
 #include <BlackDragon/MobileControl.mqh>
-#include <BlackDragon/Panel.mqh>
 #include <BlackDragon/Persistence.mqh>
-#include <BlackDragon/Strategy.mqh>
+#include <BlackDragon/StrategyT1713.mqh>
 #include <BlackDragon/Filters/AdxFilter.mqh>
+#include <BlackDragon/Pyramid/PyramidProtection.mqh>
 
-CRsiStochSignal  g_sigBD;      // FE-405: BD RSI signal (v13)
-CWmfSignal       g_sigWMF;     // FE-405: WMF signal (TradingView port)
+CRsiStochSignal  g_sigBD;
+CWmfSignal       g_sigWMF;
+CWmfSignalOverlay g_wmfOverlay;
 ISignal         *g_signal = NULL;
 CBasketManager   g_basket;
 CExecutionLayer  g_exec;
-CRecoveryEngine  g_recovery;      // Recovery registry/FSM/mechanics; ACTIVE still gated until T9
-CRecoveryExitCoordinator g_recoveryExit; // T8: legacy exit / intervention safety bridge
-CSequenceSizer   g_seqSizer;    // explicit DCA lot sequence
-CChainSizer      g_chainSizer;  // DCA multiplier chain
-CDistancePlan    g_distPlan;    // DCA pip-distance chain
+CRecoveryEngine  g_recovery;
+CRecoveryExitCoordinator g_recoveryExit;
+CCorePyramidEngine g_pyramid;
+CPyramidProtection g_pyProtection;
+CSequenceSizer   g_seqSizer;
+CChainSizer      g_chainSizer;
+CDistancePlan    g_distPlan;
 CNewsCalendar    g_news;
-CMoneyGuard      g_guard;       // FE-401/402 (v14.3)
-CTimeSchedule    g_schedule;    // FE-403 (v14.4)
-CMobileControl   g_mobile;      // FE-404 (v14.5)
-CPanel           g_panel;
+CMoneyGuard      g_guard;
+CTimeSchedule    g_schedule;
+CMobileControl   g_mobile;
 CStrategy        g_strategy;
 CAdxFilter      *g_adx = NULL;
-datetime         g_lastSavedHalt = 0;   // BD-R4 (v14.7.2): last Cfg.HaltUntil written to the state file
+datetime         g_lastSavedHalt = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
    Config_Init();
 
-   //--- Adaptive Recovery Hedge foundation. OFF is deliberately
-   //    permissive so legacy v14.9 initialization stays unchanged.
    string recoveryWhy = "";
-   if(!Recovery_ValidateFoundation(RecoveryMode_, (long)Magic, RecoveryMagic_,
-                                   RecoveryStartAfterDca_,
-                                   AccountInfoInteger(ACCOUNT_MARGIN_MODE),
-                                   recoveryWhy))
+   if(!Recovery_ValidateCompleteConfig((long)Magic,
+                                       AccountInfoInteger(ACCOUNT_MARGIN_MODE),
+                                       recoveryWhy))
    {
-      Log_Error("Init", "Recovery foundation invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   if(!Recovery_ValidateShadowConfig(RecoveryMode_, HedgeGapPips_, recoveryWhy))
-   {
-      Log_Error("Init", "Recovery shadow config invalid: " + recoveryWhy);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   if(!Recovery_ValidateDcaConfig(RecoveryMode_, MinHedgeCoveragePercent_,
-                                  TargetRecoveryCorridorPips_, recoveryWhy))
-   {
-      Log_Error("Init", "Recovery DCA/corridor config invalid: " + recoveryWhy);
+      Log_Error("Init", "Recovery complete config invalid: " + recoveryWhy);
       return INIT_PARAMETERS_INCORRECT;
    }
 
-   //--- FE-201: gold pip convention (1 USD = 10 pips). Reference quote is
-   //    2-digit gold; on a 3-digit broker every point-based input is x10.
-   Config_ApplyPointScale(Sym_PointScale());
-   if(Sym_IsGold())
-      Log_Info("Init", "Gold detected (" + (string)_Digits + " digits): PointScale=" +
-               (string)Cfg.PointScale + " — 200 input points = 2.00 USD = 20 pips on any broker" +
-               (AutoGoldPip ? "" : " (AutoGoldPip=OFF: scale forced 1)"));
+   bool anyLossStopEnabled=SL_>0.0 || MoneySLAllAccount<0.0 ||
+                           MoneySLAll<0.0 || MoneySLBuy<0.0 ||
+                           MoneySLSell<0.0 || DailySLMoney<0.0 ||
+                           DailySLPercent<0.0 || EnableGlobalHedgeSL_;
+   if(Recovery_T1716UnsafeGrowthEnvelopePure(
+         RecoveryMode_,ContinueDcaAfterHedge_,CorePyramidMode_,
+         PyramidMaxAdds_,MaxOrdersBuy,MaxOrdersSell,
+         PyramidMaxTotalLots_,PyramidRiskBudgetPercent_,
+         anyLossStopEnabled))
+      Log_Warn("Init","t1716unsafe",
+               "CẢNH BÁO T17.16: Recovery tiếp tục DCA + Pyramid tái kích hoạt "
+               "đang dùng toàn bộ side cap, không lot/risk budget và không SL; "
+               "đây là cấu hình stress có nguy cơ cạn margin");
 
-   // ACTIVE intentionally fails closed inside RecoveryEngine::Init until
-   // T9 persistence/startup reconciliation completes the full contract.
+   string unitWhy = "";
+   if(!Config_BindUnitProfile(Sym_IsGold(), _Point, _Digits,
+                              SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), unitWhy))
+   {
+      Log_Error("Init", "Unit profile invalid: " + unitWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   Log_Info("Init", "UnitSystem=" + Unit_ModeName(Cfg.UnitMode) +
+            "; point=" + DoubleToString(Cfg.Point, _Digits) +
+            "; pip=" + DoubleToString(Cfg.PipSize, _Digits) +
+            "; tick=" + DoubleToString(Cfg.TickSize, _Digits) +
+            (Cfg.UnitMode == unit_PIP_UNIFIED && !AutoGoldPip
+             ? "; AutoGoldPip ignored in unified mode" : ""));
+
+   if(!g_pyProtection.Init(&g_basket,&g_exec,&g_recovery)) return INIT_PARAMETERS_INCORRECT;
    if(!g_recovery.Init()) return INIT_PARAMETERS_INCORRECT;
 
-   Persist_Load();                       // restore panel toggles after restart
+   Persist_Load();
 
-   //--- v14.9: only two DCA-lot models remain. Numeric values 1/2 are kept
-   //    stable so existing sequence-based .set files do not change meaning.
    ILotSizer *sizer = NULL;
    if(LotMode_ == lot_Sequence)
    {
@@ -101,8 +114,6 @@ int OnInit()
                    "' — expected e.g. 0.01-0.02-0.04 or 0.01x5-0.02x3-0.05");
          return INIT_PARAMETERS_INCORRECT;
       }
-      // Explicit lots outside the broker grid are still surfaced once because
-      // runtime normalization changes the actual requested risk/volume.
       string why = "";
       int bad = g_seqSizer.ValidateVolumes(why);
       if(bad > 0)
@@ -126,9 +137,6 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
 
-   //--- v14.9: one distance model only. A valid pip chain is mandatory.
-   //    If MaxOrders exceeds the explicit chain, Grid_ChainDistancePoints()
-   //    silently repeats the final distance for every later DCA by design.
    if(!g_distPlan.Init(DistanceSequence_))
    {
       Log_Error("Init", "DistanceSequence_ invalid: '" + DistanceSequence_ +
@@ -136,8 +144,6 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
 
-   //--- FE-405 (v14.6): choose the entry-signal source. Only the chosen
-   //    implementation is initialised (its indicator handles created).
    if(SignalSource_ == sig_WMF)
    {
       if(!g_sigWMF.Init()) return INIT_FAILED;
@@ -151,32 +157,35 @@ int OnInit()
       if(!g_sigBD.Init()) return INIT_FAILED;
       g_signal = &g_sigBD;
    }
+
    g_exec.Init();
+
+   string pyramidWhy = "";
+   if(!g_pyramid.Init(&g_exec, pyramidWhy))
+   {
+      Log_Error("Init", "T17 Pyramid config/init invalid: " + pyramidWhy);
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
    if(RecoveryMode_ == recovery_ACTIVE)
    {
       string startupWhy = "";
       if(!g_recovery.StartupReconcile(g_exec, startupWhy))
          Log_Error("Recovery", "ACTIVE startup is FAIL-CLOSED: " + startupWhy);
    }
-   g_recoveryExit.Init(&g_recovery, &g_exec); // T8 cleanup; T9 ACTIVE may now be reconciled
+   g_recoveryExit.Init(&g_recovery, &g_exec);
    g_news.Init();
-   g_guard.Init();                       // FE-401/402: validate thresholds (wrong sign -> warn + off)
-   g_basket.SeedDayProfit();             // also snapshots day-start balance (FE-402)
-   g_panel.Init();
+   g_guard.Init();
+   g_basket.SeedDayProfit();
+   g_wmfOverlay.Init();
    g_strategy.Init(&g_basket, &g_exec, sizer, &g_guard, &g_distPlan,
-                   &g_recovery, &g_recoveryExit);
+                   &g_recovery, &g_recoveryExit, &g_pyramid);
 
-   //--- FE-402: daily halt blocks AUTOMATED entries on BOTH chains
-   //    (panel manual orders stay bypassed — Chu nha's decision)
    g_strategy.AddNewSeriesFilter(new CRecoveryStartupFilter(&g_recovery));
    g_strategy.AddNewSeriesFilter(new CHaltFilter(&g_guard));
    g_strategy.AddGridFilter(new CHaltFilter(&g_guard));
-   // T7: a pure allow/block filter around the existing TryGridAdd path.
-   // OFF/SHADOW always allow, preserving legacy and shadow-observer parity.
    g_strategy.AddGridFilter(new CRecoveryDcaFilter(&g_recovery, &g_basket));
 
-   //--- FE-403 / v14.8.0: the detailed PC/local HH:MM schedule is now
-   //    the only time-window filter (legacy Start_Hour/End_Hour removed).
    if(UseTimeLimit)
    {
       string terr = "";
@@ -192,22 +201,27 @@ int OnInit()
                (MQLInfoInteger(MQL_TESTER) ? " [tester: local time = modelled server time]" : ""));
    }
 
-   //--- P5 extension registration (everything enabled is visible here)
    if(UseAdxFilter)
    {
       g_adx = new CAdxFilter();
       if(g_adx.Init()) g_strategy.AddNewSeriesFilter(g_adx);
-      else { delete g_adx; g_adx = NULL; Log_Error("Init", "ADX filter init failed — running without it"); }
+      else
+      {
+         delete g_adx;
+         g_adx = NULL;
+         Log_Error("Init", "T17.23 ADX filter enabled nhưng init thất bại — fail closed");
+         return INIT_FAILED;
+      }
    }
 
-   //--- BD-R4 (v14.7.2): seed the halt-persistence watermark AFTER
-   //    Persist_Load() + g_guard.Init() so a restored deadline is not
-   //    immediately rewritten by the first timer tick.
    g_lastSavedHalt = Cfg.HaltUntil;
 
-   EventSetMillisecondTimer(BD_PANEL_TIMER_MS);   // C3: UI + housekeeping cadence
-   Log_Info("Init", "EA Black Dragon v" + BD_VERSION + " started. ExecMode=" +
-            (ExecMode == exec_Async ? "Async" : "Sync"));
+   EventSetMillisecondTimer(BD_SERVICE_TIMER_MS);
+   Log_Info("Init", "EA Black Dragon T17.22 Core PY protection build started. ExecMode=" +
+            (ExecMode == exec_Async ? "Async" : "Sync") +
+            "; CorePyramid=" + (string)(int)CorePyramidMode_ +
+            "; CoreAnchor=" + Pyramid_T177AnchorModeName(CorePyramidAnchorMode_) +
+            "; HedgePyramid=" + (string)(int)HedgePyramidMode_);
    return INIT_SUCCEEDED;
 }
 
@@ -215,12 +229,13 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   g_pyProtection.ReportPerformance();
    g_recovery.FlushPersistence();
    Persist_Save();
-   g_strategy.Deinit();   // deletes registered filters (incl. g_adx)
-   g_sigBD.Deinit();      // FE-405: both are guard-safe on unopened handles
+   g_strategy.Deinit();
+   g_sigBD.Deinit();
    g_sigWMF.Deinit();
-   g_panel.Deinit(reason);
+   g_wmfOverlay.Deinit(reason);
 }
 
 //+------------------------------------------------------------------+
@@ -235,7 +250,7 @@ bool BuildContext(EAContext &ctx)
    ctx.spreadPoints = (int)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
    ctx.now          = TimeCurrent();
    ctx.barTime      = iTime(_Symbol, PERIOD_CURRENT, 0);
-   if(ctx.barTime == 0) return false;   // AU-14-08: history not synchronized yet
+   if(ctx.barTime == 0) return false;
    ctx.newsAllowsNew = g_news.AllowsNewOrders(ctx.now);
    ctx.signalBuy    = false;
    ctx.signalSell   = false;
@@ -247,60 +262,51 @@ void OnTick()
 {
    EAContext ctx;
    if(!BuildContext(ctx)) return;
-   g_signal.Compute(ctx);       // once per bar internally
+   g_signal.Compute(ctx);
 
-   //--- FE-406 (14.6.1): draw WMF BUY/SELL arrows (seed history + live)
-   if(SignalSource_ == sig_WMF && ShowWmfSignals)
+   if(SignalSource_ == sig_WMF && g_wmfOverlay.Enabled())
    {
       SWmfMark marks[];
       int nMarks = g_sigWMF.TakePendingMarks(marks);
       for(int i = 0; i < nMarks; i++)
-         g_panel.MarkWmfSignal(marks[i].isBuy, marks[i].time, marks[i].price);
+         g_wmfOverlay.Mark(marks[i].isBuy, marks[i].time, marks[i].price);
    }
 
-   g_basket.Update(ctx);        // rebuild only when invalidated (C1)
-   g_recovery.OnTick(ctx);      // SHADOW observer; ACTIVE scheduling is still gated until T9
-   g_strategy.OnTick(ctx, g_panel);
-   //--- BD-R8 (v14.7.2): g_panel.DrawLevels() moved to OnTimer. ARCHITECTURE
-   //    rule C3 puts UI redraws on the 500ms timer, not on the tick stream;
-   //    on a busy gold feed this was 8 ObjectMove/ObjectCreate calls per tick
-   //    with no visual benefit. The LEVELS themselves are still recomputed
-   //    every tick by g_basket.Update() — only the redraw is throttled.
+   g_basket.Update(ctx);
+   g_pyProtection.Observe(ctx);
+   g_recovery.OnTick(ctx);
+   g_strategy.OnTick(ctx);
 }
 
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   g_news.Refresh();            // hourly cache; never blocks OnTick (Nhom D)
-   g_exec.Watchdog();           // async journal reconciliation (Nhom B)
-   g_recovery.FlushPersistence(); // T9: transition/deal-driven durable state only
-   // T8: process broker/manual exit cleanup on the existing 500ms cadence.
-   // No competing timer is introduced; OFF/SHADOW are no-ops.
+   g_news.Refresh();
+   g_exec.Watchdog();
+   g_recovery.FlushPersistence();
    string exitWhy = "";
    if(g_recoveryExit.Drive(TimeCurrent(), exitWhy) && exitWhy != "")
       Log_Warn("Recovery", "exitcoordtimer", "T8 exit coordination: " + exitWhy);
-   //--- FE-404 (v14.5): mobile-control pendings (skip in tester — no user)
    if(UseMobileControl && !MQLInfoInteger(MQL_TESTER))
       if(g_mobile.Scan(&g_exec))
-      {
-         g_panel.RedrawButtons();   // reflect remote flag changes on the panel
-         Persist_Save();            // remote state survives restart
-      }
+         Persist_Save();
    g_basket.CheckDayRollover(TimeCurrent());
-   g_panel.ShowHalt(g_guard.HaltUntil(TimeCurrent()));   // FE-402: halt notice in title
 
-   //--- BD-R4 (v14.7.2): persist the daily-halt deadline on TRANSITIONS only
-   //    (halt armed / halt expired). At most two extra writes per day, versus
-   //    twice a second if this ran unconditionally. Without it, a terminal
-   //    restart after a daily SL resumed trading on the same day.
    if(Cfg.HaltUntil != g_lastSavedHalt)
    {
       g_lastSavedHalt = Cfg.HaltUntil;
       Persist_Save();
    }
+}
 
-   g_panel.DrawLevels(g_basket.buy, g_basket.sell);   // BD-R8: moved off OnTick (C3 cadence)
-   g_panel.Refresh(g_basket.buy.totalProfit, g_basket.sell.totalProfit, g_basket.DayProfit());
+//+------------------------------------------------------------------+
+bool IsT1722TopologyTransaction(const MqlTradeTransaction &trans)
+{
+   if(PyramidSLMode_==py_protect_OFF || trans.symbol!=_Symbol) return false;
+   return trans.type==TRADE_TRANSACTION_DEAL_ADD ||
+          trans.type==TRADE_TRANSACTION_DEAL_UPDATE ||
+          trans.type==TRADE_TRANSACTION_DEAL_DELETE ||
+          trans.type==TRADE_TRANSACTION_POSITION;
 }
 
 //+------------------------------------------------------------------+
@@ -308,10 +314,15 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
 {
-   g_exec.OnTransaction(trans, request, result);      // confirm async journal first
-   // T8 observes external/broker close reasons before RecoveryEngine ledger
-   // handling. Coordinator-owned or non-EXPERT closes must not be mistaken
-   // for normal T5 realized-credit deals.
+   bool pyTopology=IsT1722TopologyTransaction(trans);
+   if(pyTopology)
+   {
+      g_pyramidDealRevision++;
+      g_basket.Invalidate();
+   }
+   g_exec.OnTransaction(trans, request, result);
+   if(pyTopology)
+      g_pyProtection.OnTransaction(trans);
    bool suppressRecoveryDeal = g_recoveryExit.OnTradeTransaction(trans);
    if(!suppressRecoveryDeal)
       g_recovery.OnTradeTransaction(trans);
@@ -321,29 +332,23 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       g_recovery.FlushPersistence();
    }
    if(trans.type == TRADE_TRANSACTION_POSITION && trans.symbol == _Symbol)
-      g_basket.Invalidate();                          // audit fix: SL/TP modify has no DEAL_ADD
+      g_basket.Invalidate();
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.symbol == _Symbol)
    {
-      g_basket.Invalidate();                          // event-driven rebuild (C1)
-      //--- BD-R6 (v14.7.2, quyet dinh Chu nha 11/08/2026): Basket_OwnsMagic()
-      //    is the SAME rule the position scan and SeedDayProfit() use. With
-      //    flag_Hand_Ord ON, a manual magic-0 order's floating P/L already fed
-      //    the daily net, so its realized P/L must be booked here too —
-      //    otherwise dayNet fell back the instant a winning manual order
-      //    closed. flag_Hand_Ord OFF (default): unchanged, Magic only.
+      g_basket.Invalidate();
       if(HistoryDealSelect(trans.deal))
+      {
+         long entry=HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
          if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) == _Symbol &&
             Basket_OwnsMagic(HistoryDealGetInteger(trans.deal, DEAL_MAGIC), Magic, flag_Hand_Ord) &&
-            HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_OUT)
-            g_basket.OnDealClosed(HistoryDealGetDouble(trans.deal, DEAL_PROFIT),
-                                  HistoryDealGetDouble(trans.deal, DEAL_SWAP),
-                                  HistoryDealGetDouble(trans.deal, DEAL_COMMISSION));  // C2
+            Basket_IsDayCashEntry(entry))
+            g_basket.OnDealCash(trans.deal,
+                                HistoryDealGetDouble(trans.deal, DEAL_PROFIT),
+                                HistoryDealGetDouble(trans.deal, DEAL_SWAP),
+                                HistoryDealGetDouble(trans.deal, DEAL_COMMISSION),
+                                HistoryDealGetDouble(trans.deal, DEAL_FEE));
+      }
    }
 }
 
-//+------------------------------------------------------------------+
-void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
-{
-   g_panel.OnEvent(id, lparam, dparam, sparam);   // requests are consumed on next tick
-}
 //+------------------------------------------------------------------+

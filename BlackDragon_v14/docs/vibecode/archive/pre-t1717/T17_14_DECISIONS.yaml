@@ -1,0 +1,22 @@
+schema: vibecode-decisions/1.0
+decisions:
+  - id: T1714-D1
+    status: approved
+    decision: Repair a protective ARCS layer decrease before Overlap final validation only when exact protective-close identity proves the entire persisted-to-live volume delta.
+    locking_tests: [t1714_exact_134_unit_batch, t1714_partial_proof_rejected, t1714_volume_increase_rejected]
+  - id: T1714-D2
+    status: approved
+    decision: Persist ownership refresh without consuming cash twice; normal DEAL callbacks retain cash/cursor accounting and repeated ownership refresh is a no-op.
+    locking_tests: [t1714_duplicate_refresh_idempotent, existing_t16_event_order_regression]
+  - id: T1714-D3
+    status: approved
+    decision: Account-wide MoneyGuard is a terminal risk boundary that preempts active/reconcile Recovery cycles through the existing global-flatten coordinator.
+    locking_tests: [t1714_account_preempts_reconcile, t1714_account_begin_idempotent, existing_t11_global_flatten]
+  - id: T1714-D4
+    status: approved
+    decision: Pending OPEN remains a higher ordering barrier and non-account MoneyGuard scopes retain their existing Recovery coordination semantics.
+    locking_tests: [t1714_pending_open_waits, t1714_side_guard_does_not_preempt]
+  - id: T1714-D5
+    status: approved
+    decision: Deliver only an exact-head Windows-native EX5; owner Strategy Tester remains a separate failing/unknown gate until rerun evidence is supplied.
+    locking_tests: [exact_head_provenance, ex5_sha256_size, owner_tester_pending]

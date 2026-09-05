@@ -51,21 +51,18 @@ double Recovery_UnitsToVolume(const long units, const double volumeStep)
 // therefore one XAU pip = 0.10 price on both 2- and 3-digit quotes.
 double Recovery_PipSizePure(const bool isGold, const double point, const int digits)
 {
-   if(point <= 0.0) return 0.0;
-   if(isGold) return 0.01 * BD_POINTS_PER_PIP;
-   return (digits == 3 || digits == 5) ? point * 10.0 : point;
+   return Unit_PipSizePure(isGold, point, digits);
 }
 
 double Recovery_PipsToPricePure(const double pips, const bool isGold,
                                 const double point, const int digits)
 {
-   return pips * Recovery_PipSizePure(isGold, point, digits);
+   return Unit_PipsToPricePure(pips, Recovery_PipSizePure(isGold, point, digits));
 }
 
 long Recovery_PriceToTicksPure(const double price, const double tickSize)
 {
-   if(tickSize <= 0.0) return 0;
-   return (long)MathRound(price / tickSize);
+   return Unit_PriceToTicksPure(price, tickSize);
 }
 
 long Recovery_PipsToTicksPure(const double pips, const bool isGold,

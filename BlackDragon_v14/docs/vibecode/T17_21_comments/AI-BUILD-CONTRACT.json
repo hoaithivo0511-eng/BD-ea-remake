@@ -1,0 +1,351 @@
+{
+  "schema_version": "1.0",
+  "task": "T17.21",
+  "mode": "Full",
+  "authorization": "Current owner comment request; pipe separator amendment accepted",
+  "baseline_head": "2e8bfe11fd67afb725731f3b1f79b958080a4555",
+  "baseline_tree": "ee653a3f9060f54e6be3e89a2fa2dbf5316ea1c7",
+  "change_manifest": "comment_changes.json",
+  "protected_source_sha256": {
+    "BlackDragon_v14/Include/BlackDragon/StrategyT1713.mqh": "1cedb75f763f788489aa2c4ee7af22eda19ab0aa937ee9e62bc57de048798ffb",
+    "BlackDragon_v14/Include/BlackDragon/License.mqh": "26e36273d98ab19cf2b0773df8e9f5b2a7b3bbada42fcbd24b93cf327ca72fec",
+    "BlackDragon_v14/Include/BlackDragon/SignalEngine.mqh": "a7adaa91fa3d9ce89c7c60755902c7d006f410731ed1d769b8236fa1bbf0e642",
+    "BlackDragon_v14/Include/BlackDragon/JournalT177.mqh": "3a4c2e97169c71a0c8c57aca97b6b153350a7eb3527c608e8db903c9be9c997c",
+    "BlackDragon_v14/Include/BlackDragon/MoneyGuard.mqh": "85b725c195c53c8013079cee49bc9d726b38a0d9c25dcb2f4a5830f1f140b6a3",
+    "BlackDragon_v14/Include/BlackDragon/UnitSystem.mqh": "6b2a2c4a22578ad29897dd9c8f1749da1db3011e24c7dbf06d44f2406583985d",
+    "BlackDragon_v14/Include/BlackDragon/WmfSignal.mqh": "eccbb7374735caa331e565ae0bf1257af67e8f76cd9fed60d862ffb97941dd0d",
+    "BlackDragon_v14/Include/BlackDragon/BasketManager.mqh": "1672c55468ba9db0e0f738714477741249be3a17ced56a8b8361bb5538faadb0",
+    "BlackDragon_v14/Include/BlackDragon/ExecutionLayer.mqh": "bc8a60c9f9e3548972a59be555fc3372178f66a6bd4a4f67458df0f8d66ceffe",
+    "BlackDragon_v14/Include/BlackDragon/ExitEngine.mqh": "32b673c20eec533a15c8206a49125d51170fc67c920a3c6e9a653274c172cdaf",
+    "BlackDragon_v14/Include/BlackDragon/EntryFilters.mqh": "5759bd806b12331b1181cccaff42b4c4bd2784428a0bd5d05b2389bf7d8c7671",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT1714GuardPolicy.mqh": "54f396bec730698c3ae7d646a29f1760385e019815d0de021cc20ac60296acdd",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT1711Admission.mqh": "647e1f91835cc8976ba93810f60b7b1e453ecef8bd58551f72fceb8ee052c1ae",
+    "BlackDragon_v14/Include/BlackDragon/GridEngine.mqh": "a8498d4829668e79359ac8d3e3ee187811e66febb8aacbac6bce864e14b34efa",
+    "BlackDragon_v14/Include/BlackDragon/Persistence.mqh": "3d15d39424b5b07c2354e68485e0b361750b607f4b523a025d0ca3d0f2778db1",
+    "BlackDragon_v14/Include/BlackDragon/NewsCalendar.mqh": "b5cfdfe42da635dd3e6101ed4d57357ae3f058fd0bbcc2690dd4692ac1341038",
+    "BlackDragon_v14/Include/BlackDragon/MobileControl.mqh": "ed5550c52ffa5c515a53334ae096a14ba4914481ad502b6b0af7b9bafbdb5d9b",
+    "BlackDragon_v14/Include/BlackDragon/Strategy.mqh": "7977a2fa51145a73dc9faa2be2f1a1875584016d03c237e3f4bd4ac69858ab47",
+    "BlackDragon_v14/Include/BlackDragon/Types.mqh": "e6e90385cce8a03dbf673c9e84aea628b7e670c8a052290a9ae43c635bdd2117",
+    "BlackDragon_v14/Include/BlackDragon/WmfSignalOverlay.mqh": "e55090a91cdf4dec8ba551bbe19fbee90f914bdf144942d38a823341af726b36",
+    "BlackDragon_v14/Include/BlackDragon/StrategyT176Base.mqh": "5abffc5d931bd54d02460985ff5a7f059c56eb339a3552f167f890670bb19e85",
+    "BlackDragon_v14/Include/BlackDragon/Config.mqh": "0e8009f98ea53848076472ef6ce63c4f420e23699cd8f7e01d7398d41709ba38",
+    "BlackDragon_v14/Include/BlackDragon/Logger.mqh": "d099d99c07a9d0ff2b82c2a6eb06adfe0e58e0178c02a6b006472203d64a013a",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/PyramidAnchorT177.mqh": "5f95d4a1ba6156864ad43e9d7e69722c11d9034af4ff4b555d17831331c3fea9",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramid.mqh": "ae15ee4555c5a5c8b7958cec4eeef63181f20e746896d7a38551d783ae6c5b84",
+    "BlackDragon_v14/Include/BlackDragon/Pyramid/CorePyramidT1713.mqh": "bd0454eb8be85599c79e5265c6dfd60ca7a238757989ca1d87f0d59a71801a98",
+    "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Policy.mqh": "34816abf6212e897541229980264ab2c8256c88ab8afc74ba69a05949d5d3fc2",
+    "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177CoordinatorT177C3Base.mqh": "3716fda27b4bd586db46bf576be46394c4d4692104f4a32afb59d89709307b06",
+    "BlackDragon_v14/Include/BlackDragon/Overlap/OverlapT177Coordinator.mqh": "e966685ef6b32332ff560941a135c0e8ec1fea274736da7217e179631d1dc8e8",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT178RuntimePolicy.mqh": "dcc2680ae888587ec370f296a7521d1b1d79d0dcb22539da5e3a89de5fe81f26",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistenceT177C5Impl.mqh": "8be5efc4a3ac723fc942559cf66cfefe39deeba29e80703d5e669e301b708c7a",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165Policy.mqh": "b328d8c779929882a7cd1e22262574fd242abd9c4837798c7cdd7856c64f48b2",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16Config.mqh": "dcd9115ee21cc6c5b42d3b4b38ece10077af56093515799c8327906fae0212ce",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistence.mqh": "d44a1d7858dc1c143445dbbd01c6ca272b1ad8fa4e17f69248b0792f9268651a",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT13Base.mqh": "5b88ce15ea5518484e73feea549902f57e456ef14290cc5a564f53528e92b024",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryStateMachine.mqh": "4dd07eefc96c569041d3802d0e2e72eb4d7b60dcd14acd2f6e6e24cee9d6a04d",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinator.mqh": "c69f2b80d5e69184248d68292e66dab3757154bff780cbcbe2b0383055b59e0d",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1713ConcurrencyPolicy.mqh": "70e6d364ed2cd4161326c4c1865680ed7022202f3c36a87109991818859fdf8e",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165GuardScope.mqh": "ee6bdf921651394da5b896bdd881d1d003833f52d60567169c5674b495e21321",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1719ReentryPolicy.mqh": "939276cac0c1bbf9e12ad312d0e0c6ac010f8d74623e58dc8050423a3583a652",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1719ReentryPersistence.mqh": "5e1721c8395f2c2fb936e340f89812ce533d8383dd969ef8669fc8e3a862ecc9",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryRegistry.mqh": "80db72ed9c2451c825624c7b02ea44611c33ed6ac6abf50a923999cd5b1f1d45",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT165MarginReserve.mqh": "a31d2a371560ffef6bd66591bbb69ee8da868057472bb20ed3caa9a140ede766",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16ConfigT177C4Base.mqh": "1bd0e288e342425ad109d259dd9ff9a7fff84cbd7e7c3483806f52cf5b84cf3e",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDcaT1713.mqh": "b1448436ac7a4c29a646c6290ad6e7a83401a22233b008aedc06e56d19333150",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1714InterleavePolicy.mqh": "7ffc4f452d6e4f9c37aff4ee9490ee371b12d2a2575575e79cd03fc4b97b4ec4",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryOpenBarGate.mqh": "5b64c2a87b27dcd3ccf0f6a8c0573969fde802dc6c24541d80fce9863d68d991",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExecutionIdentity.mqh": "0d6e0308eac4f19f46b2e4d677f87bf3485926ca2e3044d0a520a2f8924eaf00",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT16ConfigT177C5Impl.mqh": "d33e56752be22cb40c468efaef04f6f407efe2dbdb9d5b9e6ffbb6cd8394dea6",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT164Reachability.mqh": "510c692191e67646ff9273c06dfa3c171713e028a2506aca4ccfbe689e914465",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177Scheduler.mqh": "663b42eb78ef050892fd7a906bdd44da9475200d34d21eba791c1bd99cfae8df",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT163Policy.mqh": "1ca6eff2f39ce923d3a8e433ec0374a0da57e9ce176e77cc732cc319ab4ce87f",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177MigrationPolicy.mqh": "bb48bd1bc78d9a9f1de0e3992041f22be6e981b2c57fedf25dac46484b01a299",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExit.mqh": "b7fcc98189ec52ad101168d66648c9574c963b9a702cd23ffe43020a52d11a61",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT179RealTpPolicy.mqh": "01eeb2964f9e4012fd315ceab12eef55dfaa02d7757809171d4429746a6a59a7",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsPersistenceT177C4Base.mqh": "edc12edaca6657028e0de0a8dd3e673438095c3a723e1d1f59af641afaca0283",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackHardened.mqh": "3bcb35d65ce665187cf394345d7e29ed12609cbc22c9d690b4c7b22a3f316220",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177HedgeLadder.mqh": "1f3c42a49c34dfe7119f1db3b9b6b83a5927efb457e8e7944e9cae46e5481090",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackPostDealT162Base.mqh": "171a9322e418db865d73706ad38ce8f3ce9cc963141775f295db3e5506939f66",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryExitCoordinatorT177Base.mqh": "f788d2243ba5d9a96470cf39c0eaeba153d7befcb5f410b602b8b7ae6585bfe8",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsBook.mqh": "f0cf6dc769a1661bd13ed4ab8877f2c9e532a5039d8f28110678794cb1db41f6",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryMutationPolicy.mqh": "7200409a230836b8e50be72bcc41b9cb79f8b890b77c5cbdd9836573f63c3f3a",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryLock.mqh": "28e95481729c71315cd2266e3930abdb803264f0308833385f51b7168cdfbd2f",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryBundle.mqh": "33647c190d863ffddfc03cec330a1283d6f5e26405cd4faf31883ff10d923e0a",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryArcsStackT177HedgeLadder.mqh": "fd258211d317719d84c0846c9e5177c8f932197ce63ba5cf75dc3d670e305c63",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryGlobalFlatten.mqh": "71e94c03947e53656810c0287b9350e40b5dbf086396a864a0f189854ec78190",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryOpenBarPolicy.mqh": "657af50349d585fe7d5dbf55a2fe6b51e751923d8580582ef3e6afc506069460",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT177Scheduler.mqh": "2068efa2dae2cdbac5ca7fcf0b22aaa1d70bd0c39094937150c250f3a85e7eae",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryMath.mqh": "151789e89bae21537e91e880f0a56180caef63c5850028553da6068650191572",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryTypes.mqh": "d7700842c10b6ac022c26281eff65ba945097f2bc17dbb3be1c2c4b0324f58b0",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1712EconomicPolicy.mqh": "93d021f2d2bd8899ca78de66a85253ae816338275fa7886875ce75c370ff391d",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryPersistence.mqh": "054f7f67939773734f06e7d00472f6da4aec6ed30cf28da475c94358e1f2060c",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryT1717StopLivenessPolicy.mqh": "c3978943fdfd0aa1333b38a7f3637e1d061a739ee59d154c8fbb8667aaa7eff7",
+    "BlackDragon_v14/Include/BlackDragon/Recovery/RecoveryDca.mqh": "76fb8fa0f6aaf191c8baea71e7f825b3816caddd58939bd38c9cbec9daeacdf7",
+    "BlackDragon_v14/Include/BlackDragon/Filters/AdxFilter.mqh": "381ad80453b3e672d4df1313b8fcceb916287d14258b89075843b283aefdafcf"
+  },
+  "allowed_changes": [
+    "nine existing runtime files: explicit reversible comment writer/reader changes only",
+    "OrderCommentCodec.mqh and RecoveryOrderComment.mqh",
+    "T17.21 verification and current docs/workflow",
+    "T17.20 source contract: normalize only manifest-authorized comment changes before existing baseline hash checks"
+  ],
+  "forbidden_changes": [
+    "lot/price/coverage/NewCycle and SL calculations",
+    "T17.20 disabled-by-default one-bar input and all admission paths",
+    "Core DCA comments",
+    "all owner/magic/symbol/direction/pending proof constraints"
+  ],
+  "required_evidence": [
+    "40 C++ model suites",
+    "T17.11 through T17.21 source/repository contracts",
+    "native MetaEditor 0 errors/0 warnings",
+    "30 native suites / 1030 assertions / 0 failures",
+    "targeted Strategy Tester ownership/reentry/comment comparison",
+    "exact tree and artifact provenance"
+  ],
+  "release_flags": {
+    "release": false,
+    "forward": false,
+    "live": false,
+    "merge": false
+  },
+  "behavioral_guards": [
+    {
+      "id": "A1",
+      "canonical_id": "RETRO-A1",
+      "name": "count-order-state-semantics",
+      "severity": "P1",
+      "class": "waivable",
+      "trigger": [
+        "count",
+        "order",
+        "index",
+        "state",
+        "max_positions"
+      ],
+      "required_evidence": [
+        "numeric_example",
+        "boundary_test"
+      ],
+      "checker": "retro.count_semantics",
+      "remediation": "Restate semantics with numeric examples and boundary tests.",
+      "waiver_allowed": true
+    },
+    {
+      "id": "A2",
+      "canonical_id": "RETRO-A2",
+      "name": "runtime-error-policy",
+      "severity": "P0",
+      "class": "hard",
+      "trigger": [
+        "error",
+        "failure",
+        "retry",
+        "timeout",
+        "broker"
+      ],
+      "required_evidence": [
+        "failure_policy",
+        "negative_test"
+      ],
+      "checker": "retro.error_policy",
+      "remediation": "Choose fail-fast or explicit degradation with logging and tests.",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A3",
+      "canonical_id": "RETRO-A3",
+      "name": "owner-decision-lock",
+      "severity": "P1",
+      "class": "waivable",
+      "trigger": [
+        "decision",
+        "approved",
+        "semantic"
+      ],
+      "required_evidence": [
+        "decision_entry",
+        "locking_test"
+      ],
+      "checker": "retro.owner_decision",
+      "remediation": "Record semantic intent and require approval before changing it.",
+      "waiver_allowed": true
+    },
+    {
+      "id": "A4",
+      "canonical_id": "RETRO-A4",
+      "name": "independent-test-oracle",
+      "severity": "P1",
+      "class": "waivable",
+      "trigger": [
+        "test",
+        "expected",
+        "validation"
+      ],
+      "required_evidence": [
+        "independent_expected_value"
+      ],
+      "checker": "retro.expected_value",
+      "remediation": "Compute expected results independently from the implementation.",
+      "waiver_allowed": true
+    },
+    {
+      "id": "A5",
+      "canonical_id": "RETRO-A5",
+      "name": "dynamic-cache-freshness",
+      "severity": "P0",
+      "class": "hard",
+      "trigger": [
+        "cache",
+        "pnl",
+        "spread",
+        "price",
+        "runtime_value"
+      ],
+      "required_evidence": [
+        "freshness_policy",
+        "stale_value_test"
+      ],
+      "checker": "retro.dynamic_cache",
+      "remediation": "Fresh-read dynamic values or define and test bounded freshness.",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A6",
+      "canonical_id": "RETRO-A6",
+      "name": "async-idempotency",
+      "severity": "P0",
+      "class": "hard",
+      "trigger": [
+        "async",
+        "side_effect",
+        "order_send",
+        "retry"
+      ],
+      "required_evidence": [
+        "idempotency_key",
+        "duplicate_retry_test"
+      ],
+      "checker": "retro.async_idempotency",
+      "remediation": "Persist operation identity before side effects and reuse on retry.",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A7",
+      "canonical_id": "RETRO-A7",
+      "name": "test-environment-isolation",
+      "severity": "P1",
+      "class": "waivable",
+      "trigger": [
+        "test_state",
+        "persist",
+        "fixture",
+        "environment"
+      ],
+      "required_evidence": [
+        "isolated_state",
+        "reset_proof"
+      ],
+      "checker": "retro.environment_isolation",
+      "remediation": "Isolate and reset persisted state between tests.",
+      "waiver_allowed": true
+    },
+    {
+      "id": "A8",
+      "canonical_id": "RETRO-A8",
+      "name": "retry-event-persistence",
+      "severity": "P0",
+      "class": "hard",
+      "trigger": [
+        "event",
+        "retry",
+        "consume",
+        "queue"
+      ],
+      "required_evidence": [
+        "persist_until_consumed_test"
+      ],
+      "checker": "retro.retry_event",
+      "remediation": "Persist detected events until the retryable action consumes them.",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A9",
+      "canonical_id": "RETRO-A9",
+      "name": "single-unit-conversion",
+      "severity": "P0",
+      "class": "hard",
+      "trigger": [
+        "pip",
+        "point",
+        "lot",
+        "scale",
+        "timeframe",
+        "slippage",
+        "spread"
+      ],
+      "required_evidence": [
+        "unit_table",
+        "conversion_test"
+      ],
+      "checker": "retro.unit_scale",
+      "remediation": "Use one conversion boundary and test broker digits and units.",
+      "waiver_allowed": false
+    },
+    {
+      "id": "A10",
+      "canonical_id": "RETRO-A10",
+      "name": "port-parity",
+      "severity": "P1",
+      "class": "waivable",
+      "trigger": [
+        "port",
+        "pine",
+        "mql4",
+        "broker",
+        "netting",
+        "hedging"
+      ],
+      "required_evidence": [
+        "parity_table",
+        "differential_test"
+      ],
+      "checker": "retro.port_parity",
+      "remediation": "Build a parity table and compare behavior across platforms/profiles.",
+      "waiver_allowed": true
+    },
+    {
+      "id": "A12",
+      "canonical_id": "RETRO-A12",
+      "name": "edit-target-discipline",
+      "severity": "P1",
+      "class": "waivable",
+      "trigger": [
+        "multi_file",
+        "replace",
+        "edit",
+        "match"
+      ],
+      "required_evidence": [
+        "target_inventory",
+        "post_edit_validation"
+      ],
+      "checker": "retro.tool_discipline",
+      "remediation": "Resolve exact targets and validate every changed file.",
+      "waiver_allowed": true
+    }
+  ],
+  "triggered_guards": [
+    "A1",
+    "A10",
+    "A12",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A9"
+  ]
+}

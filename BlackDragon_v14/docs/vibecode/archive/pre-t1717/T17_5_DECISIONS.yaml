@@ -1,0 +1,45 @@
+schema_version: "1.0"
+decisions:
+  - id: T175-D1
+    status: APPROVED
+    decision: Pyramid campaign identity is the last flat-to-nonflat Core-side boundary, not the currently-oldest live non-Pyramid ticket.
+    rationale: Overlap may close the original seed while the basket remains live. Re-basing history to the next ticket erased prior Peel debt and reset serial state.
+    locking_tests:
+      - reverse replay keeps the original boundary after Peel, DCA, and Overlap seed removal
+      - previous completed campaign is excluded by the latest flat boundary
+      - incomplete or inconsistent history fails closed
+      - PctDiff smoking-gun values remain blocked by preserved Peel debt
+  - id: T175-D2
+    status: APPROVED
+    decision: Legacy Overlap keeps its relative OverlapPercent gate and additionally requires pair floating surplus to cover a ticket-aware execution reserve before either close is sent.
+    rationale: In the owner tester log, 56 of 262 run-10 Overlap pairs realized gross-negative under 150 ms sequential execution.
+    numeric_example:
+      spread_price: 0.24
+      deviation_price: 0.03
+      total_pair_lots: 0.08
+      close_requests: 2
+      tick_size: 0.001
+      tick_value: 0.10
+      expected_reserve_cash: 4.32
+    locking_tests:
+      - thin positive pair below reserve blocks
+      - robust pair above reserve allows
+      - invalid symbol economics blocks
+  - id: T175-D3
+    status: APPROVED
+    decision: HedgePyramidCoverageSequence_ accepts positive targets in arbitrary input order; runtime applies existing caps, sorts ascending, removes duplicates, and preserves the effective final target.
+    rationale: Owner explicitly removed the strict-increasing input requirement. Hedge Pyramid remains add-only, so descending tokens cannot imply automatic Hedge reduction.
+    examples:
+      - input: 75-35-100-55
+        effective: [35, 55, 75, 100]
+      - input: 120-55-100-80
+        hard_cap: 80
+        effective: [55, 80]
+    locking_tests:
+      - unordered unique targets are retained in ascending order
+      - capped duplicates collapse
+      - effective final target is appended when absent
+  - id: T175-D4
+    status: APPROVED
+    decision: Do not change fixed-Pyramid Peel admission to add an execution-delay reserve in T17.5.
+    rationale: The audit found a P2 contract gap but no owner-approved sizing formula. T17.5 remains bounded to the two proven P1 defects and the explicit input request.

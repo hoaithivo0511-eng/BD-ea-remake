@@ -1,0 +1,128 @@
+schema_version: '1.1'
+guards:
+- id: A1
+  canonical_id: RETRO-A1
+  status: UNTESTABLE
+  checker: retro.count_semantics
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A2
+  canonical_id: RETRO-A2
+  status: UNTESTABLE
+  checker: retro.error_policy
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A3
+  canonical_id: RETRO-A3
+  status: UNTESTABLE
+  checker: retro.owner_decision
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A4
+  canonical_id: RETRO-A4
+  status: UNTESTABLE
+  checker: retro.expected_value
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A5
+  canonical_id: RETRO-A5
+  status: UNTESTABLE
+  checker: retro.dynamic_cache
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A6
+  canonical_id: RETRO-A6
+  status: UNTESTABLE
+  checker: retro.async_idempotency
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A7
+  canonical_id: RETRO-A7
+  status: UNTESTABLE
+  checker: retro.environment_isolation
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A8
+  canonical_id: RETRO-A8
+  status: UNTESTABLE
+  checker: retro.retry_event
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A9
+  canonical_id: RETRO-A9
+  status: UNTESTABLE
+  checker: retro.unit_scale
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A10
+  canonical_id: RETRO-A10
+  status: UNTESTABLE
+  checker: retro.port_parity
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A11
+  canonical_id: RETRO-A11
+  status: UNTESTABLE
+  checker: retro.benchmark
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A12
+  canonical_id: RETRO-A12
+  status: UNTESTABLE
+  checker: retro.tool_discipline
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A13
+  canonical_id: RETRO-A13
+  status: UNTESTABLE
+  checker: retro.ui_claim_provenance
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []
+- id: A14
+  canonical_id: RETRO-A14
+  status: UNTESTABLE
+  checker: retro.ui_performance
+  checker_result:
+    status: UNTESTABLE
+    findings:
+    - replace with checker output after attaching evidence
+  artifacts: []

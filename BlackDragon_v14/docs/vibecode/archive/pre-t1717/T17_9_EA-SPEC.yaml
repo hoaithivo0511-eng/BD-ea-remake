@@ -1,0 +1,52 @@
+schema_version: "1.0"
+task: T17.9
+project: BlackDragon Adaptive Recovery / REAL-TP settlement interleave
+status: CONTRACT_LOCKED
+baseline:
+  branch: feat/t17-full-pyramid
+  head: 0f608ef97a1265521ed32443b5d504ceb9b7ef8d
+  tree: affca27b84038e126ded6f73c373bf02a7fab6c0
+source_of_truth:
+  handover_comment: 5413422130
+  root_cause_comment: 5412650472
+  unit_audit_comment: 5412935232
+risk:
+  tier: P0_P1
+  guards: [A1, A2, A3, A4, A5, A6, A7, A8, A10, A12]
+problem:
+  - A new same-side Core/Pyramid can open after broker TP is reached but before every old-cohort callback is consumed.
+  - Live-cohort classification then sees the new position's different TP and misclassifies expected old broker TP as external/manual.
+  - A stale cached ticket can reach SL/TP maintenance after its broker-side close.
+invariants:
+  - Strict Core owner, DEAL_REASON_TP, programmed-TP and fill-tolerance proof is sufficient before Recovery owns the side.
+  - When Recovery owns the side, expected broker TP must match a durable pre-close epoch and exact position identifier.
+  - A settling epoch blocks only same-side Seed, DCA and Core Pyramid ADD; opposite-side work and risk reduction remain eligible.
+  - The epoch is persisted before broker TP maintenance can create a Recovery-owned closing obligation.
+  - A cached position is reselected and revalidated immediately before ModifySlTp; vanished/mismatched tickets are skipped.
+  - Missing or corrupt Recovery-owned epoch evidence fails closed; it never becomes external/manual evidence.
+  - Settlement completion permits a later clean campaign; it does not reopen in the completion event itself.
+acceptance_fixture:
+  topology: "4 exact-Magic Core positions with one REAL TP"
+  interleave: "Core Pyramid/new Core qualifies while broker TP callbacks interleave with OnTick"
+  expected:
+    same_side_adds_during_settlement: 0
+    old_tp_classified_expected: true
+    external_manual_latch: false
+    stale_modify_position_zero: false
+    reconcile_required: false
+    tester_stop: false
+    next_campaign_after_settlement: allowed
+out_of_scope:
+  - HedgePyramidCoverageSequence_ semantics
+  - Hedge ladder sort or coverage order
+  - Global point/pip/tick unification
+  - Nonessential .set migration
+  - Live trading activation
+evidence:
+  focused_model_source: REQUIRED
+  metaeditor_focused_and_full: REQUIRED_0_ERRORS_0_WARNINGS
+  native_t179: REQUIRED
+  full_t1_t17_exact_head: REQUIRED
+  ex5_exact_final_head: REQUIRED
+  owner_strategy_tester: REQUIRED_AFTER_HANDOFF
+

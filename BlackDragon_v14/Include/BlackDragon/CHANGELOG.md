@@ -1,5 +1,95 @@
 # CHANGELOG — EA Black Dragon (modular)
 
+## T17.19 — terminal Recovery-Hedge re-entry — 2026-09-03
+
+- Sau terminal generation, thu cohort exact Recovery-owned BE/SL và chỉ arm
+  re-entry khi toàn bộ Hedge đã đóng, net cash cả chuỗi không âm.
+- Thêm outer FSM persist riêng v1: `COLLECTING → WAIT_RESET → ARMED →
+  TRIGGER_PENDING → IN_CYCLE/EXHAUSTED`; giữ nguyên ARCS persistence v4.
+- Khi giá reset thuận Core qua `RecoveryReentryBufferPips_` rồi quay lại exact
+  anchor, tạo G1 mới và tái dùng Hedge Pyramid ladder với fresh Core volume.
+- Thêm `MaxRecoveryReentryCycles_=2` (`0` tắt, tối đa `20`). Optimizer surface
+  hiện là 144: baseline headless 143 cộng một input risk T17.19.
+- Theo quyết định owner, WAIT_RESET/ARMED chỉ khóa Core DCA; Core Pyramid ADD
+  vẫn qua settings/gates hiện hữu. EXHAUSTED khóa ADD/DCA nhưng không khóa Peel.
+- Thêm model/source/native gates T17.19 và sửa PR CI dùng exact branch-head SHA
+  thay cho synthetic merge SHA. Strategy Tester vẫn `PENDING_OWNER`.
+
+## T17.18 — dashboard-free baseline — 2026-09-02
+
+- Xóa `Panel.mqh`, dashboard, labels P/L/halt, tám level-line/text pairs,
+  edit-lot, chín chart buttons và `OnChartEvent`.
+- Xóa 11 input layout/font/color của dashboard; optimizer surface giảm từ
+  154 xuống 143 tham số.
+- Giữ `ShowWmfSignals` theo xác nhận owner; tách mũi tên BUY/SELL WMF sang
+  `WmfSignalOverlay.mqh`, tối đa 200 arrows và không chứa dashboard/button.
+- Xóa toàn bộ manual chart request khỏi current/base Strategy; automatic
+  execution order không đổi. Mobile Control tiếp tục hoạt động.
+- Đổi tên timer thành `BD_SERVICE_TIMER_MS=500` và giữ nguyên toàn bộ News,
+  watchdog, Recovery, Mobile, rollover và persistence duties.
+- Giữ layout file state bằng reserved retired slots; explicit enum values
+  ngăn các reason sau chart-control slot bị shift.
+- Thêm source contract T17.18 và exact-head CI gate; Strategy Tester vẫn
+  `PENDING_OWNER`, forward/live/release false.
+
+## Repository hygiene — 2026-09-02
+
+- Khóa canonical identity v15.00 / runtime lineage T17.17.
+- Đồng bộ `BD_VERSION` với `#property version`; thay đổi chỉ ảnh hưởng
+  chuỗi Panel/About, không tham gia trade math hay persistence.
+- Một workflow exact-head thay 26 workflow lịch sử; matrix native mở rộng từ
+  25 lên đủ 27 script có trong repo.
+- Xóa một orphan header, benchmark mô phỏng cũ, generated CI result, bundled
+  skill và guide 14.7.1 sai thời; chuyển governance cũ vào frozen archive.
+- Thêm repository contract khóa include reachability, version parity, test
+  coverage và layout để rác không tái xuất hiện.
+
+## T17.17 — broker-SL ownership and verified-flat liveness
+
+- Exact persisted ARCS protective-SL remains internal during an ordinary
+  side coordinator cycle; account-wide emergency authority remains unchanged.
+- Verified account-wide guard flat clears obsolete Overlap side/global
+  reconcile atomically only after execution and Recovery are quiet.
+- Persistence failure restores fail-closed state and retries under the guard.
+
+## T17.16 — Hedge rebase admission and shared capacity embargo
+
+- Denominator rebase or post-Overlap target refresh invalidates old Hedge
+  stage admission; refill replays timing, gap and Pyramid-lock gates.
+- Broker `NO_MONEY` on any EA open path creates a shared, restart-durable
+  capacity embargo until free margin reaches 110% of rejected required margin.
+
+## T17.12–T17.15 — runtime concurrency/economic hardening
+
+- Preserved immediate raw-account MoneyTP authority and durable campaign debt.
+- Made read-only Recovery/Overlap waits non-exclusive to valid Core growth.
+- Strengthened protective-SL/Overlap/account-guard event ordering.
+- Capability-gated Overlap during Hedge build and capped projected retained
+  Hedge volume against the configured hard cap.
+
+## T17.11 — Recovery runtime liveness and admission hardening
+
+- Scheduler treats a stable ACTIVE/no-TP wait as side-local and read-only, so
+  it cannot starve actionable Recovery work on the opposite direction.
+- Terminal max-generation Core-without-Hedge topology is exposed as a derived,
+  non-persisted status; DCA honors `ContinueDcaAfterHedge_` without requiring
+  inapplicable live-Hedge coverage/corridor metrics.
+- `OnInit()` now composes every existing Recovery validator through one
+  authoritative fail-fast gate, including T5 and T6 families.
+- Legacy Core/DCA submission returns a typed broker disposition. A per-intent,
+  per-direction, per-bar strategy latch bounds repeated `NO_MONEY` attempts
+  while leaving Recovery-owned execution and transient retry semantics intact.
+- No user input, persisted enum, T17.10 unit behavior or trading-strategy
+  semantic changed. Strategy Tester remains pending owner replay.
+
+## T17.10 — versioned point/pip/tick unification
+
+- Thêm `UnitSystemMode_`: mặc định `LEGACY_COMPAT` giữ nguyên `.set`; `PIP_UNIFIED` là opt-in và hiểu TP/SL/trailing/spread/slippage theo pip.
+- DCA unified dùng pip-size của symbol, sửa lỗi bridge cố định 10 point trên FX 4-digit; Recovery/Pyramid `*Pips*` giữ nguyên semantic.
+- Basket breakeven ghép `SYMBOL_TRADE_TICK_VALUE` với `SYMBOL_TRADE_TICK_SIZE`, không còn ghép nhầm `_Point`.
+- Execution chỉ đổi slippage price sang broker points tại `MqlTradeRequest.deviation`; unit metadata lỗi làm OnInit fail-closed.
+- Recovery fingerprint chỉ thêm unit-policy revision khi opt-in unified, nên default legacy vẫn byte-compatible.
+
 ## [14.7.2] — 2026-08-11 — Deep review BD-R1…R9 (TIP-501…509) — CHƯA COMPILE
 
 > ⚠️ **Đọc dòng này trước mọi dòng khác.** Toàn bộ mục 14.7.2 là kết quả

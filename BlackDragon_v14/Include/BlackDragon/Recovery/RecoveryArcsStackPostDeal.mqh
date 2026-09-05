@@ -127,15 +127,20 @@ private:
          return true;
       }
 
+      if(!Recovery_OneOrderPerBarAllows(hedgeDir, TimeCurrent(), why))
+      {
+         Log_WarnEvery("Recovery", "t1720bar" + (string)key, why, 60);
+         return true;
+      }
+
       double volume = Recovery_UnitsToVolume(child, meta.volumeStep);
       int childNo = 1;
       SArcsPosition pos[];
       childNo += Recovery_ArcsBuildLayerPositions(dir, l.generation,
                                                   m_volumeStep, pos);
-      string comment = "BDR|C=" + (string)key +
-                       "|G=" + (string)l.generation +
-                       "|B=" + (string)l.bundleId +
-                       "|N=" + (string)childNo;
+      string comment = Recovery_BuildReadableComment(key, l.generation, l.bundleId,
+                                      0, childNo,
+                                      m_dir[Idx(dir)].transitionReferencePrice > 0.0);
       if(!SaveBeforeMutation(why)) return true;
 
       bool accepted = exec.OpenMarketOwned(hedgeDir, volume,
@@ -328,6 +333,13 @@ public:
    bool CanOpenFurtherGeneration(const eRecoveryCoreDirection dir) const
    {
       return m_dir[Idx(dir)].generationCount < MaxHedgeGenerations_;
+   }
+
+   // Derived runtime status only. No persisted enum/state value is added or
+   // renumbered; the authoritative ARCS facts are re-read on every query.
+   bool TerminalNoHedge(const eRecoveryCoreDirection dir) const
+   {
+      return MaxedNoHedge(dir);
    }
 
    void GetCycle(const eRecoveryCoreDirection dir, SRecoveryCycle &out) const
