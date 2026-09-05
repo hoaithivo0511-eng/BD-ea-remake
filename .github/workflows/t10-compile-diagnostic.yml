@@ -1,0 +1,45 @@
+name: T10 Compile Diagnostic
+on:
+  push:
+    branches: [ feat/adaptive-recovery-t9-persistence-active ]
+    paths: [ '.github/workflows/t10-compile-diagnostic.yml' ]
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  compile:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env: { MT5_DIR: 'C:\Program Files\MetaTrader 5' }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Install MT5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile mt5setup.exe -UseBasicParsing
+          Start-Process .\mt5setup.exe -ArgumentList '/auto' -Wait
+          Start-Sleep 10
+          Get-Process terminal64 -ErrorAction SilentlyContinue | Stop-Process -Force
+      - name: Mirror and compile
+        shell: pwsh
+        run: |
+          $m="$env:MT5_DIR\MQL5"; $b="$env:GITHUB_WORKSPACE\diag"; New-Item -ItemType Directory -Force $b|Out-Null
+          foreach($d in @('Experts','Include','Scripts')){New-Item -ItemType Directory -Force "$m\$d"|Out-Null;Copy-Item "BlackDragon_v14\$d\*" "$m\$d" -Recurse -Force}
+          $enc=New-Object System.Text.UnicodeEncoding($false,$true)
+          foreach($r in @("$m\Experts\BlackDragon","$m\Include\BlackDragon","$m\Scripts\BlackDragon")){if(Test-Path $r){Get-ChildItem $r -Recurse -File|?{$_.Extension -in '.mq5','.mqh'}|%{$t=Get-Content $_.FullName -Raw -Encoding UTF8;[IO.File]::WriteAllText($_.FullName,$t,$enc)}}}
+          $src="$m\Experts\BlackDragon\BlackDragon.mq5";$out="$m\Experts\BlackDragon\BlackDragon.ex5";$log="$b\BlackDragon.log"
+          $p=Start-Process "$env:MT5_DIR\metaeditor64.exe" -ArgumentList "/compile:`"$src`" /inc:`"$m`" /log:`"$log`"" -Wait -PassThru -NoNewWindow
+          if(Test-Path $log){$txt=Get-Content $log -Encoding Unicode -Raw;Write-Host $txt}else{$txt='NO LOG'}
+          if(Test-Path $out){Copy-Item $out $b -Force}
+          "HEAD=$(git rev-parse HEAD)`nTREE=$(git show -s --format=%T HEAD)`nEXIT=$($p.ExitCode)"|Out-File "$b\PROVENANCE.txt"
+          if(!(Test-Path $out)){throw 'EX5 not produced'}
+          $e=@(($txt -split "`r?`n")|?{$_ -match ' : error '});$w=@(($txt -split "`r?`n")|?{$_ -match ' : warning '});if($e.Count -or $w.Count){throw "$($e.Count) errors, $($w.Count) warnings"}
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t10-diagnostic
+          path: diag/
+          if-no-files-found: warn
